@@ -42,9 +42,9 @@ export const RunCard = memo(function RunCard({ msg, toggleStep }: RunCardProps) 
   const statusLabel = streaming ? PHASE_LABEL[phase] : '完成'
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-surface p-4">
+    <div className="card-radius flex flex-col gap-2 border border-border/60 bg-surface p-4">
       {/* —— Header —— */}
-      <header className="flex min-w-0 flex-col gap-2 rounded-md bg-surface-2/45 px-2.5 py-2 text-[12px] text-text-2" aria-live="polite">
+      <header className="flex min-w-0 flex-col gap-2 border-b border-border/40 pb-2 text-[12px] text-text-2" aria-live="polite">
         <div className="flex min-w-0 items-center gap-2">
           {streaming ? (
             <RunSpinner />
@@ -133,11 +133,7 @@ function TransientOutput({ text }: { text: string }) {
 }
 
 function StatusPill({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex max-w-full items-center rounded px-1.5 py-0.5 font-mono text-[10.5px] text-text-3 tabular-nums">
-      {children}
-    </span>
-  )
+  return <span className="status-pill">{children}</span>
 }
 
 function tailContent(text: string, maxLines: number): string[] {

@@ -32,7 +32,7 @@ export function SessionItem({ session, active, onClick, onDelete }: SessionItemP
   if (confirming) {
     return (
       <div
-        className="relative w-full rounded-lg border border-danger/35 bg-surface-3 px-3 py-2.5 text-left animate-slide-in"
+        className="relative w-full card-radius border border-danger/35 bg-surface-3 px-3 py-2.5 text-left animate-slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-[12px] text-text mb-2">
@@ -64,7 +64,7 @@ export function SessionItem({ session, active, onClick, onDelete }: SessionItemP
       type="button"
       onClick={onClick}
       className={cn(
-        'group relative w-full rounded-lg border px-3 py-2.5 text-left transition-all active:scale-[0.99]',
+        'group relative w-full card-radius border px-3 py-2.5 text-left transition-all active:scale-[0.99]',
         'border-transparent hover:border-border/80 hover:bg-surface-2',
         active && 'bg-surface-3 border-primary/40',
       )}

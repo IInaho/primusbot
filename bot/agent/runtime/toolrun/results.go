@@ -5,7 +5,7 @@ import (
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm/types"
 	aggov "nekocode/bot/policy"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func emitStartCallbacks(calls []core.ToolCallItem, blocked map[int]string, callback Callback) {

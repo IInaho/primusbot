@@ -4,7 +4,9 @@ import (
 	"sync"
 
 	"nekocode/bot/agent/runtime"
+	"nekocode/bot/config"
 	"nekocode/bot/extension/plugin"
+	"nekocode/bot/tools/runtime/permission"
 	"nekocode/common"
 )
 
@@ -15,6 +17,13 @@ type callbackBus struct {
 	notifyFn   func(string)
 	confirmCh  chan common.ConfirmRequest
 	questionFn common.QuestionFunc
+
+	// Permission policy source: the config-declared allow/ask/deny rules
+	// plus workspace/home for path-anchor resolution. Injected by the Bot
+	// at startup; nil = legacy DangerLevel confirm flow.
+	policyCfg *config.PermissionsConfig
+	cwd       string
+	home      string
 
 	confirmMu      sync.Mutex
 	pendingConfirm bool
@@ -35,6 +44,25 @@ func (c *callbackBus) applyAgentControlCallbacksTo(ag *runtime.Agent) {
 	}
 	ag.SetConfirmFn(c.confirmFn)
 	ag.SetPhaseFn(c.phaseFn)
+	// Always enable the permission rule engine. Even with no user-declared
+	// rules (policyCfg nil), the builtin rules apply (sudo deny, rm ask,
+	// ls/write allow...) and — crucially — the "remember" button on ask
+	// prompts persists an allow rule. Without this, write/edit would fall
+	// back to the legacy DangerLevel prompt that has no remember option.
+	ag.SetPermissionPolicy(toPermDecl(c.policyCfg), c.cwd, c.home)
+}
+
+// toPermDecl converts config.PermissionsConfig to the permission.PermissionsDecl
+// used by the engine (decoupled from the config package to avoid an import cycle).
+func toPermDecl(p *config.PermissionsConfig) permission.PermissionsDecl {
+	if p == nil {
+		return permission.PermissionsDecl{}
+	}
+	return permission.PermissionsDecl{
+		Allow: p.Allow,
+		Ask:   p.Ask,
+		Deny:  p.Deny,
+	}
 }
 
 func (c *callbackBus) todoWriter() func([]common.TodoItem) {
@@ -87,10 +115,10 @@ func (c *callbackBus) ConfirmInstall(source string, p *plugin.Plugin, isRemote b
 	}
 	result := c.confirmFn(common.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, common.LevelWrite))
 	c.setPendingConfirmation(false)
-	if !result && c.notifyFn != nil {
+	if !result.Allowed && c.notifyFn != nil {
 		c.notifyFn("Install cancelled: " + source)
 	}
-	return result
+	return result.Allowed
 }
 
 func (c *callbackBus) InstallCallbacks() plugin.InstallCallbacks {

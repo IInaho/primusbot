@@ -3,9 +3,8 @@ package skill
 import (
 	"context"
 	"fmt"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common"
-
 )
 
 // SkillTool implements tools.Tool to let the model load skills by name.

@@ -6,8 +6,8 @@ import (
 	"nekocode/bot/agent/runtime/model"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/llm/types"
-	"nekocode/bot/tools/llmstream"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/llmstream"
 )
 
 func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), phase func(string)) ([]core.ToolCallItem, string, error) {

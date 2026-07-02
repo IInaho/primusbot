@@ -13,9 +13,12 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.23
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
+	github.com/tirdyhouse/sandbox v0.0.0-20260609072247-611c7f282d40
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/net v0.53.0
+	golang.org/x/sys v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
+	mvdan.cc/sh/v3 v3.7.0
 	zombiezen.com/go/sqlite v1.4.2
 )
 
@@ -71,7 +74,6 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

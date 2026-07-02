@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func TestMergeResultsPreservesOriginalCallOrder(t *testing.T) {

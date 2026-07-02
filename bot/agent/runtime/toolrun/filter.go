@@ -4,11 +4,11 @@ import (
 	"os"
 	"strings"
 
-	"nekocode/common/debug"
 	"nekocode/bot/hooks"
 	"nekocode/bot/policy/budget"
-	"nekocode/bot/tools/core"
-	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
+	"nekocode/common/debug"
 )
 
 type FilteredCalls struct {
@@ -82,7 +82,7 @@ func (r *Runner) preparePreToolHookState(tc core.ToolCallItem) {
 	gov.HookReg.Flag(hooks.StoreEditAnchorSufficient, tc.Name == "edit" && hasSufficientEditAnchor(tc.Args))
 	exists := false
 	if targetPath != "" {
-		if resolved, err := tools.ValidatePath(targetPath); err == nil {
+		if resolved, err := toolutil.ValidatePath(targetPath); err == nil {
 			if _, err := os.Stat(resolved); err == nil {
 				exists = true
 			}

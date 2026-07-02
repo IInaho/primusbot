@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nekocode/common/debug"
 	"nekocode/bot/hooks"
 	"nekocode/common"
+	"nekocode/common/debug"
 )
 
 const steeringChBuffer = 4

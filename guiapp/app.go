@@ -99,7 +99,7 @@ func (a *App) DomReady(_ context.Context) {
 			"items": items,
 		})
 	}
-	confirmFn := func(req common.ConfirmRequest) bool {
+	confirmFn := func(req common.ConfirmRequest) common.ConfirmReply {
 		// 用 uuid 做 key，通过 Wails event 推给前端。
 		id := uuid.NewString()
 		a.confirmMu.Lock()
@@ -110,11 +110,11 @@ func (a *App) DomReady(_ context.Context) {
 			"toolName": req.ToolName,
 			"args":     compactConfirmArgs(req),
 			"preview":  confirmPreview(req),
-			"level":    int(req.Level),
+			"level":               int(req.Level),
+			"can_escalate":       req.CanEscalatePermission,
 		})
 		// 阻塞等前端调 ReplyConfirm 写回。
-		resp := <-req.Response
-		return resp
+		return <-req.Response
 	}
 	questionFn := func(req common.QuestionRequest) common.QuestionReply {
 		id := uuid.NewString()
@@ -166,12 +166,21 @@ func compactConfirmArgs(req common.ConfirmRequest) map[string]any {
 			}
 			if s, ok := v.(string); ok && len(s) > 200 {
 				m[k] = s[:200] + "..."
-			} else if k == "content" || k == "path" || k == "command" {
+			} else if k == "content" || k == "path" || k == "command" || strings.HasPrefix(k, "permission_") || isPermissionContextKey(k) {
 				m[k] = v
 			}
 		}
 	}
 	return m
+}
+
+func isPermissionContextKey(k string) bool {
+	switch k {
+	case "workspace", "commandClass", "sandbox", "readPaths", "writePaths", "cachePaths":
+		return true
+	default:
+		return false
+	}
 }
 
 func truncateConfirmString(s string) string {
@@ -555,6 +564,11 @@ func sessionMeta(sess *session.Snapshot) session.Meta {
 
 // ReplyConfirm 由前端调用，回复确认弹窗。
 func (a *App) ReplyConfirm(id string, ok bool) {
+	a.ReplyConfirmDecision(id, ok, false)
+}
+
+// ReplyConfirmDecision 由前端调用，回复确认弹窗并可选择记住项目级权限。
+func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	a.confirmMu.Lock()
 	req, found := a.confs[id]
 	if found {
@@ -562,7 +576,7 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 	}
 	a.confirmMu.Unlock()
 	if found {
-		req.Response <- ok
+		req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	}
 }
 

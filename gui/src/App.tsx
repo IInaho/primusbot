@@ -184,6 +184,7 @@ export default function App() {
           args: ce.args ?? {},
           preview: ce.preview ?? '',
           level: ce.level ?? 0,
+          can_escalate: ce.can_escalate ?? false,
         })
       }
     })

@@ -6,15 +6,15 @@ import (
 	"time"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/common/debug"
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm"
 	"nekocode/bot/llm/types"
-	"nekocode/bot/tools/llmstream"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/llmstream"
+	"nekocode/common/debug"
 
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common"
 )
 

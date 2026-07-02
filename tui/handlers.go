@@ -75,9 +75,15 @@ func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 func (m *Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter", "y", "Y":
-		m.ConfirmBar.Respond(true)
+		m.ConfirmBar.Submit()
+	case "up":
+		m.ConfirmBar.Move(-1)
+		return m, nil
+	case "down":
+		m.ConfirmBar.Move(1)
+		return m, nil
 	case "esc", "n", "N", "ctrl+c":
-		m.ConfirmBar.Respond(false)
+		m.ConfirmBar.Respond(false, false)
 	default:
 		return m, nil
 	}

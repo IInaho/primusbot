@@ -49,7 +49,7 @@ export function InputBar({
 
   return (
     <div className="border-t border-border/50 bg-surface-2 px-5 pb-5 pt-3">
-      <div className="mx-auto flex w-full max-w-[980px] flex-col gap-2 rounded-lg border border-border/60 bg-surface p-2.5 transition-colors focus-within:border-primary/70">
+      <div className="mx-auto flex w-full max-w-[980px] flex-col gap-2 card-radius border border-border/60 bg-surface p-2.5 transition-colors focus-within:border-primary/70">
         <textarea
           ref={textareaRef}
           value={text}
@@ -71,7 +71,7 @@ export function InputBar({
             >
               {selectedSkill ? `Skill: ${selectedSkill}` : 'Skill'}
             </button>
-            <div className="invisible absolute bottom-full left-0 z-50 mb-1 max-h-72 w-72 overflow-y-auto rounded-md border border-border/70 bg-surface p-1 opacity-0 surface-shadow transition-all group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+            <div className="invisible absolute bottom-full left-0 z-50 mb-1 max-h-72 w-72 overflow-y-auto pill-radius border border-border/70 bg-surface p-1 opacity-0 surface-shadow transition-all group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
               {selectedSkill && (
                 <button
                   type="button"

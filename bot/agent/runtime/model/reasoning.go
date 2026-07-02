@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common/debug"
-	"nekocode/bot/tools/core"
 )
 
 const fallbackNoAction = "Sorry, I couldn't determine what to do"

@@ -40,7 +40,7 @@ function QuestionDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="question-title"
-        className="flex max-h-[calc(100dvh-32px)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border/70 bg-surface-2 surface-shadow"
+        className="flex max-h-[calc(100dvh-32px)] w-full max-w-2xl flex-col overflow-hidden card-radius border border-border/70 bg-surface-2 surface-shadow"
       >
         <header className="shrink-0 border-b border-border/45 px-4 py-3">
           <div className="mb-1 font-mono text-[11px] text-primary">question</div>

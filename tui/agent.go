@@ -115,6 +115,9 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			// toolArgs = subID
 			m.Messages.RemoveSubAgent(toolArgs)
 		case action == "sub_tool_start":
+			if interactiveTool(toolName) {
+				return
+			}
 			// toolName = actual tool name, toolArgs = args, output = subID:colorIdx
 			subID, colorIdx := parseSubEvent(output)
 			m.Messages.ProcessToolBlock(block.ContentBlock{
@@ -127,10 +130,16 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 				SubColor:  colorIdx,
 			})
 		case action == "sub_execute_tool":
+			if interactiveTool(toolName) {
+				return
+			}
 			// toolName = actual tool name, output = text, toolArgs = subID:colorIdx
 			subID, _ := parseSubEvent(toolArgs)
 			m.Messages.AddSubToolOutput(subID, toolName, output)
 		case action == "tool_start":
+			if interactiveTool(toolName) {
+				return
+			}
 			m.Messages.ProcessToolBlock(block.ContentBlock{
 				Type:      block.BlockTool,
 				ToolName:  toolName,
@@ -139,6 +148,9 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 				Collapsed: !block.IsPersistent(toolName),
 			})
 		case action == "tool_blocked":
+			if interactiveTool(toolName) {
+				return
+			}
 			// Blocked by policy — create a completed error block showing the rejection reason.
 			m.Messages.ProcessToolBlock(block.ContentBlock{
 				Type:      block.BlockTool,
@@ -150,11 +162,21 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 				IsError:   true,
 			})
 		case action == "tool_preview":
+			if interactiveTool(toolName) {
+				return
+			}
 			m.Messages.UpdateToolPreview(toolName, output)
 		case toolName != "":
+			if interactiveTool(toolName) {
+				return
+			}
 			m.Messages.AddToolOutput(toolName, output)
 		}
 	}
+}
+
+func interactiveTool(toolName string) bool {
+	return toolName == "todo_write" || toolName == "question"
 }
 
 // parseSubEvent parses "subID:colorIdx" from event payload.

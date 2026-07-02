@@ -1,8 +1,8 @@
 package tools
 
 import (
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common"
-	"nekocode/bot/tools/core"
 )
 
 // Registry is a thread-safe tool registry backed by a generic registry.

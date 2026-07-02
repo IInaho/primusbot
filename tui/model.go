@@ -69,7 +69,7 @@ func NewModel(b bot.UI) *Model {
 	}
 
 	b.Configure(
-		func(req common.ConfirmRequest) bool {
+		func(req common.ConfirmRequest) common.ConfirmReply {
 			m.confirmCh <- req
 			return <-req.Response
 		},

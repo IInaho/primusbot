@@ -3,7 +3,7 @@ package subagent
 import (
 	_ "embed"
 
-	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/execution"
 	"nekocode/common"
 )
 
@@ -43,7 +43,7 @@ type RunConfig struct {
 	ConfirmFn      common.ConfirmFunc
 	Handoff        string                 // injected into system prompt for cross-agent context
 	OnToolCall     func(ev ToolCallEvent) // sub-agent tool execution callback
-	ToolState      *tools.ExecutionState
+	ToolState      *execution.ExecutionState
 }
 
 var (

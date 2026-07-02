@@ -3,13 +3,13 @@ package app
 import (
 	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/common/debug"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/extension/skill"
 	"nekocode/bot/hooks"
 	"nekocode/bot/tools"
 	"nekocode/common"
+	"nekocode/common/debug"
 )
 
 type extensionFacade struct {

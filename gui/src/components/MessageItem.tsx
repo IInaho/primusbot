@@ -25,7 +25,7 @@ export const MessageItem = memo(function MessageItem({ msg, toggleStep }: Messag
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-2xl rounded-br-md bg-primary/12 px-3.5 py-2 text-sm leading-relaxed text-text [overflow-wrap:break-word]">
+        <div className="card-radius rounded-br-sm max-w-[78%] bg-primary/12 px-3.5 py-2 text-sm leading-relaxed text-text [overflow-wrap:break-word]">
           <MarkdownBody text={msg.text} />
         </div>
       </div>
@@ -37,7 +37,7 @@ export const MessageItem = memo(function MessageItem({ msg, toggleStep }: Messag
     return (
       <div className="flex flex-col gap-1">
         <div className="ml-1 text-[10px] uppercase tracking-[0.18em] text-text-3">tool</div>
-        <div className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-text-2 [overflow-wrap:break-word]">
+        <div className="card-radius bg-surface-2 px-3 py-2 text-sm text-text-2 [overflow-wrap:break-word]">
           <MarkdownBody text={msg.text} />
         </div>
       </div>
@@ -56,7 +56,7 @@ export const MessageItem = memo(function MessageItem({ msg, toggleStep }: Messag
     <div className="flex flex-col gap-1">
       <div className="ml-1 text-[12px] text-text-2">{msg.streaming && <StreamGlyph />}</div>
       {hasText && (
-        <div className="min-w-0 rounded-lg bg-surface-2/60 px-3.5 py-2.5 text-sm leading-relaxed text-text [overflow-wrap:break-word]">
+        <div className="min-w-0 card-radius bg-surface-2/60 px-3.5 py-2.5 text-sm leading-relaxed text-text [overflow-wrap:break-word]">
           {msg.streaming ? <StreamText text={msg.text} /> : <MarkdownBody text={msg.text} />}
         </div>
       )}

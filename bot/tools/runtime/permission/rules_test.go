@@ -1,0 +1,153 @@
+package permission
+
+import (
+	"testing"
+)
+
+// stubMatcher matches when specifier == callInfo["match"].
+type stubMatcher struct{}
+
+func (stubMatcher) Match(spec string, info map[string]any) (bool, error) {
+	v, _ := info["match"].(string)
+	return spec == v, nil
+}
+
+func newTestEngine() *Engine {
+	return NewEngine(map[string]SpecifierMatcher{
+		"bash": stubMatcher{},
+		"edit": stubMatcher{},
+		"read": stubMatcher{},
+	})
+}
+
+func TestParseRule(t *testing.T) {
+	cases := []struct {
+		in     string
+		effect Effect
+		want   Rule
+	}{
+		{"Bash(npm run *)", EffectAllow, Rule{Tool: "Bash", Specifier: "npm run *", Effect: EffectAllow, Source: "test"}},
+		{"Read(./.env)", EffectDeny, Rule{Tool: "Read", Specifier: "./.env", Effect: EffectDeny, Source: "test"}},
+		{"Bash", EffectAsk, Rule{Tool: "Bash", Effect: EffectAsk, Source: "test"}},
+		{"mcp__github__*", EffectAllow, Rule{Tool: "mcp__github__*", Effect: EffectAllow, Source: "test"}},
+	}
+	for _, c := range cases {
+		got, err := ParseRule(c.in, c.effect, "test")
+		if err != nil {
+			t.Fatalf("ParseRule(%q): %v", c.in, err)
+		}
+		if got != c.want {
+			t.Errorf("ParseRule(%q) = %+v, want %+v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestParseRuleErrors(t *testing.T) {
+	bad := []string{"", "(", ")", "()", "(spec)", "Tool(spec", "Tool)spec)"}
+	for _, s := range bad {
+		if _, err := ParseRule(s, EffectAllow, "test"); err == nil {
+			t.Errorf("expected error for %q", s)
+		}
+	}
+}
+
+func TestEvaluateDenyWins(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Specifier: "rm", Effect: EffectAllow, Source: "test"},
+		{Tool: "bash", Specifier: "rm", Effect: EffectDeny, Source: "test"},
+	})
+	d := e.Evaluate("bash", map[string]any{"match": "rm"}, EffectAllow)
+	if d.Effect != EffectDeny {
+		t.Fatalf("deny must win, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateAskBeforeAllow(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Specifier: "git push", Effect: EffectAllow, Source: "test"},
+		{Tool: "bash", Specifier: "git push", Effect: EffectAsk, Source: "test"},
+	})
+	d := e.Evaluate("bash", map[string]any{"match": "git push"}, EffectAllow)
+	if d.Effect != EffectAsk {
+		t.Fatalf("ask must beat allow, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateAllowMatches(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Specifier: "npm run", Effect: EffectAllow, Source: "test"},
+	})
+	d := e.Evaluate("bash", map[string]any{"match": "npm run"}, EffectDeny)
+	if d.Effect != EffectAllow {
+		t.Fatalf("allow rule should match, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateNoMatchReturnsDefault(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Specifier: "ls", Effect: EffectAllow, Source: "test"},
+	})
+	d := e.Evaluate("bash", map[string]any{"match": "rm"}, EffectAsk)
+	if d.Effect != EffectAsk {
+		t.Fatalf("no match → default, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateBareToolMatchesAll(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Effect: EffectAllow, Source: "test"}, // bare, no specifier
+		{Tool: "bash", Specifier: "rm", Effect: EffectDeny, Source: "test"},
+	})
+	// deny is more specific but bare-allow comes first; deny still wins by precedence.
+	d := e.Evaluate("bash", map[string]any{"match": "rm"}, EffectAllow)
+	if d.Effect != EffectDeny {
+		t.Fatalf("deny should win over bare allow, got %v", d.Effect)
+	}
+	// bare allow covers anything else
+	d = e.Evaluate("bash", map[string]any{"match": "anything"}, EffectDeny)
+	if d.Effect != EffectAllow {
+		t.Fatalf("bare allow should match unmatched calls, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateStarToolMatchesAnyTool(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "*", Specifier: "dangerous", Effect: EffectDeny, Source: "test"},
+	})
+	d := e.Evaluate("bash", map[string]any{"match": "dangerous"}, EffectAllow)
+	if d.Effect != EffectDeny {
+		t.Fatalf("* rule should match any tool, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateUnregisteredToolScopedRuleSkipped(t *testing.T) {
+	e := newTestEngine() // no matcher for "web_fetch"
+	e.SetRules([]Rule{
+		{Tool: "web_fetch", Specifier: "domain:evil.com", Effect: EffectDeny, Source: "test"},
+	})
+	// No matcher → scoped rule can't be evaluated → treated as non-matching.
+	d := e.Evaluate("web_fetch", map[string]any{}, EffectAllow)
+	if d.Effect != EffectAllow {
+		t.Fatalf("unmatched scoped rule with no matcher should fall to default, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateDifferentToolsDontInterfere(t *testing.T) {
+	e := newTestEngine()
+	e.SetRules([]Rule{
+		{Tool: "bash", Specifier: "rm", Effect: EffectDeny, Source: "test"},
+		{Tool: "edit", Specifier: "/etc", Effect: EffectDeny, Source: "test"},
+		{Tool: "edit", Specifier: "/src", Effect: EffectAllow, Source: "test"},
+	})
+	// bash rm deny shouldn't affect edit
+	d := e.Evaluate("edit", map[string]any{"match": "/src"}, EffectAsk)
+	if d.Effect != EffectAllow {
+		t.Fatalf("edit allow should match /src, got %v", d.Effect)
+	}
+}

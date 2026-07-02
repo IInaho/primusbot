@@ -7,7 +7,7 @@ import (
 
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/policy/semantics"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func TestPreEditBlockReasonRequiresLedgerReadForExistingFile(t *testing.T) {

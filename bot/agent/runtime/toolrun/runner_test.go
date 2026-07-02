@@ -11,9 +11,9 @@ import (
 	"nekocode/bot/hooks"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
-	"nekocode/bot/tools/core"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/runner"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/runner"
 )
 
 type fakeHost struct {
@@ -42,7 +42,7 @@ func newFakeHost() *fakeHost {
 
 func (h *fakeHost) Context() context.Context             { return h.ctx }
 func (h *fakeHost) ContextManager() *ctxmgr.Manager      { return h.ctxMgr }
-func (h *fakeHost) Executor() *runner.Executor            { return h.executor }
+func (h *fakeHost) Executor() *runner.Executor           { return h.executor }
 func (h *fakeHost) Governance() *aggov.Manager           { return h.gov }
 func (h *fakeHost) SubSlots() *SlotManager               { return h.subSlots }
 func (h *fakeHost) InjectHint(hint *hooks.Hint)          { h.hints = append(h.hints, hint) }

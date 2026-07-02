@@ -76,7 +76,7 @@ export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: Activ
   return (
     <div
       ref={rowRef}
-      className={`flex flex-col overflow-hidden rounded-lg ${expanded ? 'bg-surface-2/70' : 'bg-surface-2/40'}`}
+      className={`card-radius flex flex-col overflow-hidden ${expanded ? 'bg-surface-2' : 'bg-surface-2/50'}`}
     >
       {/* 状态胶带 + 工具行 */}
       <div className="flex items-stretch">

@@ -92,6 +92,10 @@
 }
 
 @layer components {
+  /* Unified radius scale (app shell): cards/bubbles/inputs = 10px, controls/pills = 6px. */
+  .card-radius { border-radius: 10px; }
+  .pill-radius { border-radius: 6px; }
+
   .field {
     @apply h-9 w-full rounded-md border border-border/60 bg-surface-2 px-2.5 text-xs text-text transition-colors placeholder:text-text-3 hover:border-border focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
   }
@@ -110,6 +114,12 @@
 
   .icon-button {
     @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95;
+  }
+
+  /* StatusPill: compact metric chip with a settled background so the metric
+     row reads as a single aligned band rather than floating fragments. */
+  .status-pill {
+    @apply inline-flex max-w-full items-center rounded-md bg-surface-3/55 px-1.5 py-0.5 font-mono text-[10.5px] text-text-3 tabular-nums;
   }
 
   .markdown { @apply text-sm leading-relaxed; }

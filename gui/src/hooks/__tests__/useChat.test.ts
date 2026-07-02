@@ -279,6 +279,26 @@ describe('useChat', () => {
     expect(result.current.msgs[1].steps).toHaveLength(0)
   })
 
+  it('hides question tool rows', async () => {
+    const { result } = renderHook(() => useChat())
+
+    act(() => {
+      result.current.setText('ask')
+    })
+    act(() => {
+      result.current.send()
+    })
+    await waitFor(() => expect(result.current.msgs).toHaveLength(2))
+
+    act(() => {
+      emit('agent:tool_start', { id: 'q1', toolName: 'question', args: '{}', preview: '', blocked: false })
+      emit('agent:tool_done', { id: 'q1', toolName: 'question', args: '{}', output: 'answer', isError: false })
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(result.current.msgs[1].steps).toHaveLength(0)
+  })
+
   it('uses final edit diff on success and error output on failure', async () => {
     const { result } = renderHook(() => useChat())
 

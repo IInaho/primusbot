@@ -9,6 +9,7 @@ type View struct {
 	Models         []ModelConfig              `json:"models"`
 	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"`
 	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
 }
 
 func NewView(cfg Config) View {
@@ -21,6 +22,7 @@ func NewView(cfg Config) View {
 		Models:         cfg.Models,
 		ImageGenModels: cfg.ImageGenModels,
 		MCPServers:     cfg.MCPServers,
+		Permissions:    cfg.Permissions,
 	}
 }
 
@@ -32,5 +34,6 @@ func (v View) Config() Config {
 		Models:         v.Models,
 		ImageGenModels: v.ImageGenModels,
 		MCPServers:     v.MCPServers,
+		Permissions:    v.Permissions,
 	}
 }

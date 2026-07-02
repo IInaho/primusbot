@@ -3,7 +3,7 @@ package command
 import (
 	"testing"
 
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func TestEstimateToolDefTokens(t *testing.T) {

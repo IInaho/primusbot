@@ -129,6 +129,7 @@ export function useChat(): UseChatReturn {
   }) => {
     const sid = sidRef.current
     if (!sid) return
+    if (interactiveTool(e.toolName)) return
     markToolBoundary(textBufferRef, hasStreamTextRef, streamBreakPendingRef)
     if (compactTool(e.toolName) && !e.blocked) {
       activityBufferRef.current = addActivity(activityBufferRef.current, activityForTool(e.toolName))
@@ -154,6 +155,7 @@ export function useChat(): UseChatReturn {
   const onToolPreview = useCallback((e: { toolName: string; preview: string }) => {
     const sid = sidRef.current
     if (!sid) return
+    if (interactiveTool(e.toolName)) return
     if (compactTool(e.toolName)) return
     // FIFO 匹配: 找第一个 running 且同 toolName 的 step, 替换其 preview。
     setMsgs((prev) => upsert(prev, sid, (m) => {
@@ -177,6 +179,7 @@ export function useChat(): UseChatReturn {
   }) => {
     const sid = sidRef.current
     if (!sid) return
+    if (interactiveTool(e.toolName)) return
     setMsgs((prev) => upsert(prev, sid, (m) => {
       const steps = [...(m.steps ?? [])]
       const byId = e.id ? steps.findIndex((s) => s.id === e.id && !terminalStep(s)) : -1
@@ -445,8 +448,12 @@ function markToolBoundary(
   streamBreakPendingRef.current = true
 }
 
+function interactiveTool(name: string): boolean {
+  return name === 'todo_write' || name === 'question'
+}
+
 function compactTool(name: string): boolean {
-  return name === 'read' || name === 'tsread' || name === 'list' || name === 'grep' || name === 'glob' || name === 'searchfiles' || name === 'webfetch' || name === 'fetch' || name === 'todo_write'
+  return name === 'read' || name === 'tsread' || name === 'list' || name === 'grep' || name === 'glob' || name === 'searchfiles' || name === 'webfetch' || name === 'fetch'
 }
 
 function activityForTool(toolName: string): NonNullable<Msg['activity']> {
@@ -458,9 +465,6 @@ function activityForTool(toolName: string): NonNullable<Msg['activity']> {
   }
   if (toolName === 'webfetch' || toolName === 'fetch') {
     return { reads: 0, searches: 0, fetches: 1, other: 0 }
-  }
-  if (toolName === 'todo_write') {
-    return { reads: 0, searches: 0, fetches: 0, other: 0 }
   }
   return { reads: 0, searches: 0, fetches: 0, other: 1 }
 }

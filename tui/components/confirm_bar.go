@@ -1,4 +1,4 @@
-// confirm_bar.go — 确认弹窗栏（yes/no 操作确认）。
+// confirm_bar.go — 确认弹窗栏（上下键选择 + Enter 确认）。
 package components
 
 import (
@@ -13,17 +13,97 @@ import (
 )
 
 type ConfirmBar struct {
-	req *common.ConfirmRequest
-	sty *styles.Styles
+	req      *common.ConfirmRequest
+	sty      *styles.Styles
+	selected int
 }
 
 func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
-	return &ConfirmBar{sty: sty}
+	return &ConfirmBar{sty: sty, selected: 0}
 }
 
-func (c *ConfirmBar) SetRequest(req *common.ConfirmRequest) { c.req = req }
-func (c *ConfirmBar) Clear()                                { c.req = nil }
-func (c *ConfirmBar) Respond(ok bool)                       { c.req.Response <- ok; c.req = nil }
+func (c *ConfirmBar) SetRequest(req *common.ConfirmRequest) {
+	c.req = req
+	c.selected = 0
+}
+
+func (c *ConfirmBar) Clear() { c.req = nil }
+
+func (c *ConfirmBar) Selected() int {
+	if c.req == nil {
+		return 0
+	}
+	return c.selected
+}
+
+func (c *ConfirmBar) Move(delta int) {
+	if c.req == nil {
+		return
+	}
+	n := len(c.options())
+	if n == 0 {
+		return
+	}
+	c.selected = (c.selected + delta + n) % n
+}
+
+func (c *ConfirmBar) Submit() {
+	if c.req == nil {
+		return
+	}
+	opts := c.options()
+	if c.selected >= len(opts) {
+		c.selected = 0
+	}
+	opts[c.selected].Action(c)
+}
+
+func (c *ConfirmBar) Respond(ok bool, remember bool) {
+	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember}
+	c.req = nil
+}
+
+func (c *ConfirmBar) RespondWithPermission(ok bool, remember bool) {
+	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember, AllowWithPermission: ok && remember}
+	c.req = nil
+}
+
+// CanRemember reports whether the user can persist the decision. The legacy
+// capability model only persists "project"-scope grants; the new rule engine
+// persists an allow Rule for any ask except "once"-scope (CapShellUnknown /
+// CapProcessHost), which is intentionally non-persistent.
+func (c *ConfirmBar) CanRemember() bool {
+	if c.req == nil {
+		return false
+	}
+	scope, _ := c.req.Args["permission_scope"].(string)
+	return scope != "once"
+}
+
+func (c *ConfirmBar) options() []confirmOption {
+	if c.req == nil {
+		return nil
+	}
+	opts := []confirmOption{
+		{Label: "仅本次允许", Action: func(c *ConfirmBar) { c.Respond(true, false) }},
+	}
+	if c.CanRemember() {
+		// Privileged tools (bash) may also need capability escalation later,
+		// so flag AllowWithPermission; other tools just persist a Rule.
+		if c.req.CanEscalatePermission {
+			opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.RespondWithPermission(true, true) }})
+		} else {
+			opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.Respond(true, true) }})
+		}
+	}
+	opts = append(opts, confirmOption{Label: "拒绝", Action: func(c *ConfirmBar) { c.Respond(false, false) }})
+	return opts
+}
+
+type confirmOption struct {
+	Label  string
+	Action func(*ConfirmBar)
+}
 
 func confirmMaxLines(termHeight int) int {
 	n := termHeight / 3
@@ -41,9 +121,11 @@ func (c *ConfirmBar) Height(width, termHeight int) int {
 	maxLines := confirmMaxLines(termHeight)
 	n := len(c.descLines(contentW))
 	if n > maxLines {
-		n = maxLines + 1 // +1 for truncated indicator
+		n = maxLines + 1
 	}
-	return n + 4 // title (1) + desc lines + level (1) + prompt (1) + border (1)
+	opts := len(c.options())
+	// title(1) + desc(n) + sep(1) + levelTag(1) + opts + navSep(1) + navHint(1) + bottom(1)
+	return n + opts + 5
 }
 
 func (c *ConfirmBar) View(width, termHeight int) string {
@@ -75,46 +157,56 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 		descLines = descLines[:maxLines]
 	}
 
-	// Styled action buttons with background colours.
-	yesBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color(styles.BtnYesBg)).
-		Foreground(lipgloss.Color(styles.DiffGreen)).
-		Bold(true).
-		Padding(0, 2).
-		Render("[enter] yes")
-	noBtn := lipgloss.NewStyle().
-		Background(lipgloss.Color(styles.BtnNoBg)).
-		Foreground(lipgloss.Color(styles.BtnNoFg)).
-		Padding(0, 2).
-		Render("[esc] no")
 	levelTag := c.sty.Yellow.Render("[" + c.req.Level.String() + "]")
 	if c.req.Level == common.LevelForbidden {
 		levelTag = c.sty.Red.Render("[" + c.req.Level.String() + "]")
 	}
-	prompt := "  " + levelTag + "  " + c.sty.Base.Render("Proceed?  ") + yesBtn + "  " + noBtn
-	promptW := lipgloss.Width(prompt)
 
-	// Separator line between description and actions.
+	opts := c.options()
+
 	sep := c.sty.Border.Render("├" + strings.Repeat(styles.Horizontal, barW-2) + "┤")
 	bottomBorder := c.sty.Border.Render("└" + strings.Repeat(styles.Horizontal, barW-2) + "┘")
+	// Light separator between options and the nav hint so the hint reads as
+	// a footer, not another option.
+	navSep := c.sty.Border.Render("├" + strings.Repeat(styles.Horizontal, barW-2) + "┤")
+
+	padTo := func(line string) string {
+		return line + strings.Repeat(" ", max(0, barW-lipgloss.Width(line)))
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", titleBar)
 	for _, line := range descLines {
-		pad := max(0, barW-lipgloss.Width(line))
-		fmt.Fprintf(&b, "%s%s\n", c.sty.Base.Render(line), strings.Repeat(" ", pad))
+		fmt.Fprintf(&b, "%s\n", padTo(c.sty.Base.Render(line)))
 	}
 	if truncated {
-		fmt.Fprintf(&b, "%s\n", c.sty.Muted.Render("  ... (truncated)"))
+		fmt.Fprintf(&b, "%s\n", padTo(c.sty.Muted.Render("  ... (truncated)")))
 	}
 	fmt.Fprintf(&b, "%s\n", sep)
-	fmt.Fprintf(&b, "%s%s\n", prompt, strings.Repeat(" ", max(0, barW-promptW)))
+	// Risk level tag on its own line above the options.
+	fmt.Fprintf(&b, "%s\n", padTo("  "+levelTag))
+	// Options stacked vertically; the selected one is highlighted.
+	for i, opt := range opts {
+		var row string
+		if i == c.selected {
+			row = c.sty.Primary.Bold(true).
+				Background(lipgloss.Color(styles.BtnYesBg)).
+				Padding(0, 2).
+				Render("▸ " + opt.Label)
+			row = "  " + row
+		} else {
+			row = c.sty.Muted.Render("    " + opt.Label)
+		}
+		fmt.Fprintf(&b, "%s\n", padTo(row))
+	}
+	// Nav hint footer, visually separated from the options.
+	fmt.Fprintf(&b, "%s\n", navSep)
+	fmt.Fprintf(&b, "%s\n", padTo(c.sty.Muted.Render("  ↑↓选择  Enter确认  Esc拒绝")))
 	b.WriteString(bottomBorder)
 
 	return b.String()
 }
 
-// descLines formats the tool description into wrapped lines.
 func (c *ConfirmBar) descLines(maxW int) []string {
 	desc := c.formatDesc()
 	if desc == "" {
@@ -123,8 +215,10 @@ func (c *ConfirmBar) descLines(maxW int) []string {
 	return wrapText("  "+desc, maxW)
 }
 
-// formatDesc builds a human-readable description of the tool being confirmed.
 func (c *ConfirmBar) formatDesc() string {
+	if c.isPermissionConfirm() {
+		return c.formatPermissionDesc()
+	}
 	switch c.req.ToolName {
 	case "bash":
 		if cmd, ok := c.req.Args["command"].(string); ok && cmd != "" {
@@ -150,8 +244,40 @@ func (c *ConfirmBar) formatDesc() string {
 	return c.req.ToolName
 }
 
-// wrapText wraps text to fit within maxW display width.
-// Breaks at spaces when possible, hard-breaks otherwise.
+func (c *ConfirmBar) isPermissionConfirm() bool {
+	_, ok := c.req.Args["permission_reason"]
+	return ok
+}
+
+func (c *ConfirmBar) formatPermissionDesc() string {
+	var lines []string
+	if cmd, ok := c.req.Args["command"].(string); ok && cmd != "" {
+		lines = append(lines, common.FormatCommandPreview(cmd, 600))
+	} else {
+		lines = append(lines, c.req.ToolName)
+	}
+	if reason, ok := c.req.Args["permission_reason"].(string); ok && reason != "" {
+		lines = append(lines, "Permission: "+reason)
+	}
+	if caps, ok := c.req.Args["permission_capabilities"].(string); ok && caps != "" {
+		lines = append(lines, "Capabilities: "+caps)
+	}
+	if scope, ok := c.req.Args["permission_scope"].(string); ok && scope != "" {
+		if scope == "project" {
+			lines = append(lines, "Scope: project (can be remembered for this workspace)")
+		} else {
+			lines = append(lines, "Scope: "+scope)
+		}
+	}
+	if workspace, ok := c.req.Args["workspace"].(string); ok && workspace != "" {
+		lines = append(lines, "Workspace: "+workspace)
+	}
+	if class, ok := c.req.Args["commandClass"].(string); ok && class != "" {
+		lines = append(lines, "Command class: "+class)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func wrapText(text string, maxW int) []string {
 	if maxW <= 0 {
 		return []string{text}
@@ -161,11 +287,9 @@ func wrapText(text string, maxW int) []string {
 	for len(remaining) > 0 {
 		displayW := lipgloss.Width(string(remaining))
 		if displayW <= maxW && !strings.ContainsRune(string(remaining), '\n') {
-			// Safe to emit as one line: no embedded newlines and fits within maxW.
 			lines = append(lines, strings.TrimRight(string(remaining), "\n"))
 			break
 		}
-		// Find how many runes fit within maxW.
 		cut := 0
 		w := 0
 		lastSpace := -1
@@ -189,16 +313,14 @@ func wrapText(text string, maxW int) []string {
 		if cut < 0 {
 			continue
 		}
-		// Prefer breaking at the last space.
 		if lastSpace > 0 && lastSpace < cut {
 			cut = lastSpace
 		}
 		if cut == 0 {
-			cut = 1 // at least one rune
+			cut = 1
 		}
 		lines = append(lines, strings.TrimRight(string(remaining[:cut]), " "))
 		remaining = remaining[cut:]
-		// Trim leading spaces on continuation lines.
 		if len(remaining) > 0 && remaining[0] == ' ' {
 			remaining = remaining[1:]
 		}

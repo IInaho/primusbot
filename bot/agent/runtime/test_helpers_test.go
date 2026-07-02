@@ -9,8 +9,8 @@ import (
 	"nekocode/bot/llm/types"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
-	"nekocode/bot/tools/core"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func newTestAgent() *Agent {

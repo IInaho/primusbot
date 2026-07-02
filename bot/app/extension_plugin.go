@@ -5,8 +5,8 @@ import (
 
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/command"
-	"nekocode/common/debug"
 	"nekocode/bot/extension/plugin"
+	"nekocode/common/debug"
 )
 
 func (e *extensionFacade) InitPlugins() {

@@ -3,9 +3,9 @@ package toolrun
 import (
 	"fmt"
 
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/taskbridge"
 	"nekocode/common/debug"
-	"nekocode/bot/tools/core"
-	"nekocode/bot/tools"
 
 	"github.com/google/uuid"
 )
@@ -37,7 +37,7 @@ func (r *Runner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callback 
 		sid := subID
 		cid := colorIdx
 		taskInfos = append(taskInfos, subSlotInfo{sid, cid})
-		allowed[i].Args["_sub_callback"] = tools.TaskCallbackFn(func(action, toolName, toolArgs, output string) {
+		allowed[i].Args["_sub_callback"] = taskbridge.TaskCallbackFn(func(action, toolName, toolArgs, output string) {
 			if callback == nil {
 				return
 			}

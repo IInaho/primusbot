@@ -9,6 +9,8 @@ import (
 	"nekocode/bot/contextmgr"
 	"nekocode/bot/llm"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/taskbridge"
 	"nekocode/common"
 )
 
@@ -35,11 +37,11 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 	if err != nil {
 		return
 	}
-	taskTool, ok := t.(tools.TaskRunnerTool)
+	taskTool, ok := t.(taskbridge.TaskRunnerTool)
 	if !ok {
 		return
 	}
-	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*tools.TaskResult, error) {
+	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
 		subLLM := llm.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 		subLLM.SetDisableThinking(true)
 		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient)
@@ -57,7 +59,7 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 
 type agentCallbacks interface {
 	ConfirmFn() common.ConfirmFunc
-	ToolExecutionState() *tools.ExecutionState
+	ToolExecutionState() *execution.ExecutionState
 	PhaseFn() common.PhaseFunc
 	AddTokens(prompt, completion int)
 }
@@ -87,7 +89,7 @@ type subagentRunConfigInput struct {
 	ProjectContext string
 	ContextWindow  int
 	ConfirmFn      common.ConfirmFunc
-	ToolState      *tools.ExecutionState
+	ToolState      *execution.ExecutionState
 	PhaseFn        func(string)
 	AddTokens      func(prompt, completion int)
 }
@@ -108,7 +110,7 @@ func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, b
 		ToolState:      input.ToolState,
 		AddTokens:      input.AddTokens,
 	}
-	if subCB, ok := tools.TaskCallbackFromCtx(input.Context); ok {
+	if subCB, ok := taskbridge.TaskCallbackFromCtx(input.Context); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {
 			subCB("sub_"+ev.Action, ev.ToolName, ev.ToolArgs, ev.Output)
 		}
@@ -119,18 +121,18 @@ func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, b
 	return cfg, true
 }
 
-func subagentTaskResult(result *subagent.Result) *tools.TaskResult {
+func subagentTaskResult(result *subagent.Result) *taskbridge.TaskResult {
 	if result == nil {
 		return nil
 	}
-	status := tools.TaskStatusCompleted
+	status := taskbridge.TaskStatusCompleted
 	switch result.Status {
 	case subagent.StatusFailed:
-		status = tools.TaskStatusFailed
+		status = taskbridge.TaskStatusFailed
 	case subagent.StatusPartial:
-		status = tools.TaskStatusPartial
+		status = taskbridge.TaskStatusPartial
 	}
-	return &tools.TaskResult{
+	return &taskbridge.TaskResult{
 		Status:  status,
 		Content: subagent.FormatResult(result),
 	}

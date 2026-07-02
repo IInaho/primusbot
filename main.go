@@ -120,6 +120,10 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 	a.impl.ReplyConfirm(id, ok)
 }
 
+func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
+	a.impl.ReplyConfirmDecision(id, ok, remember)
+}
+
 func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 	a.impl.ReplyQuestion(id, answersJSON, rejected)
 }

@@ -50,6 +50,7 @@ func renderConfirmations() string {
 	return joinSnapshots(
 		renderConfirmEdit(),
 		renderConfirmBashMassive(),
+		renderConfirmPermission(),
 		renderConfirmWrite(),
 		renderConfirmPlugin(),
 	)
@@ -63,7 +64,7 @@ func renderConfirmEdit() string {
 			"path": "bot/tools/builtin/tool_edit.go",
 		},
 		Level:    common.LevelWrite,
-		Response: make(chan bool, 1),
+		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
@@ -101,9 +102,28 @@ if __name__ == "__main__":
 PYEOF`,
 		},
 		Level:    common.LevelWrite,
-		Response: make(chan bool, 1),
+		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 80)
+}
+
+func renderConfirmPermission() string {
+	cb := components.NewConfirmBar(&sty)
+	cb.SetRequest(&common.ConfirmRequest{
+		ToolName: "bash",
+		Args: map[string]any{
+			"command":                 "go test ./...",
+			"permission_reason":       "command requires public network access",
+			"permission_capabilities": "net.public, cache.write",
+			"permission_scope":        "project",
+			"workspace":               "/home/user/project",
+			"commandClass":            "network",
+			"sandbox":                 "native",
+		},
+		Level:    common.LevelDestructive,
+		Response: make(chan common.ConfirmReply, 1),
+	})
+	return cb.View(width, 40)
 }
 
 func renderConfirmWrite() string {
@@ -114,7 +134,7 @@ func renderConfirmWrite() string {
 			"path": "/tmp/nekocode/generated_report.md",
 		},
 		Level:    common.LevelWrite,
-		Response: make(chan bool, 1),
+		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
@@ -128,7 +148,7 @@ func renderConfirmPlugin() string {
 			"summary": "Install github.com/example/some-skill (v1.2.3) — adds markdown linting support",
 		},
 		Level:    common.LevelWrite,
-		Response: make(chan bool, 1),
+		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }

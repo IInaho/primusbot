@@ -15,6 +15,7 @@ import {
   ReadImageBase64,
   RefreshSkillManagement,
   ReplyConfirm,
+  ReplyConfirmDecision,
   ReplyQuestion,
   SaveConfig,
   SendMessage,
@@ -191,8 +192,12 @@ export function safeReadImageBase64(path: string): Promise<string | null> {
   }
 }
 
-export function safeReplyConfirm(id: string, ok: boolean): void {
+export function safeReplyConfirm(id: string, ok: boolean, remember = false): void {
   try {
+    if (remember) {
+      ReplyConfirmDecision(id, ok, true)
+      return
+    }
     ReplyConfirm(id, ok)
   } catch {
     /* noop */

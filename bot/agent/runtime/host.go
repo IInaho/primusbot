@@ -8,8 +8,8 @@ import (
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm/types"
 	aggov "nekocode/bot/policy"
-	"nekocode/bot/tools/runner"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/runner"
 )
 
 type runnerHost struct {

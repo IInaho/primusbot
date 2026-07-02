@@ -15,7 +15,7 @@ export const CodeBlock = memo(function CodeBlock({ lang, code }: CodeBlockProps)
   }
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl bg-surface border border-border/50">
+    <div className="my-3 overflow-hidden card-radius bg-surface border border-border/50">
       <div className="flex h-7 items-center justify-between px-3 text-[10px] text-text-3">
         <span className="font-mono uppercase tracking-[0.12em]">{lang}</span>
         <button

@@ -9,7 +9,7 @@ export function NewSessionButton({ onClick, collapsed }: NewSessionButtonProps) 
       type="button"
       onClick={onClick}
       title="新建会话"
-      className="flex items-center justify-center gap-1.5 rounded-lg bg-primary/10 px-2.5 py-1.5 text-[12px] font-medium text-primary transition-all hover:bg-primary hover:text-black"
+      className="flex items-center justify-center gap-1.5 pill-radius bg-primary/10 px-2.5 py-1.5 text-[12px] font-medium text-primary transition-all hover:bg-primary hover:text-black"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

@@ -51,7 +51,7 @@ export const ImageGrid = memo(function ImageGrid({ images }: ImageGridProps) {
             type="button"
             onClick={() => img.dataUri && setLightbox(idx)}
             disabled={!img.dataUri}
-            className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-border/60 bg-surface-3 disabled:cursor-default"
+            className="group relative aspect-[4/3] overflow-hidden card-radius border border-border/60 bg-surface-3 disabled:cursor-default"
           >
             {img.dataUri ? (
               <>

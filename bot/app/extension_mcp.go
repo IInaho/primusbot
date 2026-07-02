@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"nekocode/bot/config"
-	"nekocode/common/debug"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/common"
+	"nekocode/common/debug"
 )
 
 func (e *extensionFacade) InitConfigMCPServers(servers map[string]config.MCPServerConfig) {

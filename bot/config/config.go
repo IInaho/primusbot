@@ -53,6 +53,7 @@ type Config struct {
 	Models         []ModelConfig              `json:"models"`
 	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models
 	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
 }
 
 var Default = Config{

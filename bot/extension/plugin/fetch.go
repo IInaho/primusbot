@@ -3,11 +3,10 @@ package plugin
 import (
 	"fmt"
 	"io"
+	"nekocode/bot/tools/runtime/toolutil"
+	"nekocode/common"
 	"net/http"
 	"time"
-
-	"nekocode/bot/tools"
-	"nekocode/common"
 )
 
 func FetchURL(url string) ([]byte, error) {
@@ -17,7 +16,7 @@ func FetchURL(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := tools.NewToolHTTPClient(10 * time.Second).Do(req)
+	resp, err := toolutil.NewToolHTTPClient(10 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}

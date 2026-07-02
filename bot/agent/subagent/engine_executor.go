@@ -6,16 +6,19 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm/types"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/core"
-	"nekocode/bot/tools/runner"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/runner"
+	"nekocode/bot/tools/runtime/toolutil"
 	"nekocode/common"
 )
 
 func (e *Engine) newExecutor(cfg RunConfig) (*runner.Executor, func()) {
 	executor := runner.NewExecutor(e.toolRegistry)
-	executor.SetConfirmFn(func(req common.ConfirmRequest) bool {
-		return req.Level < common.LevelWrite
+	executor.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+		if req.Level < common.LevelWrite {
+			return common.AllowOnce()
+		}
+		return common.Deny()
 	})
 	if cfg.ConfirmFn != nil {
 		executor.SetConfirmFn(cfg.ConfirmFn)
@@ -70,7 +73,7 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 }
 
 func applyReadOnlySpiralGuard(ctxMgr *ctxmgr.Manager, calls []core.ToolCallItem, state *runState) {
-	if tools.IsAllExploratory(calls) {
+	if toolutil.IsAllExploratory(calls) {
 		state.readOnlyStreak++
 		if hint := evaluateReadOnlySpiralHook(state.readOnlyStreak); hint != nil {
 			ctxMgr.Add("system", hooks.FormatHints([]hooks.Hint{*hint}), "hook")

@@ -6,11 +6,11 @@ import (
 
 	agentruntime "nekocode/bot/agent/runtime"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/common/debug"
 	"nekocode/bot/llm/types"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/core"
-	"nekocode/bot/tools/runner"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/runner"
+	"nekocode/common/debug"
 )
 
 const (

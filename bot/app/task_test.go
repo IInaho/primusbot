@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"nekocode/bot/agent/subagent"
-	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/taskbridge"
 )
 
 func TestBuildSubagentRunConfigUnknownAgent(t *testing.T) {
@@ -19,7 +19,7 @@ func TestBuildSubagentRunConfigWiresCallbacks(t *testing.T) {
 	defer subagent.UnregisterPlugin("tester")
 
 	var eventAction string
-	ctx := tools.WithTaskCallback(context.Background(), func(action, toolName, toolArgs, output string) {
+	ctx := taskbridge.WithTaskCallback(context.Background(), func(action, toolName, toolArgs, output string) {
 		eventAction = action + ":" + toolName + ":" + toolArgs + ":" + output
 	})
 	var phase string
@@ -48,11 +48,11 @@ func TestBuildSubagentRunConfigWiresCallbacks(t *testing.T) {
 func TestSubagentTaskResultMapsStatus(t *testing.T) {
 	tests := []struct {
 		status subagent.Status
-		want   tools.TaskStatus
+		want   taskbridge.TaskStatus
 	}{
-		{subagent.StatusCompleted, tools.TaskStatusCompleted},
-		{subagent.StatusFailed, tools.TaskStatusFailed},
-		{subagent.StatusPartial, tools.TaskStatusPartial},
+		{subagent.StatusCompleted, taskbridge.TaskStatusCompleted},
+		{subagent.StatusFailed, taskbridge.TaskStatusFailed},
+		{subagent.StatusPartial, taskbridge.TaskStatusPartial},
 	}
 	for _, tt := range tests {
 		got := subagentTaskResult(&subagent.Result{Status: tt.status, Content: "ok"})

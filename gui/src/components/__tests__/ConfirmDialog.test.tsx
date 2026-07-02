@@ -5,7 +5,7 @@ import ConfirmDialog from '../ConfirmDialog'
 const replyConfirm = vi.fn()
 
 vi.mock('../../lib/wails', () => ({
-  safeReplyConfirm: (id: string, ok: boolean) => replyConfirm(id, ok),
+  safeReplyConfirm: (id: string, ok: boolean, remember?: boolean) => replyConfirm(id, ok, remember),
 }))
 
 describe('ConfirmDialog', () => {
@@ -33,12 +33,12 @@ describe('ConfirmDialog', () => {
 
     expect(screen.getByText('确认执行命令')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '拒绝' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '允许执行' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '仅本次允许' })).toBeInTheDocument()
     expect(screen.queryByText('调用参数')).toBeNull()
     expect(screen.getAllByText((text) => text.includes('cat > /tmp/test_edit.txt'))).toHaveLength(1)
 
-    fireEvent.click(screen.getByRole('button', { name: '允许执行' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true)
+    fireEvent.click(screen.getByRole('button', { name: '仅本次允许' }))
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true, false)
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
@@ -78,5 +78,33 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('changed')).toBeInTheDocument()
     expect(screen.getByText('original')).toBeInTheDocument()
     expect(screen.getByText('上方差异是本次 revert 将恢复的内容。')).toBeInTheDocument()
+  })
+
+  it('shows permission details and can remember project grants', () => {
+    render(
+      <ConfirmDialog
+        entry={{
+          id: 'confirm-permission',
+          toolName: 'bash',
+          args: {
+            command: 'go test ./...',
+            permission_reason: 'command requires public network access',
+            permission_capabilities: 'net.public, cache.write',
+            permission_scope: 'project',
+            workspace: '/repo',
+            commandClass: 'network',
+            sandbox: 'bubblewrap',
+          },
+          level: 2,
+        }}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('权限升级')).toBeInTheDocument()
+    expect(screen.getByText('command requires public network access')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '仅本次允许' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '始终允许' }))
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-permission', true, true)
   })
 })

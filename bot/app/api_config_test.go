@@ -32,7 +32,7 @@ func TestReinitPreservesConfiguredCallbacks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	b := New()
-	confirmFn := func(common.ConfirmRequest) bool { return true }
+	confirmFn := func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() }
 	phaseFn := func(string) {}
 	todoFn := func([]common.TodoItem) {}
 	notifyFn := func(string) {}

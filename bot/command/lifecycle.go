@@ -8,7 +8,7 @@ import (
 	"nekocode/bot/hooks"
 	"nekocode/bot/prompt/planmode"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common"
 )
 

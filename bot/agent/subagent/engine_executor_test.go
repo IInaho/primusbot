@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func TestApplyReadOnlySpiralGuardInjectsReminderAfterThreeExploratoryBatches(t *testing.T) {

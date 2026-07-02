@@ -5,7 +5,7 @@ import (
 	"nekocode/bot/hooks"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 type turnRunner struct {

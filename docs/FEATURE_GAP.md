@@ -91,46 +91,37 @@
   ❌ Bash AST 解析器 — 无法理解命令语法树，只能做字符串/前缀匹配
   ❌ 路径约束检查 — 无法限制文件访问范围（如只允许项目目录内操作）
   ❌ 沙箱执行 — 无容器/隔离环境执行
-  ❌ 权限规则持久化 — 无法记住用户的 allow/deny 决定
-  ❌ 权限分类器 UI — 无交互式权限确认界面
+说明：字符串匹配会漏判命令替换 $()、管道权限逃逸，是当前最大安全隐患。
 ```
 
-#### 2. 权限系统缺失
+#### 2. 权限系统薄弱
 
 ```
-Claude Code 权限系统庞大，NekoCode 目前仅有基础确认：
-  ✅ 工具级确认弹框（safe/modify/danger/blocked 四级）
-  ❌ allow/deny 规则持久化
-  ❌ 权限规则匹配引擎
-  ❌ 自动模式（auto-approve）
-  ❌ 权限 UI 交互（一次性记住选择）
+当前：四级工具危险分类 + 确认弹框（工具执行前交互一次）
+缺失：
+  ❌ allow/deny 规则持久化 — 同一类命令每次都要确认
+  ❌ 自动模式（auto-approve）— 对已知安全操作不能"记住我的决定"
+  ❌ 权限规则匹配引擎 — 无法按路径/命令模式做持久化放行当
+说明：当前每次确认已能保安全，但频繁确认带来的体验摩擦会在长会话中放大。P0 中优先级低于 Bash 安全。
 ```
 
 #### 3. CLI 主入口仍需完善
 
 ```
 当前：TUI (cmd/nekocode-tui) + GUI (main.go) 两个入口
-已实现：
-  ✅ 双前端入口分离
-  ✅ 配置文件读取
 缺失：
-  ❌ 子命令系统（init/config/run/doctor/update...）
-  ❌ 命令行参数解析（--model, --config, --debug...）
-  ❌ 版本信息（-v/--version）
-  ❌ 帮助系统（-h/--help）
-  ❌ 信号处理（优雅关闭 SIGINT/SIGTERM）
+  ❌ 子命令系统（version/help/config 等）
+  ❌ 命令行参数解析（--model, --config, --debug）
+说明：--version/--help 属于工程基本功，即便桌面 UI 为主入口也值得补上。
 ```
 
 #### 4. 工具种类不足
 
 ```
-已有 14 内置 + 3 条件/动态工具，缺失的关键工具：
-  ❌ LSP 工具 — 跳转定义、查找引用、诊断
-  ❌ notebook 编辑 — Jupyter notebook 支持
+已有 14 内置 + 3 条件/动态工具，真正缺失的关键工具：
+  ❌ LSP 工具 — 跳转定义、查找引用、诊断（当前 index 项目可做符号搜索，但不具备 LSP 的编辑器协议）
   ❌ task 子工具 — task_list/get/update/stop/output（当前只有 task 创建）
-  ❌ MCP 资源工具 — list_mcp_resources / read_mcp_resource
-  ❌ 定时任务 — schedule_cron
-  ❌ config 工具 — 读写配置
+说明：MCP 资源工具（list/read_mcp_resource）和配置类工具（schedule_cron、config 工具）属于产品化阶段诉求，列入 P2。
 ```
 
 ---
@@ -141,40 +132,42 @@ Claude Code 权限系统庞大，NekoCode 目前仅有基础确认：
 
 ```
 已有：Markdown 渲染（glamour + chroma 语法高亮）、diff 预览、鼠标滚轮、命令补全、基础组件、
-      token 用量仪表盘（/context 显示 bar + used/total + sys/tools/todo/skills/msgs 分解）
-缺失：
-  ❌ 文件树浏览器 — 无侧边栏文件浏览
-  ❌ 多面板布局 — 无分屏（代码+对话+终端）
-  ❌ 进度指示器 — 长时间操作无进度条
-  ❌ 主题切换 — 仅 tokyo-night 硬编码
-  ❌ 快捷键提示栏 — 无底部状态栏
-  ❌ 搜索界面 — 无交互式搜索结果浏览
+      token 用量仪表盘（/context 显示 bar + used/total + sys/tools/todo/skills/msgs 分解）、
+      顶栏状态区（model/tokens/compact count 等实时状态）、tree/glob/grep 工具
+真正缺失（按体验影响排序）：
+  ❌ 搜索界面 — 无交互式搜索结果浏览（grep 输出未做 TUI 化）
+说明：
+  - 文件树浏览器、多面板布局属于对标 IDE 的交互范式，TUI 流式对话不是 IDE 形态，不应照搬。
+  - 进度指示器：长时间操作已被 per-turn spinner 覆盖，不必重做。
+  - 顶栏已有 token/model/状态显示，底部快捷键栏锦上添花，不值得成为 P1。
 ```
 
 #### 6. LLM 层功能不足
 
 ```
-已有：Anthropic + OpenAI 双协议、流式 API、重试机制、Thinking 跨协议控制
-缺失：
-  ❌ 模型路由 — 无法按任务类型自动选择模型
-  ❌ Fallback 机制 — API 失败时无法自动切换备用模型
-  ❌ 并发控制/限流 — 无 API 调用速率限制
-  ❌ 精确 token 计数 — 使用估算而非各模型专用 tokenizer
-  ❌ Google Gemini 支持 — 目前仅支持 OpenAI/Anthropic 兼容协议
-  ❌ 请求队列 — 无请求排队和优先级
+已有：Anthropic + OpenAI 双协议、流式 API、重试机制、Thinking 跨协议控制、
+      API 精确 token 计数（prompt_tokens/completion_tokens 由服务端返回，tracker 自动校准）
+真正缺失：
+  ❌ 模型 Fallback — API 失败时无法自动切换备用模型（多模型配置场景刚需）
+  ❌ Google Gemini 支持 — Gemini 协议差异大（response schema/流式协议），OpenAI 兼容层覆盖不住
+说明：
+  - 模型路由（按任务类型自动选模型）：需要依赖 Fallback 机制可工作，单独列无意义。
+  - 并发控制/限流/请求队列：单会话串行处理为主，当前不需要。
+  - "精确 token 计数"已解决 — API 每轮已给真精确值；本地 tokenizer 只在两次调用间的 UI 缝隙里有用，不值得引入依赖（API 已够准）。
 ```
 
 #### 7. 上下文管理不完整
 
 ```
-已有：Head-Tail-Summary 压缩、持久化记忆（手动 Build/Save）、token 追踪、五级预警、micro-compact 优先级裁剪（priorityLow/Medium/High）
-部分实现：
-  ⚠️ 摘要验证 — DESIGN.md 声称"二次校验"，但代码仅实现 XML block 提取（FormatCompactSummary），无实际验证逻辑
-缺失：
-  ❌ 记忆自动更新 — DESIGN.md 描述"10k token 后异步提取"，但代码仅实现手动 Build/Save，无自动触发机制
-  ❌ 智能上下文裁剪 — 基于内容相关性而非简单按时间
-  ❌ 分层上下文 — 项目级/文件级/代码块级结构
-  ❌ RAG 集成 — 无向量数据库检索增强
+已有：Head-Tail-Summary 压缩、持久化记忆（在 /new /clear /compact 等关键节点同步写入 memory）、
+      token 追踪、五级预警、micro-compact 优先级裁剪（priorityLow/Medium/High）、
+      分级 memory 分类（Tech Stack / Active Goals / Completed Tasks / Architecture Map / Preferences）、
+      Archive/Layer 0.5 摘要层
+真正缺失（按成本排序）：
+  ❌ 摘要验证 — 代码仅实现 XML block 提取（FormatCompactSummary），无实际质量校验逻辑
+说明：
+  - "记忆自动更新"已实现（在会话关键节点同步写入 memory）；DESIGN.md 所言"10k token 后异步提取"是"愿景文档"措辞，当前设计"在边界触发点同步写入"是合理的实现选择，不算缺失。
+  - 智能裁剪/分层上下文/RAG：需要向量检索和语义匹配基建，属于大型架构改动，当前阶段过度设计。
 ```
 
 #### 8. 命令系统可扩展
@@ -182,11 +175,12 @@ Claude Code 权限系统庞大，NekoCode 目前仅有基础确认：
 ```
 已有（11 个命令，含动态 skill）：
   /help、/clear、/summarize、/new、/context（含原 /stats 功能）、/config、/model、/plan、/plugin、/sessions、/export
-缺失：
-  ❌ 命令别名
-  ❌ 命令历史搜索
-  ❌ /review、/commit、/diff、/doctor、/cost、/status、/resume、/init 等
-  ❌ 命令权限分级
+真缺失（开发场景高频）：
+  ❌ /commit — 自动 Git commit
+  ❌ /review — 代码审查
+  ❌ /diff — 工作区变更
+说明：
+  - 命令别名、命令历史搜索、权限分级属于体验优化，不是命令缺位。
 ```
 
 ---
@@ -196,80 +190,59 @@ Claude Code 权限系统庞大，NekoCode 目前仅有基础确认：
 #### 9. MCP 客户端
 
 ```
-已有：stdio 子进程模式
+已有：stdio 子进程模式 + JSON-RPC 工具发现
 缺失：
-  ❌ SSE 传输 — 无法连接远程 SSE MCP 服务器
-  ❌ StreamableHTTP 传输
-  ❌ OAuth 认证
-  ❌ 服务发现
-  ❌ 协议版本协商
-  ❌ 多服务连接池
-  ❌ 健康检查 + 自动重连
-  ❌ MCP Resources/Prompts 支持（仅 Tools）
+  ❌ MCP 资源/提示 支持（当前仅 Tools，缺 list_mcp_resources / read_mcp_resource）
+  ❌ SSE / StreamableHTTP 传输（连接远程 MCP 服务器时需求）
+  ❌ OAuth 认证（连接商业化 MCP 服务时需求）
+说明：
+  - 多服务连接池、健康检查、自动重连、协议版本协商：是 SSE/HTTP 传输的附带需求。在 stdio 模式下不需要，只在切换传输模式时才成为真需求。
+  - 服务发现：属于配套生态，不是核心传输能力。
 ```
 
-#### 10. 插件系统
+#### 10. 插件与技能系统
 
 ```
-已有：manifest 解析 + 命令/Hook/Agent 注册 + install/uninstall/enable/disable
+已有：manifest 解析 + 命令/Hook/Agent 注册 + install/uninstall/enable/disable +
+      bundled 技能 + 文件加载 + 工具化 + context 真正缺失：
+  ❌ 技能参数 Schema 验证（当前基本信任技能定义）
+  ❌ 技能单元测试框架
+说明：
+  - 插件市场/技能市场/包管理/依赖管理/自动更新：是社区运营设施，不是工具能力。
+  - 沙箱隔离：重大架构改动，需专门评估。
+```
+
+#### 11. 会话管理
+
+```
+已有：创建 + 存储 + 列出 + 恢复 + 导出（已落盘会话通过 /sessions 查看）
 缺失：
-  ❌ 插件市场/包管理
-  ❌ 插件依赖管理
-  ❌ 沙箱隔离
-  ❌ 配置界面
-  ❌ 自动更新
-  ❌ 插件权限声明
-```
-
-#### 11. 技能系统
-
-```
-已有：bundled 技能 + 文件加载 + 工具化
-缺失：
-  ❌ 技能市场
-  ❌ 链式组合/编排
-  ❌ 参数 Schema 验证
-  ❌ 热加载/卸载
-  ❌ 自动化测试框架
-```
-
-#### 12. 会话管理
-
-```
-已有：创建 + 存储 + 列出 + 恢复 + 导出
-缺失：
-  ❌ 会话历史浏览
+  ❌ 会话自动过期清理（长期运行的磁盘膨胀）
   ❌ 会话分支/合并
-  ❌ 会话自动过期清理
-  ❌ 会话搜索
+说明：
+  - 会话历史浏览/搜索：当前按会话文件打开即是浏览，搜索诉求弱于 /sessions 列表。
 ```
 
-#### 13. 配置系统
+#### 12. 配置系统
 
 ```
-已有：基础 provider/model/apiKey/baseURL 配置 + image_gen_models
-缺失：
-  ❌ 热重载
-  ❌ 分层覆盖（默认/用户/项目级）
-  ❌ 敏感配置加密存储
-  ❌ 配置 Schema 验证
-  ❌ 多环境支持
-  ❌ 配置导出/导入
+已有：provider/model/apiKey/baseURL + image_gen_models + ApplyConfig（GUI 保存配置即热重载，重新 reinit）
+说明：
+  - "热重载"已实现 — guiapp 的 SaveConfig 前端调 ApplyConfig 后端，动态替换 model/protocol/context_window 并重建 LLM client。
+  - 分层覆盖 / 多环境 / Schema 验证 / 导出导入：属于多用户场景优化，单用户当前不急。
 ```
 
-#### 14. 基础设施
+---
 
-```
-缺失：
-  ❌ 统一日志框架（仅有 debug.Log + panic 恢复）
-  ❌ 错误码体系
-  ❌ 全局事件总线
-  ❌ goroutine 工作池
-  ❌ 请求限流器
-  ❌ 通用重试机制（仅 LLM 层有）
-  ❌ 健康检查端点
-  ❌ 指标/监控
-```
+### 🔵 P3 — 运维与规模化（企业级，非当前阶段目标）
+
+本节原 P2 列出的基础设施需求，例如：
+- 统一日志框架（当前 debug.Log 已够用）
+- 错误码体系 / 全局事件总线
+- goroutine 工作池 / 请求限流器
+- 健康检查端点 / 指标监控
+
+这些**对标的是 Claude Code 百万用户级 SaaS 运维**，NekoCode 桌面单用户工具架构下不需要。保留此节作为"未来规模化的标竿"仅供方向参考，**不作为 P2 实施**。
 
 ---
 
@@ -293,22 +266,22 @@ Claude Code 权限系统庞大，NekoCode 目前仅有基础确认：
 ## 四、优先级建议
 
 ```
-P0（必须立即补齐，否则无法作为 AI 编程助手使用）：
-  1. Bash 安全增强（AST 解析 + 路径约束 + 沙箱）
-  2. 权限系统（allow/deny 持久化规则）
-  3. 补充核心工具（LSP、task 子工具）
-  4. 完善 CLI 入口（子命令 + 参数解析 + 帮助系统）
+P0（真阻碍使用）：
+  1. Bash 安全增强（AST 解析 + 路径约束）
+  2. 权限系统（allow/deny 规则持久化 + auto-approve）
+  3. 补充核心工具（LSP、task 子系统）
+  4. CLI 入口完善（--version/--help + 子命令）
 
 P1（影响核心体验，应尽快实现）：
-  5. 文件树 + 多面板
-  6. LLM 模型路由 + Fallback + 更多模型支持
-  7. 智能上下文裁剪 + RAG 集成
-  8. 更多命令（/review、/commit、/diff 等）
+  5. LLM Fallback + Gemini 原生支持
+  6. 摘要验证（FormatCompactSummary 之后加质量校验）
+  7. /commit /review /diff 命令
+  8. TUI 搜索界面（grep 结果 TUI 化）
 
-P2（产品化完善，可逐步迭代）：
-  9. MCP SSE/HTTP 传输 + OAuth
-  10. 插件市场 + 沙箱隔离
-  11. 会话分支 + 自动清理
-  12. 主题系统 + 配置热重载
-  13. 日志/监控/健康检查基础设施
-```
+P2（产品化，可逐步迭代）：
+  9. MCP 资源 + SSE/HTTP 传输
+  10. 技能 Schema 验证 + 测试框架
+  11. 会话自动过期清理
+
+P3（企业级，非当前阶段，仅供方向参考）：
+  12. 规模化运维基建（日志/监控/请求池/限流等）

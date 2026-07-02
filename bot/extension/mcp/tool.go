@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common"
 )
 

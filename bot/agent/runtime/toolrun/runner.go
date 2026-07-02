@@ -7,8 +7,8 @@ import (
 	"nekocode/bot/hooks"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
-	"nekocode/bot/tools/core"
-	"nekocode/bot/tools/runner"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/runner"
 )
 
 type Callback func(action, toolName, toolArgs, output string)

@@ -138,6 +138,7 @@ export interface ConfirmEvent {
   args: Record<string, unknown>
   preview?: string
   level: number
+  can_escalate?: boolean
 }
 
 export interface QuestionOption {

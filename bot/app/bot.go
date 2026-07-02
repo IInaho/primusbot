@@ -17,7 +17,7 @@ import (
 	"nekocode/bot/llm"
 	systemprompt "nekocode/bot/prompt/system"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/catalog"
+	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/common"
 )
 
@@ -88,6 +88,17 @@ func (b *Bot) reinit() {
 	if b.cb == nil {
 		b.cb = &callbackBus{}
 	}
+	// Inject the declarative permission policy (from config) and workspace/home
+	// so the rule engine can resolve path anchors. cfg may be nil if Load failed.
+	b.cb.cwd = b.cwd
+	b.cb.home, _ = os.UserHomeDir()
+	if b.cfg != nil {
+		b.cb.policyCfg = b.cfg.Permissions
+	}
+	// Expose the workspace to toolutil so write/edit enforce path boundaries
+	// against the session workspace rather than the process cwd (which differs
+	// in tests and may differ after /cd).
+	os.Setenv("NEKOCODE_WORKSPACE", b.cwd)
 	b.ext = newExtensionFacade(b.ctxMgr, b.toolRegistry, b.hookReg, b.cfg.ContextWindow)
 	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.projCtx, b.cfg.ContextWindow)
 	b.ext.InitPlugins()

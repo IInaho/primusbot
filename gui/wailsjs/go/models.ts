@@ -360,6 +360,22 @@ export namespace config {
 	        this.protocol = source["protocol"];
 	    }
 	}
+	export class PermissionsConfig {
+	    allow?: string[];
+	    ask?: string[];
+	    deny?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PermissionsConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.allow = source["allow"];
+	        this.ask = source["ask"];
+	        this.deny = source["deny"];
+	    }
+	}
 	export class View {
 	    path: string;
 	    exists: boolean;
@@ -369,6 +385,7 @@ export namespace config {
 	    models: ModelConfig[];
 	    image_gen_models?: ImageGenConfig[];
 	    mcp_servers?: Record<string, MCPServerConfig>;
+	    permissions?: PermissionsConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new View(source);
@@ -384,6 +401,7 @@ export namespace config {
 	        this.models = this.convertValues(source["models"], ModelConfig);
 	        this.image_gen_models = this.convertValues(source["image_gen_models"], ImageGenConfig);
 	        this.mcp_servers = this.convertValues(source["mcp_servers"], MCPServerConfig, true);
+	        this.permissions = this.convertValues(source["permissions"], PermissionsConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -3,7 +3,7 @@ package subagent
 import (
 	"testing"
 
-	"nekocode/bot/tools/core"
+	"nekocode/bot/tools/runtime/core"
 )
 
 func TestIsSensitiveCallDetectsDangerousBash(t *testing.T) {

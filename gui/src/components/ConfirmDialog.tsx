@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { safeReplyConfirm } from '../lib/wails'
 import { isUnifiedDiffContent } from '../lib/diffFormat'
 import { UnifiedDiff } from './run/UnifiedDiff'
@@ -8,6 +9,7 @@ export interface ConfirmEntry {
   args: Record<string, unknown>
   preview?: string
   level: number
+  can_escalate?: boolean
 }
 
 function ConfirmDialog({
@@ -17,8 +19,46 @@ function ConfirmDialog({
   entry: ConfirmEntry
   onDone: () => void
 }) {
-  const handle = (ok: boolean) => {
-    safeReplyConfirm(entry.id, ok)
+  const isPermission = isPermissionConfirm(entry)
+  // Any prompt except "once"-scope (shell.unknown / process.host) can be
+  // remembered as an allow rule by the rule engine.
+  const canRemember = permissionScope(entry) !== 'once'
+
+  const options: { label: string; ok: boolean; remember: boolean }[] = [
+    { label: '仅本次允许', ok: true, remember: false },
+  ]
+  if (canRemember) {
+    options.push({ label: '始终允许', ok: true, remember: true })
+  }
+  options.push({ label: '拒绝', ok: false, remember: false })
+
+  const [selected, setSelected] = useState(0)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelected((s) => (s + 1) % options.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelected((s) => (s - 1 + options.length) % options.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        const opt = options[selected]
+        safeReplyConfirm(entry.id, opt.ok, opt.remember)
+        onDone()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        safeReplyConfirm(entry.id, false, false)
+        onDone()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [selected, options.length])
+
+  const handle = (ok: boolean, remember = false) => {
+    safeReplyConfirm(entry.id, ok, remember)
     onDone()
   }
 
@@ -36,7 +76,7 @@ function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
-        className="flex max-h-[calc(100dvh-32px)] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border/70 bg-surface-2 surface-shadow sm:max-h-[760px]"
+        className="flex max-h-[calc(100dvh-32px)] w-full max-w-3xl flex-col overflow-hidden card-radius border border-border/70 bg-surface-2 surface-shadow sm:max-h-[760px]"
       >
         <header className="shrink-0 border-b border-border/45 px-4 py-3">
           <div className="flex items-start justify-between gap-3">
@@ -81,6 +121,8 @@ function ConfirmDialog({
             <PrimaryPreview entry={entry} />
           )}
 
+          {isPermission && <PermissionDetails entry={entry} canRemember={canRemember} />}
+
           {hasDetails && (
             <details className="border-t border-border/35">
               <summary className="cursor-pointer select-none px-4 py-2 text-[12px] font-medium text-text-2 hover:bg-surface-3/40">
@@ -100,29 +142,62 @@ function ConfirmDialog({
           )}
         </div>
 
-        <footer className="flex shrink-0 flex-col gap-2 border-t border-border/45 bg-surface-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <footer className="flex shrink-0 flex-col gap-2 border-t border-border/45 bg-surface-2 px-4 py-3">
           <p className="min-w-0 text-[12px] text-text-3">
             {footerCopy(entry)}
           </p>
-          <div className="flex shrink-0 justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => handle(false)}
-              className="secondary-button h-8 px-3"
-            >
-              拒绝
-            </button>
-            <button
-              type="button"
-              onClick={() => handle(true)}
-              className="primary-button h-8 px-3"
-            >
-              允许执行
-            </button>
+          <div className="flex shrink-0 flex-col gap-2">
+            {options.map((opt, i) => (
+              <button
+                key={opt.label}
+                type="button"
+                onClick={() => handle(opt.ok, opt.remember)}
+                className={`h-9 w-full justify-center text-[13px] ${i === selected ? 'ring-2 ring-primary/60' : ''} ${
+                  !opt.ok
+                    ? 'secondary-button'
+                    : opt.remember
+                    ? 'primary-button'
+                    : 'secondary-button'
+                }`}
+              >
+                <span aria-hidden="true">{i === selected ? '▸ ' : '  '}</span>{opt.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 border-t border-border/30 pt-2">
+            <span className="select-none text-[11px] text-text-3">↑↓ 选择 · Enter 确认 · Esc 拒绝</span>
           </div>
         </footer>
       </section>
     </div>
+  )
+}
+
+function PermissionDetails({ entry, canRemember }: { entry: ConfirmEntry; canRemember: boolean }) {
+  const rows = [
+    ['原因', permissionText(entry, 'permission_reason')],
+    ['能力', permissionText(entry, 'permission_capabilities')],
+    ['范围', permissionText(entry, 'permission_scope')],
+    ['工作区', permissionText(entry, 'workspace')],
+    ['命令类别', permissionText(entry, 'commandClass')],
+    ['沙箱', permissionText(entry, 'sandbox')],
+  ].filter(([, value]) => value)
+
+  return (
+    <section className="border-t border-border/35 px-4 py-3">
+      <div className="mb-2 text-[12px] font-medium text-text-2">权限升级</div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="min-w-0 rounded-md bg-surface px-2.5 py-2">
+            <div className="mb-1 text-[10px] text-text-3">{label}</div>
+            <div className="break-words font-mono text-[11px] leading-relaxed text-text-2">{value}</div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-text-3">
+        {canRemember ? '选择“本项目记住”后，相同工作区和命令类别的同类能力请求会自动通过。' : '此权限只支持本次允许，不会写入持久授权。'}
+      </p>
+    </section>
   )
 }
 
@@ -158,6 +233,8 @@ function ReplaceAllNotice({ count }: { count: number | null }) {
 
 function showArg(entry: ConfirmEntry, key: string): boolean {
   if (key === '_preview') return false
+  if (key.startsWith('permission_')) return false
+  if (isPermissionConfirm(entry) && ['workspace', 'commandClass', 'sandbox'].includes(key)) return false
   if (entry.toolName === 'bash' && key === 'command') return false
   return true
 }
@@ -183,6 +260,7 @@ function titleFor(entry: ConfirmEntry): string {
 }
 
 function scopeFor(entry: ConfirmEntry): string {
+  if (isPermissionConfirm(entry)) return permissionScope(entry) || 'permission'
   if (entry.toolName === 'edit') return 'file edit'
   if (entry.toolName === 'write') return 'file write'
   if (entry.toolName === 'bash') return 'command'
@@ -196,11 +274,25 @@ function subjectFor(entry: ConfirmEntry): string {
 }
 
 function footerCopy(entry: ConfirmEntry): string {
+  if (isPermissionConfirm(entry)) return permissionScope(entry) === 'project' ? '可选择仅本次允许，或将同类权限记住到当前项目。' : '此权限请求不会持久化，只能本次允许。'
   if (entry.toolName === 'edit' && entry.args.revert === true) return '上方差异是本次 revert 将恢复的内容。'
   if (entry.toolName === 'edit' && entry.args.replaceAll === true) return 'replaceAll 会替换所有精确匹配，请确认替换范围。'
   if (entry.toolName === 'edit' && entry.preview) return '上方差异是本次 edit 将应用的内容。'
   if (entry.toolName === 'bash') return '命令会在当前工作区执行。'
   return '允许后工具会继续执行，拒绝会返回 cancelled。'
+}
+
+function isPermissionConfirm(entry: ConfirmEntry): boolean {
+  return typeof entry.args.permission_reason === 'string'
+}
+
+function permissionScope(entry: ConfirmEntry): string {
+  return permissionText(entry, 'permission_scope')
+}
+
+function permissionText(entry: ConfirmEntry, key: string): string {
+  const value = entry.args[key]
+  return typeof value === 'string' ? value : ''
 }
 
 function replacementCountFromPreview(preview?: string): number | null {

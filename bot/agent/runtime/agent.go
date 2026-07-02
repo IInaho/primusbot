@@ -7,13 +7,15 @@ import (
 	"nekocode/bot/agent/runtime/model"
 	"nekocode/bot/agent/runtime/toolrun"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/common/debug"
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm/types"
 	aggov "nekocode/bot/policy"
-	"nekocode/bot/tools/runner"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/tools/runtime/runner"
 	"nekocode/common"
+	"nekocode/common/debug"
 )
 
 type StreamCallback func(delta string, isToolCall bool)
@@ -208,11 +210,24 @@ func (a *Agent) ConfirmFn() common.ConfirmFunc {
 	return a.deps.executor.ConfirmFn()
 }
 
+// SetPermissionPolicy configures the declarative permission rule engine
+// (claude-code style allow/ask/deny). When set, tool calls are gated by the
+// engine instead of the legacy DangerLevel confirm prompt.
+func (a *Agent) SetPermissionPolicy(decl permission.PermissionsDecl, workspace, home string) {
+	a.deps.executor.SetPermissionPolicy(decl, workspace, home)
+}
+
+// SetWorkspace updates the workspace for path-anchor resolution (e.g. after
+// /cd) and rebuilds the permission engine if a policy is configured.
+func (a *Agent) SetWorkspace(workspace, home string) {
+	a.deps.executor.SetWorkspace(workspace, home)
+}
+
 func (a *Agent) SetPlanMode(on bool) {
 	a.deps.executor.SetPlanMode(on)
 }
 
-func (a *Agent) ToolExecutionState() *tools.ExecutionState {
+func (a *Agent) ToolExecutionState() *execution.ExecutionState {
 	return a.deps.executor.ExecutionState()
 }
 
