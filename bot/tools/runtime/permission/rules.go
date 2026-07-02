@@ -110,6 +110,9 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 		}
 	}
 	// 3. user-declared allow (covers remembered allows → beats builtin ask)
+	if d, ok := e.evaluateBashAllowCoverage(toolName, callInfo, false); ok {
+		return d
+	}
 	for _, r := range e.rules {
 		if r.Effect == EffectAllow && !r.isBuiltin() && e.ruleApplies(r, toolName, callInfo) {
 			return Decision{Effect: EffectAllow, Rule: r}
@@ -122,12 +125,63 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 		}
 	}
 	// 5. builtin allow
+	if d, ok := e.evaluateBashAllowCoverage(toolName, callInfo, true); ok {
+		return d
+	}
 	for _, r := range e.rules {
 		if r.Effect == EffectAllow && r.isBuiltin() && e.ruleApplies(r, toolName, callInfo) {
 			return Decision{Effect: EffectAllow, Rule: r}
 		}
 	}
 	return Decision{Effect: defaultEffect}
+}
+
+func (e *Engine) evaluateBashAllowCoverage(toolName string, callInfo map[string]any, builtinOnly bool) (Decision, bool) {
+	if !strings.EqualFold(toolName, "bash") && !strings.EqualFold(toolName, "shell") {
+		return Decision{}, false
+	}
+	cmd, _ := callInfo["command"].(string)
+	subcmds := shellCommands(cmd)
+	if len(subcmds) <= 1 {
+		return Decision{}, false
+	}
+	var allowRules []Rule
+	for _, r := range e.rules {
+		if r.Effect != EffectAllow || !toolNameMatches(r.Tool, toolName) || r.Specifier == "" {
+			continue
+		}
+		if builtinOnly != r.isBuiltin() {
+			continue
+		}
+		allowRules = append(allowRules, r)
+	}
+	if !builtinOnly {
+		for _, r := range e.rules {
+			if r.Effect == EffectAllow && r.isBuiltin() && toolNameMatches(r.Tool, toolName) && r.Specifier != "" {
+				allowRules = append(allowRules, r)
+			}
+		}
+	}
+	if len(allowRules) == 0 {
+		return Decision{}, false
+	}
+	var deciding Rule
+	for _, sub := range subcmds {
+		covered := false
+		for _, r := range allowRules {
+			if matchBashPattern(normalizeBashSpec(r.Specifier), sub) {
+				covered = true
+				if deciding.Tool == "" {
+					deciding = r
+				}
+				break
+			}
+		}
+		if !covered {
+			return Decision{}, false
+		}
+	}
+	return Decision{Effect: EffectAllow, Rule: deciding}, true
 }
 
 // isBuiltin reports whether a rule came from the baked-in default policy.
@@ -137,7 +191,7 @@ func (r Rule) isBuiltin() bool { return r.Source == "builtin" }
 // must match (case-insensitive, or "*" wildcard), and if the rule has a
 // specifier, the tool's matcher must accept it.
 func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) bool {
-	if r.Tool != "*" && !strings.EqualFold(r.Tool, toolName) {
+	if !toolNameMatches(r.Tool, toolName) {
 		return false
 	}
 	if r.Specifier == "" {
@@ -147,14 +201,39 @@ func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) b
 	if !ok {
 		m, ok = e.matchers[toolName]
 	}
+	if !ok && strings.HasPrefix(strings.ToLower(toolName), "mcp__") {
+		m, ok = e.matchers["mcp"]
+	}
 	if !ok {
 		return false
+	}
+	if _, isBash := m.(BashMatcher); isBash {
+		mode := MatchAllSubcommands
+		if r.Effect == EffectDeny || r.Effect == EffectAsk {
+			mode = MatchAnySubcommand
+		}
+		return BashRuleMatches(r.Specifier, callInfo, mode)
 	}
 	match, err := m.Match(r.Specifier, callInfo)
 	if err != nil || !match {
 		return false
 	}
 	return true
+}
+
+func toolNameMatches(ruleTool, callTool string) bool {
+	if ruleTool == "*" {
+		return true
+	}
+	rule := strings.ToLower(ruleTool)
+	call := strings.ToLower(callTool)
+	if rule == call {
+		return true
+	}
+	if strings.HasSuffix(rule, "*") {
+		return strings.HasPrefix(call, strings.TrimSuffix(rule, "*"))
+	}
+	return false
 }
 
 // ParseRule parses a "Tool(specifier)" string into a Rule with the given

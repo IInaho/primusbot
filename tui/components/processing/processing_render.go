@@ -218,6 +218,7 @@ func (p *ProcessingItem) renderChangesSection(w int) string {
 	sb.WriteString(sep)
 	sb.WriteString("\n")
 	sb.WriteString(block.RenderTools(items, w, p.sty))
+	sb.WriteString("\n")
 
 	p.cachedChanges = sb.String()
 	p.cachedChangesW = w

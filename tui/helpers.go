@@ -4,6 +4,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"nekocode/bot"
@@ -49,8 +50,7 @@ func formatBriefArgs(toolName, toolArgs string) string {
 	case "write", "list", "tree", "edit":
 		return args["path"]
 	case "bash":
-		cmd := args["command"]
-		return common.FormatCommandPreview(cmd, 96)
+		return cleanShellPreview(args["command"])
 	case "glob":
 		return args["pattern"]
 	case "grep":
@@ -84,6 +84,15 @@ func formatBriefArgs(toolName, toolArgs string) string {
 		}
 		return ""
 	}
+}
+
+func cleanShellPreview(command string) string {
+	command = strings.TrimSpace(command)
+	if unquoted, err := strconv.Unquote(command); err == nil {
+		return unquoted
+	}
+	replacer := strings.NewReplacer(`\"`, `"`, `\\`, `\`)
+	return replacer.Replace(command)
 }
 
 func tokensSummary(b bot.UI) string {

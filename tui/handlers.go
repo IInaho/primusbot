@@ -140,12 +140,6 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		return tea.Quit
 
-	case "ctrl+e":
-		if m.state != stateProcessing {
-			m.Messages.ToggleLastAssistant()
-		}
-		return nil
-
 	case "up":
 		if m.Suggestions.Visible() {
 			m.Suggestions.Cycle(-1)
@@ -154,9 +148,11 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		} else if m.Input.CanCursorUp() {
 			input, cmd := m.Input.Update(msg)
 			m.Input = input
+			m.resizeMessages()
 			return cmd
 		} else {
 			m.Input.HistoryUp()
+			m.resizeMessages()
 		}
 		return nil
 	case "down":
@@ -167,9 +163,11 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 		} else if m.Input.CanCursorDown() {
 			input, cmd := m.Input.Update(msg)
 			m.Input = input
+			m.resizeMessages()
 			return cmd
 		} else {
 			m.Input.HistoryDown()
+			m.resizeMessages()
 		}
 		return nil
 
@@ -211,6 +209,7 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 	default:
 		input, cmd := m.Input.Update(msg)
 		m.Input = input
+		m.resizeMessages()
 		return cmd
 	}
 	return nil

@@ -1,8 +1,12 @@
 package permission
 
 import (
+	"bytes"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // BashMatcher matches bash command rules. Specifier semantics (claude-code):
@@ -19,24 +23,51 @@ import (
 type BashMatcher struct{}
 
 func (BashMatcher) Match(spec string, info map[string]any) (bool, error) {
+	return BashRuleMatches(spec, info, MatchAllSubcommands), nil
+}
+
+type BashMatchMode int
+
+const (
+	MatchAllSubcommands BashMatchMode = iota
+	MatchAnySubcommand
+)
+
+func BashRuleMatches(spec string, info map[string]any, mode BashMatchMode) bool {
 	cmd, _ := info["command"].(string)
 	if cmd == "" || spec == "" {
-		return false, nil
+		return false
 	}
 	if spec == "*" {
-		return true, nil
+		return true
 	}
 	pattern := normalizeBashSpec(spec)
-	subcmds := splitCompound(cmd)
-	if len(subcmds) == 0 {
-		return false, nil
+	trimmedCmd := strings.TrimSpace(cmd)
+	if mode == MatchAllSubcommands && !hasBashWildcard(pattern) && strings.TrimSpace(pattern) == trimmedCmd {
+		return true
 	}
+	subcmds := shellCommands(cmd)
+	if len(subcmds) == 0 {
+		return false
+	}
+	matched := 0
 	for _, sub := range subcmds {
-		if !matchBashPattern(pattern, sub) {
-			return false, nil
+		if matchBashPattern(pattern, sub) {
+			if mode == MatchAnySubcommand {
+				return true
+			}
+			matched++
+			continue
+		}
+		if mode == MatchAllSubcommands {
+			return false
 		}
 	}
-	return true, nil
+	return mode == MatchAllSubcommands && matched == len(subcmds)
+}
+
+func hasBashWildcard(pattern string) bool {
+	return pattern == "*" || strings.HasSuffix(pattern, "*")
 }
 
 // normalizeBashSpec turns "npm run:*" into "npm run *".
@@ -110,25 +141,37 @@ func isAllDigits(s string) bool {
 	return true
 }
 
-var bashSeparators = []string{"&&", "||", ";", "|&", "|", "&"}
-
-// splitCompound splits a compound command into subcommands on shell
-// separators. Newlines also split.
-func splitCompound(cmd string) []string {
-	clean := strings.ReplaceAll(cmd, "\n", ";")
-	parts := []string{clean}
-	for _, sep := range bashSeparators {
-		var next []string
-		for _, p := range parts {
-			for _, s := range strings.Split(p, sep) {
-				if strings.TrimSpace(s) != "" {
-					next = append(next, s)
-				}
-			}
+func shellCommands(cmd string) []string {
+	parser := syntax.NewParser()
+	file, err := parser.Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		if trimmed := strings.TrimSpace(cmd); trimmed != "" {
+			return []string{trimmed}
 		}
-		parts = next
+		return nil
 	}
-	return parts
+	var out []string
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.CmdSubst, *syntax.ProcSubst:
+			return true
+		case *syntax.CallExpr:
+			if s := renderShellNode(n); s != "" {
+				out = append(out, s)
+			}
+			return true
+		}
+		return true
+	})
+	return out
+}
+
+func renderShellNode(node syntax.Node) string {
+	var b bytes.Buffer
+	if err := syntax.NewPrinter().Print(&b, node); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // FilePathMatcher matches file-path rules for read/edit/write/glob/grep.
@@ -171,7 +214,7 @@ func matchPathPattern(spec, target, workspace, home string) bool {
 		pat = spec
 	default:
 		// bare pattern → matches at any depth (gitignore semantics)
-		return matchGitignoreAnyDepth(spec, target)
+		return matchGitignoreAnyDepth(spec, target, workspace)
 	}
 	abs := filepath.Join(root, pat)
 	return matchGlob(abs, target)
@@ -179,7 +222,17 @@ func matchPathPattern(spec, target, workspace, home string) bool {
 
 // matchGitignoreAnyDepth matches a bare pattern (no anchor) against any path
 // segment, like gitignore matching "**/pattern".
-func matchGitignoreAnyDepth(spec, target string) bool {
+func matchGitignoreAnyDepth(spec, target, workspace string) bool {
+	if strings.ContainsAny(spec, `/\`) {
+		if workspace != "" {
+			if rel, err := filepath.Rel(workspace, target); err == nil && !strings.HasPrefix(rel, "..") {
+				if matchGlob(filepath.ToSlash(spec), filepath.ToSlash(rel)) {
+					return true
+				}
+			}
+		}
+		return matchGlob(filepath.ToSlash(spec), filepath.ToSlash(target))
+	}
 	base := filepath.Base(target)
 	if matchGlob(spec, base) {
 		return true
@@ -197,41 +250,37 @@ func matchGitignoreAnyDepth(spec, target string) bool {
 
 // matchGlob does a filepath.Match with ** support (** crosses directories).
 func matchGlob(pattern, name string) bool {
+	pattern = filepath.ToSlash(pattern)
+	name = filepath.ToSlash(name)
 	if !strings.Contains(pattern, "**") {
 		ok, _ := filepath.Match(pattern, name)
 		return ok
 	}
-	// Convert ** to a regex-ish check: split on ** and ensure segments match
-	// in order. Pragmatic: use filepath.Match on each **-split segment.
-	segs := strings.Split(pattern, "**")
-	if len(segs) == 0 {
-		return pattern == name
-	}
-	// leading segment must be prefix
-	if segs[0] != "" && !strings.HasPrefix(name, segs[0]) {
+	re, err := regexp.Compile("^" + globToRegex(pattern) + "$")
+	if err != nil {
 		return false
 	}
-	// trailing segment must be suffix
-	last := segs[len(segs)-1]
-	if last != "" && !strings.HasSuffix(name, last) {
-		return false
-	}
-	// middle segments: appear in order somewhere
-	search := name
-	if segs[0] != "" {
-		search = strings.TrimPrefix(search, segs[0])
-	}
-	for i := 1; i < len(segs)-1; i++ {
-		if segs[i] == "" {
-			continue
+	return re.MatchString(name)
+}
+
+func globToRegex(pattern string) string {
+	var b strings.Builder
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '*':
+			if i+1 < len(pattern) && pattern[i+1] == '*' {
+				b.WriteString(".*")
+				i++
+			} else {
+				b.WriteString(`[^/]*`)
+			}
+		case '?':
+			b.WriteString(`[^/]`)
+		default:
+			b.WriteString(regexp.QuoteMeta(pattern[i : i+1]))
 		}
-		idx := strings.Index(search, segs[i])
-		if idx < 0 {
-			return false
-		}
-		search = search[idx+len(segs[i]):]
 	}
-	return true
+	return b.String()
 }
 
 // DomainMatcher matches web_fetch rules of the form "domain:host" or
@@ -289,6 +338,7 @@ func (MCPMatcher) Match(spec string, info map[string]any) (bool, error) {
 func DefaultMatchers() map[string]SpecifierMatcher {
 	return map[string]SpecifierMatcher{
 		"bash":      BashMatcher{},
+		"shell":     BashMatcher{},
 		"write":     FilePathMatcher{},
 		"edit":      FilePathMatcher{},
 		"read":      FilePathMatcher{},
@@ -297,5 +347,7 @@ func DefaultMatchers() map[string]SpecifierMatcher {
 		"glob":      FilePathMatcher{},
 		"grep":      FilePathMatcher{},
 		"web_fetch": DomainMatcher{},
+		"webfetch":  DomainMatcher{},
+		"mcp":       MCPMatcher{},
 	}
 }

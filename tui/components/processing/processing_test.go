@@ -45,7 +45,22 @@ func TestBlockedPersistentToolRendersErrorContent(t *testing.T) {
 	if !strings.Contains(rendered, "ledger") {
 		t.Fatalf("blocked edit reason not rendered:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "error") {
-		t.Fatalf("blocked edit status not rendered as error:\n%s", rendered)
+	// Error state is now conveyed by the red accent/glyph, not a text label,
+	// so we no longer assert on the literal "error" string.
+}
+
+func TestChangesSectionLeavesGapAfterToolBlocks(t *testing.T) {
+	sty := styles.DefaultStyles()
+	p := NewProcessingItem(&sty)
+	p.SetBlocks([]block.ContentBlock{{
+		Type:     block.BlockTool,
+		ToolName: "write",
+		Content:  "(wrote 1234 bytes)",
+		Done:     true,
+	}})
+
+	rendered := p.renderChangesSection(100)
+	if !strings.HasSuffix(rendered, "\n") {
+		t.Fatalf("changes section should leave a trailing newline after tool blocks:\n%s", rendered)
 	}
 }

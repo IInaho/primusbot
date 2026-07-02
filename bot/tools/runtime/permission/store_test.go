@@ -102,3 +102,47 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 		t.Fatal("allow must not match when deny also matches")
 	}
 }
+
+func TestRememberRuleRejectsEmptySpecifier(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	err := store.RememberRule("/repo", Rule{Tool: "bash", Effect: EffectAllow})
+	if err == nil {
+		t.Fatal("empty remembered specifier should be rejected")
+	}
+	if got := store.RememberedRules("/repo"); len(got) != 0 {
+		t.Fatalf("empty remembered rule should not persist, got %+v", got)
+	}
+}
+
+func TestRememberRuleCanonicalizesDuplicates(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	rules := []Rule{
+		{Tool: "Bash", Specifier: "  echo hi  ", Effect: EffectAllow},
+		{Tool: "bash", Specifier: "echo hi", Effect: EffectAllow},
+	}
+	for _, r := range rules {
+		if err := store.RememberRule("/repo", r); err != nil {
+			t.Fatalf("RememberRule: %v", err)
+		}
+	}
+	got := store.RememberedRules("/repo")
+	if len(got) != 1 {
+		t.Fatalf("expected one canonical remembered rule, got %+v", got)
+	}
+	if got[0].Tool != "bash" || got[0].Specifier != "echo hi" {
+		t.Fatalf("unexpected canonical rule: %+v", got[0])
+	}
+}
+
+func TestRememberRuleRejectsAutoBroadenedBashSpecifier(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	if err := store.RememberRule("/repo", Rule{Tool: "bash", Specifier: "echo *", Effect: EffectAllow}); err != nil {
+		t.Fatalf("command-scoped wildcard should be allowed: %v", err)
+	}
+	bad := []string{`echo "喵~ *`, "rm -rf *", "npm run:*"}
+	for _, spec := range bad {
+		if err := store.RememberRule("/repo", Rule{Tool: "bash", Specifier: spec, Effect: EffectAllow}); err == nil {
+			t.Fatalf("expected remembered bash spec %q to be rejected", spec)
+		}
+	}
+}

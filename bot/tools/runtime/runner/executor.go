@@ -123,14 +123,16 @@ func (e *Executor) SetWorkspace(workspace, home string) {
 }
 
 // rebuildEngine reconstructs the permission engine from decl + store +
-// workspace. Malformed declared rules fall back to the legacy confirm flow
-// with a stderr warning so the user fixes their config.
+// workspace. Malformed declared rules fail closed so a bad config cannot
+// silently disable the permission engine.
 func (e *Executor) rebuildEngine(decl permission.PermissionsDecl, store *permission.Store, workspace string) {
 	eng, err := permission.NewEngineForWorkspace(decl, store, workspace)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "permission: %v — using legacy confirm flow\n", err)
+		fmt.Fprintf(os.Stderr, "permission: %v — blocking tool calls until config is fixed\n", err)
+		eng = permission.NewEngine(permission.DefaultMatchers())
+		eng.SetRules([]permission.Rule{{Tool: "*", Effect: permission.EffectDeny, Source: "config-error"}})
 		e.fnMu.Lock()
-		e.permEngine = nil
+		e.permEngine = eng
 		e.fnMu.Unlock()
 		return
 	}

@@ -28,7 +28,9 @@ func analyzeCommand(cmdStr, workspace string) commandPlan {
 	}
 	syntax.Walk(file, func(node syntax.Node) bool {
 		switch n := node.(type) {
-		case *syntax.CmdSubst, *syntax.ProcSubst:
+		case *syntax.CmdSubst:
+			return true
+		case *syntax.ProcSubst:
 			plan.CommandClass = "unknown"
 			plan.Unknown = true
 		case *syntax.CallExpr:

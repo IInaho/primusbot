@@ -3,6 +3,7 @@ package block
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"nekocode/tui/styles"
 
@@ -20,12 +21,6 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 	toggle := ""
 	if running {
 		toggle = sty.Yellow.Render("…")
-	} else if b.Content != "" {
-		if b.Collapsed {
-			toggle = sty.Subtle.Render("▸")
-		} else {
-			toggle = sty.Subtle.Render("▾")
-		}
 	}
 
 	bullet, bulletStyle := styles.BulletForBlock(b.SubID, b.SubColor, sty.Teal)
@@ -35,24 +30,11 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 	} else if running {
 		nameStyle = sty.Yellow.Bold(true)
 	}
-	status := toolStatus(b, sty)
-	headPrefix := fmt.Sprintf("%s %s", bulletStyle.Render(bullet), nameStyle.Render(b.ToolName))
-	headSuffix := strings.TrimSpace(strings.Join([]string{status, toggle}, " "))
-	summaryW := width - lipgloss.Width(headPrefix) - lipgloss.Width(headSuffix) - 6
-	if summaryW < 12 {
-		summaryW = 12
-	}
-	summaryText := truncateForWidth(summary, summaryW)
-	header := "  " + headPrefix
-	if summaryText != "" {
-		header += " " + renderSummary(summaryText, sty)
-	}
-	if headSuffix != "" {
-		header += " " + headSuffix
-	}
-	accentLine := header
+	headPrefix := fmt.Sprintf("%s %s", bulletStyle.Render(bullet), nameStyle.Render(toolDisplayName(b.ToolName)))
+	headSuffix := strings.TrimSpace(strings.Join([]string{toolStatus(b, sty), toggle}, " "))
+	accentLine := renderToolHeader(headPrefix, summary, headSuffix, width, sty)
 
-	if running || b.Collapsed {
+	if running {
 		return accentLine
 	}
 
@@ -65,12 +47,70 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 func toolStatus(b ContentBlock, sty *styles.Styles) string {
 	switch {
 	case b.IsError:
-		return sty.Red.Render("error")
+		// Error is already conveyed by the red accent/glyph; no text label.
+		return ""
 	case !b.Done:
 		return sty.Yellow.Render("running")
 	default:
 		return ""
 	}
+}
+
+func toolDisplayName(toolName string) string {
+	if toolName == "bash" {
+		return "Ran"
+	}
+	return toolName
+}
+
+func renderToolHeader(headPrefix, summary, headSuffix string, width int, sty *styles.Styles) string {
+	headerPrefix := "  " + headPrefix
+	if summary == "" {
+		if headSuffix == "" {
+			return headerPrefix
+		}
+		return headerPrefix + " " + headSuffix
+	}
+
+	suffixW := 0
+	if headSuffix != "" {
+		suffixW = lipgloss.Width(headSuffix) + 1
+	}
+	firstW := width - lipgloss.Width(headerPrefix) - suffixW - 1
+	contPrefix := "    " + sty.Border.Render(styles.Vertical) + " "
+	contW := width - lipgloss.Width(contPrefix)
+	if contW < 8 {
+		contW = 8
+	}
+
+	var first string
+	var rest []string
+	if firstW >= 8 {
+		lines := wrapPlainForWidths(summary, firstW, contW)
+		if len(lines) > 0 {
+			first = lines[0]
+			rest = lines[1:]
+		}
+	} else {
+		rest = wrapPlainForWidths(summary, contW, contW)
+	}
+
+	var out strings.Builder
+	out.WriteString(headerPrefix)
+	if first != "" {
+		out.WriteByte(' ')
+		out.WriteString(renderSummary(first, sty))
+	}
+	if headSuffix != "" {
+		out.WriteByte(' ')
+		out.WriteString(headSuffix)
+	}
+	for _, line := range rest {
+		out.WriteByte('\n')
+		out.WriteString(contPrefix)
+		out.WriteString(renderSummary(line, sty))
+	}
+	return out.String()
 }
 
 func renderSummary(summary string, sty *styles.Styles) string {
@@ -84,39 +124,87 @@ func renderSummary(summary string, sty *styles.Styles) string {
 	return sty.Muted.Render(summary)
 }
 
+func wrapPlainForWidths(s string, firstW, restW int) []string {
+	if s == "" {
+		return nil
+	}
+	if firstW <= 0 {
+		firstW = restW
+	}
+	if restW <= 0 {
+		restW = firstW
+	}
+	var lines []string
+	remaining := strings.TrimSpace(s)
+	width := firstW
+	for remaining != "" {
+		line, rest := takeLineForWidth(remaining, width)
+		lines = append(lines, line)
+		remaining = strings.TrimLeft(strings.TrimRight(rest, " \t"), " \t\r\n")
+		width = restW
+	}
+	return lines
+}
+
+func takeLineForWidth(s string, width int) (string, string) {
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		prefix := strings.TrimRight(s[:idx], " \t\r")
+		if width <= 0 || lipgloss.Width(prefix) <= width {
+			return prefix, s[idx+1:]
+		}
+	}
+	if width <= 0 || lipgloss.Width(s) <= width {
+		return s, ""
+	}
+	bestByte := -1
+	lastByte := 0
+	for i, r := range s {
+		next := s[:i] + string(r)
+		if lipgloss.Width(next) > width {
+			break
+		}
+		lastByte = i + len(string(r))
+		if r == ' ' || r == '\t' {
+			bestByte = i
+		}
+	}
+	if bestByte > 0 {
+		return strings.TrimRight(s[:bestByte], " \t"), s[bestByte+1:]
+	}
+	if lastByte <= 0 {
+		_, size := utf8.DecodeRuneInString(s)
+		lastByte = size
+	}
+	return s[:lastByte], s[lastByte:]
+}
+
 func renderToolBody(rendered string, sty *styles.Styles) string {
 	if rendered == "" {
 		return ""
 	}
-	rail := sty.Border.Render(styles.Vertical)
+	return renderToolOutput(rendered, sty)
+}
+
+func renderToolOutput(rendered string, sty *styles.Styles) string {
+	corner := "└"
+	if styles.Vertical == "|" {
+		corner = "`"
+	}
 	var out strings.Builder
+	first := true
 	for line := range strings.SplitSeq(rendered, "\n") {
-		out.WriteString("    ")
-		out.WriteString(rail)
-		out.WriteString("  ")
+		if first {
+			out.WriteString("    ")
+			out.WriteString(sty.Border.Render(corner))
+			out.WriteString("  ")
+			first = false
+		} else {
+			out.WriteString("       ")
+		}
 		out.WriteString(line)
 		out.WriteByte('\n')
 	}
 	return strings.TrimRight(out.String(), "\n")
-}
-
-func truncateForWidth(s string, width int) string {
-	if width <= 0 || lipgloss.Width(s) <= width {
-		return s
-	}
-	if width <= 1 {
-		return "…"
-	}
-	runes := []rune(s)
-	var out strings.Builder
-	for _, r := range runes {
-		next := out.String() + string(r)
-		if lipgloss.Width(next)+1 > width {
-			break
-		}
-		out.WriteRune(r)
-	}
-	return out.String() + "…"
 }
 
 func editSummary(b ContentBlock) string {
@@ -356,13 +444,11 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 		}
 		return renderEditPreview(b.Content, contentW, sty)
 	case "diff":
-		// diff uses same format as edit (+NNN:text, -NNN:text, [path#TAG] header)
 		if b.IsError {
 			return sty.Muted.MaxWidth(contentW).Render(b.Content)
 		}
 		return renderEditPreview(b.Content, contentW, sty)
 	case "write":
-		// write uses diff format when showing changes
 		if b.IsError {
 			return sty.Muted.MaxWidth(contentW).Render(b.Content)
 		}
@@ -371,10 +457,10 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 		}
 		return sty.Muted.MaxWidth(contentW).Render(b.Content)
 	case "bash":
-		c := strings.TrimSpace(b.Content)
-		if c == "" {
+		if strings.TrimSpace(b.Content) == "" {
 			return sty.Subtle.Render("(No output)")
 		}
+		c := strings.TrimRight(b.Content, "\r\n")
 		lines := strings.Split(c, "\n")
 		if len(lines) <= 3 {
 			return sty.Muted.MaxWidth(contentW).Render(c)

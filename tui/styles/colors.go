@@ -21,11 +21,11 @@ const (
 	Red       = "#e06c75"
 	Blue      = "#7a8ba0"
 	DiffGreen = "#98c379"
-	DiffDelBg  = "#3d2020"
-	DiffAddBg  = "#1e3024"
-	BtnYesBg   = "#1e3024"
-	BtnNoBg    = "#3d2020"
-	BtnNoFg    = "#e06c75"
+	DiffDelBg = "#3d2020"
+	DiffAddBg = "#1e3024"
+	BtnYesBg  = "#1e3024"
+	BtnNoBg   = "#3d2020"
+	BtnNoFg   = "#e06c75"
 )
 
 const (

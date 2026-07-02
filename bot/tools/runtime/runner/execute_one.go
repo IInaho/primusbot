@@ -128,20 +128,25 @@ func (e *Executor) rememberAllowRule(toolName string, args map[string]any, match
 	if store == nil || ws == "" || engine == nil {
 		return
 	}
+	var rules []permission.Rule
 	// Build a specifier from the call: bash uses the command prefix, file
 	// tools use the path anchor. Fall back to the matched rule's specifier
 	// (so a broad ask rule remembered becomes a broad allow).
 	spec := matched.Specifier
 	if toolName == "bash" {
 		if cmd, _ := args["command"].(string); cmd != "" {
-			spec = bashRememberSpec(cmd)
+			for _, s := range bashRememberSpecs(cmd) {
+				rules = append(rules, permission.Rule{Tool: toolName, Specifier: s, Effect: permission.EffectAllow})
+			}
 		}
 	} else if p, _ := args["path"].(string); p != "" {
 		spec = pathRememberSpec(p, ws, home)
 	}
-	rule := permission.Rule{Tool: toolName, Specifier: spec, Effect: permission.EffectAllow}
-	if err := store.RememberRule(ws, rule); err != nil {
-		return
+	if len(rules) == 0 {
+		rules = append(rules, permission.Rule{Tool: toolName, Specifier: spec, Effect: permission.EffectAllow})
+	}
+	for _, rule := range rules {
+		_ = store.RememberRule(ws, rule)
 	}
 	e.rebuildEngine(decl, store, ws)
 }

@@ -46,22 +46,22 @@ func TestPermEngine_DeniesSudo(t *testing.T) {
 	}
 }
 
-func TestPermEngine_AllowsReadOnlyBash(t *testing.T) {
+func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
 	e := newPermTestExecutor()
-	called := false
+	asked := false
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		called = true
+		asked = true
 		return common.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "ls -la"}},
+		{ID: "1", Name: "bash", Args: map[string]any{"command": "go version"}},
 	})[0]
 	if r.Error != "" {
-		t.Fatalf("ls should be allowed without prompt, got error: %v", r.Error)
+		t.Fatalf("approved bash should run, got error: %v", r.Error)
 	}
-	if called {
-		t.Fatal("confirm should not be called for read-only ls (builtin allow)")
+	if !asked {
+		t.Fatal("unremembered bash command should ask")
 	}
 }
 
@@ -157,14 +157,108 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 		{ID: "1", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})
 
-	// Second rm call: remembered allow rule should skip the prompt.
+	// Same rm call: exact remembered allow rule should skip the prompt.
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "2", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/y"}},
+		{ID: "2", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})
 
 	mu.Lock()
+	if askCount != 1 {
+		t.Fatalf("expected 1 prompt for repeated exact command, got %d", askCount)
+	}
+	mu.Unlock()
+
+	// A different rm target is covered by the remembered command-level rule.
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "3", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/y"}},
+	})
+	mu.Lock()
 	defer mu.Unlock()
 	if askCount != 1 {
-		t.Fatalf("expected 1 prompt (remembered on 2nd), got %d", askCount)
+		t.Fatalf("remembered command-level rule should cover the same command with different args, got %d prompts", askCount)
+	}
+}
+
+func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
+	dir := t.TempDir()
+	store := permission.NewStore(dir + "/perms.json")
+	e := NewExecutor(fakeRegistry{
+		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+	})
+	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+
+	askCount := 0
+	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+		askCount++
+		return common.AllowRemembered()
+	})
+
+	cmd := `echo "喵~ 你好！" && date && uname -a`
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "1", Name: "bash", Args: map[string]any{"command": cmd}},
+	})
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "2", Name: "bash", Args: map[string]any{"command": cmd}},
+	})
+
+	if askCount != 1 {
+		t.Fatalf("expected repeated compound command to prompt once, got %d", askCount)
+	}
+}
+
+func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
+	dir := t.TempDir()
+	store := permission.NewStore(dir + "/perms.json")
+	e := NewExecutor(fakeRegistry{
+		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+	})
+	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+
+	askCount := 0
+	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+		askCount++
+		return common.AllowRemembered()
+	})
+
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "1", Name: "bash", Args: map[string]any{"command": `echo "喵~ 第一次！当前目录: $(pwd)" && date`}},
+	})
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "2", Name: "bash", Args: map[string]any{"command": `echo "喵~ 第二次！当前目录: $(pwd)" && date`}},
+	})
+
+	if askCount != 1 {
+		t.Fatalf("remembered echo/pwd/date command rules should cover changed echo text, got %d prompts", askCount)
+	}
+}
+
+func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
+	dir := t.TempDir()
+	store := permission.NewStore(dir + "/perms.json")
+	for _, spec := range []string{"echo *", "date", "uname *"} {
+		if err := store.RememberRule("/repo", permission.Rule{Tool: "bash", Specifier: spec, Effect: permission.EffectAllow}); err != nil {
+			t.Fatalf("RememberRule(%q): %v", spec, err)
+		}
+	}
+	e := NewExecutor(fakeRegistry{
+		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+	})
+	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+
+	asked := false
+	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+		asked = true
+		return common.AllowOnce()
+	})
+
+	cmd := `echo "=== Go 版本 ===" && go version && echo "" && echo "=== 项目模块 ===" && head -5 go.mod && echo "" && echo "=== 最近 git 日志 ===" && git log --oneline -5`
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "1", Name: "bash", Args: map[string]any{"command": cmd}},
+	})
+	if !asked {
+		t.Fatal("compound bash with unremembered go/head/git subcommands should ask")
 	}
 }

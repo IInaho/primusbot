@@ -91,6 +91,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		input, cmd := m.Input.Update(msg)
 		m.Input = input
+		m.refreshSuggestions()
 		return m, cmd
 
 	case tea.MouseMsg:

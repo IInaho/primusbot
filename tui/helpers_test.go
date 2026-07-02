@@ -16,3 +16,19 @@ func TestFormatBriefArgsKeepsPairSyntax(t *testing.T) {
 		t.Fatalf("edit args = %q, want path", got)
 	}
 }
+
+func TestFormatBriefArgsUnquotesBashCommandPreview(t *testing.T) {
+	got := formatBriefArgs("bash", `command="echo \"Hello from bash! Current directory: $(pwd)\" && date"`)
+	want := `echo "Hello from bash! Current directory: $(pwd)" && date`
+	if got != want {
+		t.Fatalf("bash args = %q, want %q", got, want)
+	}
+}
+
+func TestFormatBriefArgsKeepsFullLongBashCommand(t *testing.T) {
+	cmd := `go test ./tui/... ./bot/... ./common/... ./guiapp/... ./bot/tools/... ./bot/agent/... ./bot/contextmgr/...`
+	got := formatBriefArgs("bash", `{"command":"`+cmd+`"}`)
+	if got != cmd {
+		t.Fatalf("bash args should keep full command:\ngot  %q\nwant %q", got, cmd)
+	}
+}

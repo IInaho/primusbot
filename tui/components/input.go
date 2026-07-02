@@ -37,7 +37,8 @@ func NewInput(width int) *Input {
 	ta.Focus()
 	ta.CharLimit = charLimit
 	ta.MaxHeight = maxInputLines
-	ta.SetHeight(maxInputLines)
+	ta.MinHeight = 1
+	ta.DynamicHeight = true
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"))
 
@@ -49,15 +50,15 @@ func NewInput(width int) *Input {
 
 	prompt := styles.CatEyeStyle.Bold(true).Render("┃ ")
 	ta.SetPromptFunc(promptCols, func(info textarea.PromptInfo) string { return prompt })
-	ta.SetWidth(width)
+	ta.SetWidth(max(1, width))
 
 	return &Input{textarea: ta, width: width, follow: true}
 }
 
-func (i *Input) SetWidth(width int) { i.width = width; i.textarea.SetWidth(width) }
+func (i *Input) SetWidth(width int) { i.width = width; i.textarea.SetWidth(max(1, width)) }
 func (i *Input) Width() int         { return i.width }
 
-func (i *Input) Value() string { return strings.TrimRight(i.textarea.Value(), "\n\t\r ") }
+func (i *Input) Value() string     { return strings.TrimRight(i.textarea.Value(), "\n\t\r ") }
 func (i *Input) SetValue(v string) { i.textarea.SetValue(v) }
 func (i *Input) SetCursorEnd()     { i.textarea.MoveToEnd() }
 
@@ -127,25 +128,7 @@ func (i *Input) CanCursorDown() bool {
 	return i.textarea.Line() < i.textarea.LineCount()-1 || info.RowOffset < info.Height-1
 }
 
-func (i *Input) visualLines() int {
-	text := i.textarea.Value()
-	tw := i.width - promptCols
-	if tw < 1 {
-		tw = 1
-	}
-	n := 0
-	for line := range strings.SplitSeq(text, "\n") {
-		rl := len([]rune(line))
-		if rl == 0 {
-			n++
-		} else {
-			n += (rl + tw - 1) / tw
-		}
-	}
-	return n
-}
-
-func (i *Input) Height() int { return 4 + min(max(i.visualLines(), 1), maxInputLines) }
+func (i *Input) Height() int { return 4 + i.textarea.Height() }
 
 func (i *Input) Cursor() *tea.Cursor {
 	c := i.textarea.Cursor()
@@ -171,13 +154,7 @@ func (i *Input) View() string {
 	w := max(20, i.width)
 	line := styles.BorderStyle.Render(strings.Repeat(styles.Horizontal, w))
 
-	tv := i.textarea.View()
-	if n := min(max(i.visualLines(), 1), maxInputLines); n < maxInputLines {
-		lines := strings.Split(tv, "\n")
-		if len(lines) > n {
-			tv = strings.Join(lines[:n], "\n")
-		}
-	}
+	tv := strings.TrimRight(i.textarea.View(), "\n")
 
 	txt := "Auto"
 	if !i.follow {

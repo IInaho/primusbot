@@ -20,5 +20,5 @@ func RenderTools(blocks []ContentBlock, width int, sty *styles.Styles) string {
 	for _, b := range blocks {
 		lines = append(lines, renderToolLine(b, cardW, sty))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }

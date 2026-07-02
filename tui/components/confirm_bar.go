@@ -88,13 +88,7 @@ func (c *ConfirmBar) options() []confirmOption {
 		{Label: "仅本次允许", Action: func(c *ConfirmBar) { c.Respond(true, false) }},
 	}
 	if c.CanRemember() {
-		// Privileged tools (bash) may also need capability escalation later,
-		// so flag AllowWithPermission; other tools just persist a Rule.
-		if c.req.CanEscalatePermission {
-			opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.RespondWithPermission(true, true) }})
-		} else {
-			opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.Respond(true, true) }})
-		}
+		opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.Respond(true, true) }})
 	}
 	opts = append(opts, confirmOption{Label: "拒绝", Action: func(c *ConfirmBar) { c.Respond(false, false) }})
 	return opts
@@ -136,8 +130,9 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 	contentW := max(40, width-6)
 	maxLines := confirmMaxLines(termHeight)
 
-	title := c.sty.Primary.Bold(true).Render("  Confirm")
-	prefix := "┌─  Confirm "
+	titleText := c.titleText()
+	title := c.sty.Primary.Bold(true).Render("  " + titleText)
+	prefix := "┌─  " + titleText + " "
 	rightLen := max(0, barW-lipgloss.Width(prefix)-1)
 	rightDash := c.sty.Border.Render(strings.Repeat(styles.Horizontal, rightLen) + "┐")
 	titleBar := c.sty.Border.Render("┌─") + title + " " + rightDash
@@ -157,10 +152,7 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 		descLines = descLines[:maxLines]
 	}
 
-	levelTag := c.sty.Yellow.Render("[" + c.req.Level.String() + "]")
-	if c.req.Level == common.LevelForbidden {
-		levelTag = c.sty.Red.Render("[" + c.req.Level.String() + "]")
-	}
+	levelTag := c.levelText()
 
 	opts := c.options()
 
@@ -207,6 +199,28 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 	return b.String()
 }
 
+func (c *ConfirmBar) titleText() string {
+	if c.isPermissionConfirm() {
+		return "权限确认"
+	}
+	return "Confirm"
+}
+
+func (c *ConfirmBar) levelText() string {
+	if c.isPermissionConfirm() {
+		scope, _ := c.req.Args["permission_scope"].(string)
+		if scope == "once" {
+			return c.sty.Yellow.Render("临时授权")
+		}
+		return c.sty.Yellow.Render("可记住")
+	}
+	levelTag := c.sty.Yellow.Render("[" + c.req.Level.String() + "]")
+	if c.req.Level == common.LevelForbidden {
+		levelTag = c.sty.Red.Render("[" + c.req.Level.String() + "]")
+	}
+	return levelTag
+}
+
 func (c *ConfirmBar) descLines(maxW int) []string {
 	desc := c.formatDesc()
 	if desc == "" {
@@ -251,31 +265,80 @@ func (c *ConfirmBar) isPermissionConfirm() bool {
 
 func (c *ConfirmBar) formatPermissionDesc() string {
 	var lines []string
-	if cmd, ok := c.req.Args["command"].(string); ok && cmd != "" {
-		lines = append(lines, common.FormatCommandPreview(cmd, 600))
-	} else {
-		lines = append(lines, c.req.ToolName)
-	}
+	lines = append(lines, permissionSummary(c.req))
 	if reason, ok := c.req.Args["permission_reason"].(string); ok && reason != "" {
-		lines = append(lines, "Permission: "+reason)
+		lines = append(lines, "原因: "+friendlyPermissionReason(reason))
 	}
 	if caps, ok := c.req.Args["permission_capabilities"].(string); ok && caps != "" {
-		lines = append(lines, "Capabilities: "+caps)
+		lines = append(lines, "权限: "+friendlyCapabilities(caps))
 	}
 	if scope, ok := c.req.Args["permission_scope"].(string); ok && scope != "" {
-		if scope == "project" {
-			lines = append(lines, "Scope: project (can be remembered for this workspace)")
-		} else {
-			lines = append(lines, "Scope: "+scope)
-		}
+		lines = append(lines, "范围: "+friendlyPermissionScope(scope))
 	}
 	if workspace, ok := c.req.Args["workspace"].(string); ok && workspace != "" {
-		lines = append(lines, "Workspace: "+workspace)
-	}
-	if class, ok := c.req.Args["commandClass"].(string); ok && class != "" {
-		lines = append(lines, "Command class: "+class)
+		lines = append(lines, "工作区: "+workspace)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func permissionSummary(req *common.ConfirmRequest) string {
+	if req == nil {
+		return "需要确认权限"
+	}
+	scope, _ := req.Args["permission_scope"].(string)
+	switch scope {
+	case "once":
+		return "需要临时授权"
+	case "project":
+		return "需要项目级授权"
+	}
+	return "需要确认权限"
+}
+
+func friendlyPermissionReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case "command contains dynamic shell syntax that cannot be safely persisted":
+		return "命令包含动态 Shell 语法，无法安全记住为固定规则。"
+	case "command requires public network access":
+		return "命令需要访问公共网络。"
+	}
+	return reason
+}
+
+func friendlyCapabilities(caps string) string {
+	parts := strings.Split(caps, ",")
+	var out []string
+	for _, part := range parts {
+		cap := strings.TrimSpace(part)
+		if cap == "" {
+			continue
+		}
+		switch cap {
+		case "shell.unknown":
+			out = append(out, "动态 Shell")
+		case "net.public":
+			out = append(out, "公共网络")
+		case "cache.write":
+			out = append(out, "写入缓存")
+		case "process.host":
+			out = append(out, "主机执行")
+		default:
+			out = append(out, cap)
+		}
+	}
+	return strings.Join(out, "、")
+}
+
+func friendlyPermissionScope(scope string) string {
+	switch strings.TrimSpace(scope) {
+	case "once":
+		return "仅本次，不会记住"
+	case "project":
+		return "当前工作区，可选择记住"
+	case "":
+		return ""
+	}
+	return scope
 }
 
 func wrapText(text string, maxW int) []string {

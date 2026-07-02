@@ -122,11 +122,13 @@ export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: Activ
           {step.toolName === 'edit' && editSum && (
             <span className="shrink-0 font-mono text-[11px] text-success">{editSum}</span>
           )}
-          <span
-            className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${badgeCls}`}
-          >
-            {statusText}
-          </span>
+          {statusText && (
+            <span
+              className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${badgeCls}`}
+            >
+              {statusText}
+            </span>
+          )}
           {canExpand && !expanded && (
             <span className="sr-only">展开查看工具输出</span>
           )}
@@ -139,7 +141,7 @@ export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: Activ
 
 function statusLabel(s: ToolStep): string {
   if (s.status === 'blocked') return '阻止'
-  if (s.isError) return '错误'
+  if (s.isError) return '' // red tape + glyph already signal the error
   switch (s.status) {
     case 'running': return '运行中'
     case 'done': return '完成'

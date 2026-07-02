@@ -3,23 +3,60 @@ package runner
 import (
 	"path/filepath"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
-// bashRememberSpec derives a command-prefix specifier to remember when the
-// user approves a bash command with "remember". "npm run build" → "npm run *"
-// (broaden to the first two words so similar commands auto-approve). Single-
-// word commands stay exact.
-func bashRememberSpec(cmd string) string {
+func bashRememberSpecs(cmd string) []string {
 	cmd = strings.TrimSpace(cmd)
-	fields := strings.Fields(cmd)
-	switch {
-	case len(fields) == 0:
-		return ""
-	case len(fields) == 1:
-		return fields[0]
-	default:
-		return fields[0] + " " + fields[1] + " *"
+	if cmd == "" {
+		return nil
 	}
+	parser := syntax.NewParser()
+	file, err := parser.Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return []string{cmd}
+	}
+	seen := map[string]bool{}
+	var specs []string
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		name := literalShellWord(call.Args[0])
+		if name == "" {
+			return true
+		}
+		spec := name
+		if len(call.Args) > 1 {
+			spec = name + " *"
+		}
+		if !seen[spec] {
+			seen[spec] = true
+			specs = append(specs, spec)
+		}
+		return true
+	})
+	if len(specs) == 0 {
+		return []string{cmd}
+	}
+	return specs
+}
+
+func literalShellWord(w *syntax.Word) string {
+	if w == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, part := range w.Parts {
+		lit, ok := part.(*syntax.Lit)
+		if !ok {
+			return ""
+		}
+		b.WriteString(lit.Value)
+	}
+	return b.String()
 }
 
 // pathRememberSpec derives a path specifier to remember for file tools.
@@ -42,10 +79,12 @@ func pathRememberSpec(p, workspace, home string) string {
 		}
 	}
 	if rel != "" {
-		// remember the parent directory as a writable tree
+		// Remember the parent directory as a writable tree. A file in the
+		// workspace root stays exact; broadening it to "/" would allow the
+		// entire workspace.
 		dir := filepath.ToSlash(filepath.Dir(rel))
 		if dir == "/." || dir == "/" {
-			return "/" // whole workspace
+			return rel
 		}
 		return dir + "/**"
 	}

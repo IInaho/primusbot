@@ -15,26 +15,32 @@ import (
 // Tools without a known matcher just get an empty map (the engine treats a
 // scoped rule with no matcher as non-matching; a bare rule still applies).
 func BuildCallInfo(toolName string, args map[string]any, workspace, home string) map[string]any {
+	withTool := func(info map[string]any) map[string]any {
+		info["tool"] = toolName
+		return info
+	}
 	switch toolName {
 	case "bash", "shell":
 		if cmd, _ := args["command"].(string); cmd != "" {
-			return CallInfoForBash(cmd)
+			return withTool(CallInfoForBash(cmd))
 		}
-	case "read", "edit", "write", "glob", "grep", "list", "tree":
+	case "read", "edit", "write", "grep", "list", "tree":
+		path, _ := args["path"].(string)
+		return withTool(CallInfoForPath(path, workspace, home))
+	case "glob":
 		path, _ := args["path"].(string)
 		if path == "" {
-			// glob/grep use "pattern"; treat it as a path-ish input
 			path, _ = args["pattern"].(string)
 		}
-		return CallInfoForPath(path, workspace, home)
+		return withTool(CallInfoForPath(path, workspace, home))
 	case "web_fetch", "webfetch":
 		if u, _ := args["url"].(string); u != "" {
-			return CallInfoForDomain(hostFromURL(u))
+			return withTool(CallInfoForDomain(hostFromURL(u)))
 		}
 	}
 	// Unknown tool or missing field: empty map → a scoped rule can't match
 	// (no matcher), but a bare "Tool" rule still applies.
-	return map[string]any{}
+	return map[string]any{"tool": toolName}
 }
 
 // hostFromURL extracts the hostname from a URL string; returns the input

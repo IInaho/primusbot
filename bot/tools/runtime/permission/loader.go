@@ -61,6 +61,11 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 
 	// 3. remembered rules (user approved at an ask prompt)
 	for _, r := range src.Remembered {
+		var err error
+		r, err = canonicalRememberedRule(r)
+		if err != nil {
+			continue
+		}
 		if r.Source == "" {
 			r.Source = "remembered"
 		}

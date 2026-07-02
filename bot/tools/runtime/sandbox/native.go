@@ -114,10 +114,18 @@ func RunNativeBash(ctx context.Context, command string, profile BashProfile, tim
 		Setpgid:                    true,
 	}
 
-	// Namespace creation (user/mount/pid/...) fails with EPERM on kernels or
-	// container runtimes that disable user namespaces; classify that so the
-	// router can fall back to the Landlock backend.
+	// Namespace creation or the child's mount setup can fail on kernels /
+	// container runtimes / CI that restrict user namespaces or mount calls.
+	// Classify those as UnavailableError so the router falls back to Landlock.
+	// The child setup failures are prefixed "sandbox child:"; we match that
+	// plus EPERM/EACCES to avoid misclassifying an EACCES from the command
+	// itself (e.g. writing /etc) which would not carry the child prefix.
 	unavail := func(stderr string, runErr error) bool {
+		if strings.Contains(stderr, "sandbox child:") &&
+			(strings.Contains(stderr, "operation not permitted") ||
+				strings.Contains(stderr, "permission denied")) {
+			return true
+		}
 		return strings.Contains(stderr, "operation not permitted") ||
 			strings.Contains(runErr.Error(), "operation not permitted")
 	}
@@ -260,12 +268,7 @@ func sandboxChildSetupAndExec(profile BashProfile, command string) error {
 	}
 
 	// 5. Environment + exec the command.
-	env := []string{
-		"HOME=" + hostHome(),
-		"PATH=" + sandboxPath(),
-		"LC_ALL=C.UTF-8",
-		"TERM=xterm-256color",
-	}
+	env := buildSandboxEnv()
 
 	shells := []string{"/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"}
 	var lastErr error
@@ -361,6 +364,58 @@ func hostHome() string {
 		return h
 	}
 	return "/root"
+}
+
+// buildSandboxEnv builds the environment for the sandboxed command.
+//
+// It inherits the host environment so NixOS-specific variables that the
+// profile / home-manager / nix-shell set are preserved:
+//
+//   - NIX_SSL_CERT_FILE / SSL_CERT_FILE: CA bundle path inside /nix/store;
+//     without it curl/go/git TLS verification fails.
+//   - GOROOT / GOPATH / GOMODCACHE: Go toolchain resolution.
+//   - NIX_PATH / NIX_PROFILES: nix commands.
+//   - locale, TERM_PROGRAM, COLORTERM, etc.
+//
+// Sandbox-control variables (__SANDBOX_*, NEKOCODE_*) are scrubbed so the
+// command cannot accidentally re-enter the helper. HOME/PATH/LC_ALL/TERM are
+// overridden: HOME points at the real home (cache bind mounts live there),
+// PATH is inherited (host PATH already covers /nix/store, home-manager, and
+// user-installed bins — all of which are either bind-mounted ro or resolved
+// through the inherited PATH).
+func buildSandboxEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "__SANDBOX_") || strings.HasPrefix(kv, "NEKOCODE_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = sandboxPath()
+	}
+	for k, v := range map[string]string{
+		"HOME":   hostHome(),
+		"PATH":   path,
+		"LC_ALL": "C.UTF-8",
+		"TERM":   "xterm-256color",
+	} {
+		env = setEnv(env, k, v)
+	}
+	return env
+}
+
+// setEnv replaces (or appends) the value of env key k in the KEY=VAL list.
+func setEnv(env []string, k, v string) []string {
+	prefix := k + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + v
+			return env
+		}
+	}
+	return append(env, prefix+v)
 }
 
 // sandboxPath builds PATH for the sandboxed shell. On NixOS the real

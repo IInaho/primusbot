@@ -201,9 +201,6 @@ func (p *ProcessingItem) finishToolBlock(subID, toolName, output string) {
 			b.Content = output
 		}
 		b.Done = true
-		if block.IsPersistent(toolName) {
-			b.Collapsed = false
-		}
 		p.invalidate()
 		return
 	}

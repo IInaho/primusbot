@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"nekocode/tui/components/block"
-	"nekocode/tui/components/processing"
 	"nekocode/tui/components/message"
+	"nekocode/tui/components/processing"
 	"nekocode/tui/styles"
 
 	tea "charm.land/bubbletea/v2"
@@ -202,32 +202,22 @@ func (m *Messages) GotoBottom() {
 	m.SetFollow(true)
 }
 
-// ToggleLastAssistant 展开/折叠最后一个助手消息的工具块。
-func (m *Messages) ToggleLastAssistant() {
-	items := m.Items()
-	for i := len(items) - 1; i >= 0; i-- {
-		if a, ok := items[i].(*message.AssistantMessageItem); ok {
-			if a.ToggleAny() {
-				m.InvalidateItem(i)
-				return
-			}
-		}
-	}
-}
-
-
 func (m *Messages) Update(msg tea.Msg) (*Messages, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up":
 			m.ScrollBy(-1)
-			if m.Processing { m.SetFollow(false) }
+			if m.Processing {
+				m.SetFollow(false)
+			}
 		case "down":
 			m.ScrollBy(1)
 		case "pgup":
 			m.ScrollBy(-m.Height())
-			if m.Processing { m.SetFollow(false) }
+			if m.Processing {
+				m.SetFollow(false)
+			}
 		case "pgdown":
 			m.ScrollBy(m.Height())
 		}
@@ -236,7 +226,9 @@ func (m *Messages) Update(msg tea.Msg) (*Messages, tea.Cmd) {
 		switch mev.Button {
 		case tea.MouseWheelUp:
 			m.ScrollBy(-3)
-			if m.Processing { m.SetFollow(false) }
+			if m.Processing {
+				m.SetFollow(false)
+			}
 		case tea.MouseWheelDown:
 			m.ScrollBy(3)
 		}
@@ -252,4 +244,3 @@ func (m *Messages) Update(msg tea.Msg) (*Messages, tea.Cmd) {
 
 	return m, nil
 }
-

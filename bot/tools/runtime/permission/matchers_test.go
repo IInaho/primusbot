@@ -51,6 +51,48 @@ func TestBashMatcherCompoundMustMatchAll(t *testing.T) {
 	}
 }
 
+func TestBashMatcherIsShellAware(t *testing.T) {
+	m := BashMatcher{}
+	got, _ := m.Match("echo *", map[string]any{"command": `echo "a && b"`})
+	if !got {
+		t.Fatal("quoted shell separators must not split the command")
+	}
+	got, _ = m.Match("grep *", map[string]any{"command": `grep "x|y" file.txt`})
+	if !got {
+		t.Fatal("quoted pipe must not split the command")
+	}
+}
+
+func TestBashMatcherExactCompoundCommand(t *testing.T) {
+	m := BashMatcher{}
+	cmd := `echo "喵~ 你好！" && date && uname -a`
+	got, _ := m.Match(cmd, map[string]any{"command": cmd})
+	if !got {
+		t.Fatal("exact remembered compound command should match the same command")
+	}
+	got, _ = m.Match(cmd, map[string]any{"command": `echo "喵~ 你好！" && date`})
+	if got {
+		t.Fatal("exact remembered compound command must not match a different command")
+	}
+}
+
+func TestBashDenyMatchesAnySubcommand(t *testing.T) {
+	info := map[string]any{"command": "ls -la && sudo rm -rf /tmp/x"}
+	if !BashRuleMatches("sudo *", info, MatchAnySubcommand) {
+		t.Fatal("deny-style matching should catch sudo in any subcommand")
+	}
+	if BashRuleMatches("ls *", info, MatchAllSubcommands) {
+		t.Fatal("allow-style matching still requires every subcommand to match")
+	}
+}
+
+func TestBashDenyMatchesCommandSubstitution(t *testing.T) {
+	info := map[string]any{"command": "echo $(sudo rm -rf /tmp/x)"}
+	if !BashRuleMatches("sudo *", info, MatchAnySubcommand) {
+		t.Fatal("deny-style matching should catch sudo inside command substitution")
+	}
+}
+
 func TestBashMatcherStripsWrappers(t *testing.T) {
 	m := BashMatcher{}
 	got, _ := m.Match("npm run *", map[string]any{"command": "timeout 30 npm run test"})
@@ -167,6 +209,9 @@ func TestDefaultMatchers(t *testing.T) {
 	}
 	if m["web_fetch"] == nil {
 		t.Fatal("web_fetch matcher missing")
+	}
+	if m["mcp"] == nil {
+		t.Fatal("mcp matcher missing")
 	}
 }
 

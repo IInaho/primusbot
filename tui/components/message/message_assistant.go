@@ -21,34 +21,6 @@ type AssistantMessageItem struct {
 	mu              sync.Mutex
 }
 
-// ToggleAny 展开最后一个折叠的工具块；全展开时折叠最后一个。无工具块返回 false。
-func (m *AssistantMessageItem) ToggleAny() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	lastCollapsed, lastExpanded := -1, -1
-	for i := range m.blocks {
-		if m.blocks[i].Type != block.BlockTool || m.blocks[i].Content == "" {
-			continue
-		}
-		if m.blocks[i].Collapsed {
-			lastCollapsed = i
-		}
-		if !m.blocks[i].Collapsed {
-			lastExpanded = i
-		}
-	}
-	target := lastCollapsed
-	if target < 0 {
-		target = lastExpanded
-	}
-	if target < 0 {
-		return false
-	}
-	m.blocks[target].Collapsed = !m.blocks[target].Collapsed
-	m.cache = cachedRender{}
-	return true
-}
-
 func NewAssistantMessageItem(sty *styles.Styles, content string) *AssistantMessageItem {
 	return &AssistantMessageItem{content: content, sty: sty}
 }
@@ -62,13 +34,6 @@ func (m *AssistantMessageItem) SetRenderedContent(content string) {
 
 func (m *AssistantMessageItem) SetBlocks(blocks []block.ContentBlock) {
 	m.mu.Lock()
-	// 默认最后一个工具块展开。
-	for i := len(blocks) - 1; i >= 0; i-- {
-		if blocks[i].Type == block.BlockTool && blocks[i].Content != "" {
-			blocks[i].Collapsed = false
-			break
-		}
-	}
 	m.blocks = blocks
 	m.cache = cachedRender{}
 	m.mu.Unlock()
@@ -113,13 +78,13 @@ func (m *AssistantMessageItem) Render(width int) string {
 		if len(m.blocks) > 0 {
 			msgParts = append(msgParts, "")
 		}
-		msgParts = append(msgParts, body)
+		msgParts = append(msgParts, stripLeadingSpaces(body))
 	}
 	if m.footer != "" {
 		msgParts = append(msgParts, "", styles.SubtleStyle.Render(m.footer))
 	}
 
-	msgBlock := thickLeftBar(stripLeadingSpaces(strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left, msgParts...))), lipgloss.Color(styles.Primary), cw)
+	msgBlock := thickLeftBar(strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left, msgParts...)), lipgloss.Color(styles.Primary), cw)
 
 	m.cache.rendered = msgBlock
 	m.cache.width = cw

@@ -15,12 +15,19 @@ func TestAnalyzeCommandDetectsNetworkAndCache(t *testing.T) {
 	}
 }
 
-func TestAnalyzeCommandMarksDynamicShellUnknown(t *testing.T) {
-	plan := analyzeCommand("echo $(whoami)", "/repo")
-	if !plan.Unknown {
-		t.Fatal("command substitution should be unknown")
+func TestAnalyzeCommandParsesLiteralCommandSubstitution(t *testing.T) {
+	plan := analyzeCommand("echo $(pwd)", "/repo")
+	if plan.Unknown {
+		t.Fatal("literal command substitution should be analyzed, not marked unknown")
 	}
-	if plan.CommandClass != "unknown" {
-		t.Fatalf("CommandClass = %q, want unknown", plan.CommandClass)
+	if plan.CommandClass != "read-only" {
+		t.Fatalf("CommandClass = %q, want read-only", plan.CommandClass)
+	}
+}
+
+func TestAnalyzeCommandMarksDynamicCommandNameUnknown(t *testing.T) {
+	plan := analyzeCommand("echo $($RUNNER)", "/repo")
+	if !plan.Unknown {
+		t.Fatal("dynamic command name should be unknown")
 	}
 }

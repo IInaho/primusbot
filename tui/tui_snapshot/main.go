@@ -51,6 +51,7 @@ func renderConfirmations() string {
 		renderConfirmEdit(),
 		renderConfirmBashMassive(),
 		renderConfirmPermission(),
+		renderConfirmShellUnknown(),
 		renderConfirmWrite(),
 		renderConfirmPlugin(),
 	)
@@ -126,6 +127,25 @@ func renderConfirmPermission() string {
 	return cb.View(width, 40)
 }
 
+func renderConfirmShellUnknown() string {
+	cb := components.NewConfirmBar(&sty)
+	cb.SetRequest(&common.ConfirmRequest{
+		ToolName: "bash",
+		Args: map[string]any{
+			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
+			"permission_reason":       "command contains dynamic shell syntax that cannot be safely persisted",
+			"permission_capabilities": "shell.unknown",
+			"permission_scope":        "once",
+			"workspace":               "/home/lznauy/precode/NekoCode",
+			"commandClass":            "unknown",
+			"sandbox":                 "native",
+		},
+		Level:    common.LevelDestructive,
+		Response: make(chan common.ConfirmReply, 1),
+	})
+	return cb.View(width, 40)
+}
+
 func renderConfirmWrite() string {
 	cb := components.NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
@@ -158,36 +178,32 @@ func renderConfirmPlugin() string {
 func renderToolBlocks() string {
 	return block.RenderTools([]block.ContentBlock{
 		{
-			Type:      block.BlockTool,
-			ToolName:  "edit",
-			ToolArgs:  "tool_edit.go",
-			Content:   "[bot/tools/builtin/tool_edit.go#C5E8]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)",
-			Collapsed: false,
-			Done:      true,
+			Type:     block.BlockTool,
+			ToolName: "edit",
+			ToolArgs: "tool_edit.go",
+			Content:  "[bot/tools/builtin/tool_edit.go#C5E8]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)",
+			Done:     true,
 		},
 		{
-			Type:      block.BlockTool,
-			ToolName:  "bash",
-			ToolArgs:  "go test ./...",
-			Content:   "ok      nekocode/bot/tools      0.123s\nok      nekocode/tui             0.089s",
-			Collapsed: false,
-			Done:      true,
+			Type:     block.BlockTool,
+			ToolName: "bash",
+			ToolArgs: "git status --short tui/components/block/block_render.go tui/components/block/block_tool.go tui/components/block/block_tool_test.go tui/styles/colors.go tui/components/processing/processing_test.go",
+			Content:  " M tui/components/block/block_render.go\n M tui/components/block/block_tool.go\n M tui/components/block/block_tool_test.go\n M tui/components/processing/processing_test.go\n M tui/styles/colors.go",
+			Done:     true,
 		},
 		{
-			Type:      block.BlockTool,
-			ToolName:  "write",
-			ToolArgs:  "/tmp/nekocode/testing/report.json",
-			Content:   "(wrote 1234 bytes)",
-			Collapsed: false,
-			Done:      true,
+			Type:     block.BlockTool,
+			ToolName: "write",
+			ToolArgs: "/tmp/nekocode/testing/report.json",
+			Content:  "(wrote 1234 bytes)",
+			Done:     true,
 		},
 		{
-			Type:      block.BlockTool,
-			ToolName:  "read",
-			ToolArgs:  "main.go 1-50",
-			Content:   "[main.go#A1B2]\n1:package main\n2:\n3:import (\n4:\t\"fmt\"\n5:\t\"os\"\n6:)\n7:\n8:func main() {\n9:\tfmt.Println(\"hello\")\n10:}",
-			Collapsed: true,
-			Done:      true,
+			Type:     block.BlockTool,
+			ToolName: "read",
+			ToolArgs: "main.go 1-50",
+			Content:  "[main.go#A1B2]\n1:package main\n2:\n3:import (\n4:\t\"fmt\"\n5:\t\"os\"\n6:)\n7:\n8:func main() {\n9:\tfmt.Println(\"hello\")\n10:}",
+			Done:     true,
 		},
 	}, width-10, &sty)
 }
@@ -215,22 +231,21 @@ func renderProcessingActive() string {
 	// Activity tools
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "tool_edit.go 1-100",
-		Content: "[tool_edit.go#A1B2]\n1:package builtin\n...", Collapsed: true, Done: true,
+		Content: "[tool_edit.go#A1B2]\n1:package builtin\n...", Done: true,
 	})
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "grep", ToolArgs: "Description tool_edit.go",
-		Content: "120:    desc := \"Edit text in files...\"", Collapsed: true, Done: true,
+		Content: "120:    desc := \"Edit text in files...\"", Done: true,
 	})
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "tool_edit_test.go 1-80",
-		Content: "[tool_edit_test.go#C3D4]\n1:package builtin\n...", Collapsed: true, Done: true,
+		Content: "[tool_edit_test.go#C3D4]\n1:package builtin\n...", Done: true,
 	})
 
 	// Changes (edit) — formatHunkDiff format
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "edit", ToolArgs: "tool_edit.go",
-		Content:   "[tool_edit.go#E5F6]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)",
-		Collapsed: false, Done: true,
+		Content: "[tool_edit.go#E5F6]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)", Done: true,
 	})
 
 	p.AppendThinkingText("Let me update the Description to be more precise and merge overlapping rules...\nThe current description is 121 lines, target ~100.")
@@ -269,42 +284,41 @@ func renderProcessingSubAgent() string {
 	// Main agent tools (ฅ teal)
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "run_exec.go 1-100",
-		Content: "[run_exec.go#A1B2]\n1:package agent\n...", Collapsed: true, Done: true,
+		Content: "[run_exec.go#A1B2]\n1:package agent\n...", Done: true,
 	})
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "task", ToolArgs: "researcher, edit logic audit",
-		Content: "Sub-agent researcher completed: found 3 issues in run_exec.go", Collapsed: true, Done: true,
+		Content: "Sub-agent researcher completed: found 3 issues in run_exec.go", Done: true,
 	})
 
 	// Sub-agent researcher tools (೬ red #e57373)
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "run_exec.go 50-120",
-		Content: "[run_exec.go#C3D4]\n50:func (a *Agent)...", Collapsed: true, Done: true,
+		Content: "[run_exec.go#C3D4]\n50:func (a *Agent)...", Done: true,
 		SubID: "a1b2", SubColor: 0,
 	})
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "grep", ToolArgs: "executeAndFeedback .",
-		Content: "53:func (a *Agent) executeAndFeedback(calls...", Collapsed: true, Done: true,
+		Content: "53:func (a *Agent) executeAndFeedback(calls...", Done: true,
 		SubID: "a1b2", SubColor: 0,
 	})
 
 	// Sub-agent executor tools (೬ orange #ffb74d)
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "subslot.go 1-60",
-		Content: "[subslot.go#E5F6]\n1:package agent\n...", Collapsed: true, Done: true,
+		Content: "[subslot.go#E5F6]\n1:package agent\n...", Done: true,
 		SubID: "c3d4", SubColor: 3,
 	})
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "edit", ToolArgs: "run_exec.go",
-		Content:   "[run_exec.go#G7H8]\n 82:    // Execute allowed tools\n-82:    // Execute allowed tools\n+82:    // Sub-agent lifecycle: inject callbacks",
-		Collapsed: false, Done: true,
+		Content: "[run_exec.go#G7H8]\n 82:    // Execute allowed tools\n-82:    // Execute allowed tools\n+82:    // Sub-agent lifecycle: inject callbacks", Done: true,
 		SubID: "c3d4", SubColor: 3,
 	})
 
 	// Main agent continues
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "bash", ToolArgs: "go test ./bot/agent/...",
-		Content: "ok      nekocode/bot/agent      0.456s", Collapsed: false, Done: true,
+		Content: "ok      nekocode/bot/agent      0.456s", Done: true,
 	})
 
 	p.AppendThinkingText("Sub-agent researcher found 3 issues, executor applied the fix. Reviewing the diff...")
@@ -320,8 +334,14 @@ func renderAssistantWithEdit() string {
 	m.SetBlocks([]block.ContentBlock{
 		{
 			Type: block.BlockTool, ToolName: "edit", ToolArgs: "tool_edit.go",
-			Content:   "[bot/tools/builtin/tool_edit.go#C5E8]\n 120:    desc := \"Edit text in files using simple replacements...\"\n-120:    desc := \"Edit text in files using simple replacements...\"\n+121:    desc := \"Edit files using oldString/newString content anchors...\"\n 125:    maxTokens := 5000\n-125:    maxTokens := 5000\n+126:    maxTokens := 8000",
-			Collapsed: false, Done: true,
+			Content: "[bot/tools/builtin/tool_edit.go#C5E8]\n 120:    desc := \"Edit text in files using simple replacements...\"\n-120:    desc := \"Edit text in files using simple replacements...\"\n+121:    desc := \"Edit files using oldString/newString content anchors...\"\n 125:    maxTokens := 5000\n-125:    maxTokens := 5000\n+126:    maxTokens := 8000", Done: true,
+		},
+		{
+			Type:     block.BlockTool,
+			ToolName: "bash",
+			ToolArgs: `echo "Hello from bash! Current directory: $(pwd)" && date`,
+			Content:  "Hello from bash! Current directory: /home/lznauy/precode/NekoCode\nFri Jul  3 00:41:48 CST 2026",
+			Done:     true,
 		},
 	})
 	m.SetFooter("Duration: 4.2s  ↑1.8k ↓312")
