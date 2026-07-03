@@ -130,6 +130,7 @@ func (r *turnRunner) recordReasoningText(reasoning *ReasoningResult, recordable 
 	if recordable {
 		a.deps.ctxMgr.AddAssistantResponse(reasoning.ActionInput, a.stream.lastReason)
 		a.run.finalText = reasoning.ActionInput
+		a.run.finalPersisted = true
 	}
 }
 
@@ -202,8 +203,11 @@ func (r *turnRunner) applyFinalPolicyBlock(reasoning *ReasoningResult, reason st
 	a.run.lastText = reasoning.ActionInput
 	// Keep finalText in sync so finishRun won't fall through to Synthesize
 	// (which would otherwise append a spurious synthesized answer on top of
-	// the real final text the user already saw).
+	// the real final text the user already saw). finalPersisted stays false:
+	// the blocked text has NOT been appended to the context yet, so finishRun
+	// must persist it before returning (otherwise it vanishes on reload).
 	a.run.finalText = reasoning.ActionInput
+	a.run.finalPersisted = false
 
 	retry, hint := a.run.gate.TryRetry(reason)
 	if !retry {

@@ -78,6 +78,12 @@ Logo 同时适配亮/暗背景：
 
 输入 `/` 弹出补全，Tab/Shift+Tab 选择，Enter 填入。
 
+### Plan Mode
+
+`/plan <任务>` 进入只读探索模式，Agent 仅允许使用只读工具（read/grep/glob/list/web_search/web_fetch），禁止 write/edit/bash/task。
+
+**工作流**：探索代码库 → 设计方案 → 呈现计划（变更摘要/文件列表/步骤/验证/风险/假设）→ 用户审批 → 退出 plan mode 开始执行。
+
 ## TUI 界面设计
 
 ### 视觉主题：深夜书房 × 猫娘
@@ -233,6 +239,19 @@ LLM 生成的摘要需要经过二次校验：检查是否保留了代码片段�
 
 ## Agent 能力
 
+### 运行时架构
+
+Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
+
+- **loopRunner** — 主循环驱动，管理生命周期状态（idle/running/steering/stopped）
+- **turnRunner** — 单轮处理：PreTurn hooks → 模型推理 → 工具执行 → PostTurn hooks
+- **model.Runner** — LLM 调用封装，含重试、流回调、响应分类（chat/tool_call/garbled/error）
+- **toolrun.Runner** — 工具执行编排，含配额过滤、结果收集、子代理槽位管理
+
+**中断机制**：`Steer()` 支持处理中注入新消息打断当前 LLM 调用，`replaceContext()` 支持上下文替换重试。
+
+**子代理槽位**：`SlotManager` 管理最多 8 个并发子代理，通过回调路由分发结果。
+
 ### 工具清单
 
 | 工具 | 功能 | 安全等级 | 执行模式 |
@@ -249,33 +268,110 @@ LLM 生成的摘要需要经过二次校验：检查是否保留了代码片段�
 | **tree** | 目录树可视化 | Safe | Parallel |
 | **project_info** | 代码索引查询（symbol/deps/file/search/skeleton） | Safe | Parallel |
 | **image_gen** | AI 文生图（即梦 Jimeng t2i_v31）· 自动下载保存 | Safe | Sequential |
-
+| **question** | 向用户提问（单选/多选/自定义输入） | Safe | Sequential |
 | **task** | 子 agent 委派 | Safe | Parallel |
 | **todo_write** | 任务列表更新 | Safe | Sequential |
 | **skill** | 技能包加载 | Safe | Sequential |
+
+### Question 工具
+
+Agent 在需要用户决策时通过 `question` 工具发起结构化提问——当存在多种合理解读、需要偏好选择、或需要澄清时主动询问。
+
+**参数**：`questions` 数组，每个包含 `question`、`header`、`options`、`multiple`（多选）、`custom`（自定义输入）。
+
+**交互**：通过回调与 UI 通信——TUI 弹出 `question_bar`，GUI 弹出 `QuestionDialog`。支持单选、多选、自定义输入、拒绝。
 
 ### 子 Agent 类型（3 种）
 
 | 类型 | 用途 | 工具 |
 |------|------|------|
-| **executor** | 执行编码任务 | read/write/edit/bash/grep/glob/list |
+| **executor** | 执行编码任务 | read/write/edit/bash/grep/glob/list/question |
 | **verify** | 验证修改 | read/grep/glob/list/bash |
-| **researcher** | 代码探索/调研 | read/grep/glob/list/web_search/web_fetch |
+| **researcher** | 代码探索/调研 | read/grep/glob/list/web_search/web_fetch/question |
 
 子 agent 通过独立 LLM 客户端运行（共享上下文窗口 128K、接入 Compactor），edit 操作需用户确认。Handoff 机制支持上下文传递。
 
-### 危险命令分级
+### MCP 管理
 
-bash 命令按关键词智能分级，三层判断：
+支持通过 MCP（Model Context Protocol）接入外部工具服务器，扩展 Agent 能力。
 
-**降级至 Safe（自动放行）**：`go version`、`go vet`、`git status`、`git log`、`git diff`、`ls`、`cat`、`ps`、`du`、`file` 等纯输出命令
-**升级至 Danger（危险，确认）**：`rm`、`chmod`、`kill`、`reboot`、`git push --force` 等
-**升级至 Blocked（拒绝）**：`sudo`、`eval`、`ssh`、`curl|bash`、`dd`、`mkfs` 等
-**默认 Modify（确认）**：其余所有命令
+**协议**：JSON-RPC 2.0 over stdin/stdout，协议版本 `2024-11-05`。
+
+**生命周期**：`NewClient()` → `Start()`（启动子进程 + initialize 握手）→ `ListTools()`/`CallTool()` → `Close()`。
+
+**工具命名空间**：`{clientName}__{toolName}`（如 `github__search_repos`），防止与内置工具冲突。
+
+**超时**：默认 15 秒。错误通过 `isError` 字段区分工具错误和协议错误。
+
+**管理**：GUI 技能管理面板的 MCP 标签页支持搜索、过滤、状态监控（ready/error/disabled/starting）。
+
+### 声明式权限引擎
+
+权限系统从简单的 bash 危险命令分级升级为通用声明式权限引擎，适用于所有工具（bash、edit、read、web_fetch 等）。
+
+**规则结构**：每条规则包含 `effect`（allow/ask/deny）、`specifier`（匹配器类型 + 模式）、`priority`。
+
+**三层规则来源**：
+1. **Builtin** — 硬编码安全规则（sudo/eval/dd/mkfs/ssh 硬拒绝，rm/kill/git push 询问，ls/cat/head 允许）
+2. **Declared** — 用户 `config.json` 中声明的自定义规则
+3. **Remembered** — 用户通过确认框批准的持久化规则
+
+**优先级**：deny > ask > allow，deny 永远不可覆盖。
+
+**匹配器类型**：
+- `BashMatcher` — 命令前缀通配（如 `npm run *`）
+- `PathMatcher` — 文件路径匹配
+- `DomainMatcher` — 域名匹配（web_fetch）
+
+**持久化**：`Store` 持久化 grants 和 remembered rules，跨会话生效。
+
+**确认等级**：`[safe]` 自动放行、`[modify]`/`[danger]` 弹框确认、`[blocked]` 直接拒绝。
+
+### 沙箱系统
+
+bash 命令执行采用多层沙箱隔离，与权限引擎独立互补——权限决定"能不能做"，沙箱决定"能做多少"。
+
+**Linux 三层策略**（按优先级回退）：
+1. **原生命名空间** — pivot_root + 6 个命名空间隔离（user/mount/net/pid/ipc/uts），最严格
+2. **Landlock** — 仅文件写保护，内核不支持命名空间时回退
+3. **主机执行** — 无沙箱，作为最后手段
+
+**非 Linux**：使用跨平台沙箱库（macOS sandbox-exec / Windows Low Integrity Level）。
+
+**BashProfile**：控制工作区范围、网络访问开关、缓存路径白名单（npm/pnpm/yarn/go/cargo）。
+
+**UnavailableError**：沙箱不可用时抛出，作为调用者请求主机执行权限的信号。
 
 ### 并行工具执行
 
 互不依赖的工具并发执行，worker pool 上限 10。并行启动前检查 ctx 取消状态。subagent 共享同一个 Executor 实例。
+
+### Hook 治理
+
+Agent 运行时通过钩子系统在关键节点注入策略控制，分为内置钩子和插件钩子两类。
+
+**内置钩子（12 个）**，在 Agent 循环的关键节点触发：
+
+| 钩子 | 触发点 | 职责 |
+|------|--------|------|
+| QuotaHook | PreTurn | 配额限制检查 |
+| ToolResultGuardrailHook | PostTool | 工具结果护栏 |
+| ReadBeforeWriteHook | PreToolUse | 写前必读强制 |
+| ReadOnlySpiralHook | PreToolUse | 只读螺旋检测 |
+| VerificationHook | PostTool | 修改验证 |
+| ExplorationExhaustedHook | PreToolUse | 探索耗尽检测 |
+| ExplorationGuardHook | PreToolUse | 探索护栏 |
+| ExploreCascadeHook | PreToolUse | 探索级联控制 |
+| ProgressStallHook | PreTurn | 进度停滞检测 |
+| CompletionQualityHook | PostTurn | 完成质量检查 |
+| GarbledCircuitBreaker | PostTool | 乱码断路器 |
+| FinalCheckHook | PostTurn | 最终检查 |
+
+**钩子事件点**：PreTurn → PreModelRequest → PreToolUse → PostTool → PostTurn
+
+**钩子动作**：`Hint`（建议）、`BlockTool`（阻止工具）、`RequireTool`（强制工具）、`BlockFinal`（阻止最终回复）
+
+**插件钩子**：用户可通过 JSON 配置自定义钩子，支持 shell 命令和 JavaScript 两种执行方式。事件点包括 PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit、SessionStart、Stop。
 
 ## 幻觉防治
 
@@ -321,6 +417,16 @@ bash 命令按关键词智能分级，三层判断：
 - **Progressive Compression** — 上下文逐级压缩，不急丢信息：先微压缩后完整压缩，优先用 session memory 做免费摘要
 - **Anchor & Verify** — 压缩时锚定关键信息，压缩后二次验证保真度，确保压缩不是"遗忘"
 - **Know The Project** — 会话启动时自动发现 NEKOCODE.md，一次性预加载项目约定，后续所有对话受益
+
+## GUI 技能管理
+
+GUI 提供技能管理面板（`SkillPanel`），三个标签页统一管理扩展能力：
+
+- **Skills** — 按名称/描述/目录/插件搜索，过滤（all/loaded/builtin/local/plugin），显示加载状态
+- **Plugins** — 按名称/描述/目录搜索，过滤（all/enabled/disabled），显示启用状态、关联技能/代理/命令/MCP 服务器/钩子
+- **MCP** — 按名称/插件/命令搜索，过滤（all/enabled/disabled/config/plugin），显示状态（ready/error/disabled/starting）
+
+通过 Wails 与 Go 后端通信，支持启用/禁用插件、刷新管理视图。
 
 ## 非交互模式
 

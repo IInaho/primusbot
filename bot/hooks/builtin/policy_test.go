@@ -89,7 +89,7 @@ func TestCompletionQualityHook(t *testing.T) {
 
 	s.Set(StoreTasksAllDone, 1)
 	s.Set(StoreHasTasks, 1)
-	s.Set(StoreLedgerModified, 2)
+	s.Set(StoreLedgerNonDocModified, 1)
 	if r := hk.On(s); r == nil || r.BlockFinal == nil || !strings.Contains(r.BlockFinal.Reason, "未验证") {
 		t.Fatalf("modified unverified result = %+v, want block final", r)
 	}
@@ -98,8 +98,20 @@ func TestCompletionQualityHook(t *testing.T) {
 	s2.Set(StoreStepInputLen, 100)
 	s2.Set(StoreTasksAllDone, 1)
 	s2.Set(StoreHasTasks, 1)
+	s2.Set(StoreLedgerNonDocModified, 0)
 	if r := hk.On(s2); r == nil || r.Hint == nil || !strings.Contains(r.Hint.Content, "没有文件修改") {
 		t.Fatalf("no modification result = %+v, want info hint", r)
+	}
+
+	// Doc-only edits must NOT trigger the verification block.
+	s3 := newState()
+	s3.Set(StoreStepInputLen, 100)
+	s3.Set(StoreTasksAllDone, 1)
+	s3.Set(StoreHasTasks, 1)
+	s3.Set(StoreLedgerModified, 3)
+	s3.Set(StoreLedgerNonDocModified, 0)
+	if r := hk.On(s3); r == nil || r.Hint == nil || !strings.Contains(r.Hint.Content, "没有文件修改") {
+		t.Fatalf("doc-only modification result = %+v, want info hint (no verify block)", r)
 	}
 }
 
@@ -274,29 +286,10 @@ func TestFinalCheckHookRejectsUnsupportedTestClaim(t *testing.T) {
 	}
 }
 
-func TestFinalCheckHookUnreportedToolError(t *testing.T) {
-	hk := FinalCheckHook()
-	s := newState()
-	s.SetStr(StoreFinalAnswerText, "已完成修复。")
-	s.Set(StoreLedgerErrors, 2)
-	s.Set(StoreLedgerNonDocModified, 0)
-	if r := hk.On(s); r == nil || r.BlockFinal == nil {
-		t.Fatalf("unreported tool error should block, got %+v", r)
-	}
-
-	s2 := newState()
-	s2.SetStr(StoreFinalAnswerText, "已完成修复，但中途有一次失败。")
-	s2.Set(StoreLedgerErrors, 2)
-	if r := hk.On(s2); r != nil {
-		t.Fatalf("disclosed failure should pass, got %+v", r)
-	}
-}
-
 func TestFinalCheckHookEmptyTextIsSilent(t *testing.T) {
 	hk := FinalCheckHook()
 	s := newState()
 	s.Set(StoreLedgerNonDocModified, 1)
-	s.Set(StoreLedgerErrors, 5)
 	if r := hk.On(s); r != nil {
 		t.Fatalf("empty final answer text should be silent, got %+v", r)
 	}

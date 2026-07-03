@@ -77,6 +77,12 @@ type runState struct {
 	stopReason hooks.StopReason
 	lastText   string
 	finalText  string
+	// finalPersisted tracks whether finalText has already been appended to
+	// the context manager (via AddAssistantResponse). finishRun uses this to
+	// decide whether the returned FinalOutput still needs persisting — paths
+	// like applyFinalPolicyBlock set finalText without persisting, which used
+	// to lose the final answer on session reload.
+	finalPersisted bool
 
 	consecutiveHints    int
 	consecutiveFailures int

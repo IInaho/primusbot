@@ -23,7 +23,10 @@ func CompletionQualityHook() Hook {
 				return nil
 			}
 
-			hasModifications := s.Get(StoreLedgerModified) > 0
+			// Only non-documentation modifications warrant a verification
+			// requirement. Pure doc edits (README/FEATURE_GAP/CHANGELOG…)
+			// need no test verification and must not be blocked here.
+			hasModifications := s.Get(StoreLedgerNonDocModified) == 1
 			hasVerification := s.Get(StoreLedgerVerified) == 1
 			s.Set(CounterQualityWarned, 1)
 
@@ -32,7 +35,7 @@ func CompletionQualityHook() Hook {
 			}
 			if hasModifications {
 				return &Result{BlockFinal: &BlockFinal{
-					Reason: "所有任务标记为完成，文件已修改但未验证。请运行验证命令确认修改正确；如果无法验证，最终回答必须明确说明未验证。",
+					Reason: "所有任务标记为完成，代码文件已修改但未验证。请运行验证命令确认修改正确；如果无法验证，最终回答必须明确说明未验证。",
 				}}
 			}
 			return &Result{Hint: &Hint{Type: "quality", Severity: "info",

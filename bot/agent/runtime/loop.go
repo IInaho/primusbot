@@ -133,16 +133,31 @@ func (r *loopRunner) finishRun(callback RunCallback) *RunResult {
 			output = a.run.lastText
 		}
 		if output != "" {
+			// Persist the final answer if it hasn't been already. recordable
+			// chat turns and Synthesize set finalPersisted=true; the policy-
+			// block path (applyFinalPolicyBlock) and the non-recordable
+			// lastText fallback leave it false, so the text the user saw would
+			// otherwise be absent from the saved session.
+			if !a.run.finalPersisted {
+				a.deps.ctxMgr.AddAssistantResponse(output, "")
+				a.run.finalPersisted = true
+			}
 			return &RunResult{FinalOutput: output, Steps: a.run.step}
 		}
 		// finalText empty but lastText had content — prefer returning it
-		// directly over calling Synthesize(), which would append a spurious
-		// assistant message that the user never actually saw.
+		// directly over calling Synthesize(), which would otherwise append a
+		// spurious synthesized answer on top of the real final text the user
+		// already saw.
 		if a.run.lastText != "" {
+			if !a.run.finalPersisted {
+				a.deps.ctxMgr.AddAssistantResponse(a.run.lastText, "")
+				a.run.finalPersisted = true
+			}
 			return &RunResult{FinalOutput: a.run.lastText, Steps: a.run.step}
 		}
 	}
 	output := a.modelRunner.Synthesize()
+	a.run.finalPersisted = true
 	if callback != nil {
 		callback("chat", "", "", output)
 	}

@@ -113,23 +113,19 @@ nekocode/
 │   ├── agent/                      #   Agent 循环
 │   │   ├── runtime/                #     Agent 运行时核心
 │   │   │   ├── agent.go            #       Agent 结构体 + New()
-│   │   │   ├── agent_api.go        #       callbacks/hooks/tokens/tool state 接线 API
-│   │   │   ├── run_loop.go         #       Run() 主循环，阅读入口
-│   │   │   ├── turn.go             #       单轮准备、Reason 后分支、文本完成
-│   │   │   ├── reason.go           #       Reason() + LLM call + retry + 格式检测
-│   │   │   ├── tool_pipeline.go    #       工具执行主流程 + PostTool hooks
-│   │   │   ├── tool_filter.go      #       工具调用过滤（配额 + PreToolUse hooks）
-│   │   │   ├── tool_results.go     #       工具结果合并
-│   │   │   ├── tool_subagents.go   #       子 Agent 回调准备
-│   │   │   ├── postturn_hooks.go   #       PostTurn hooks 评估
-│   │   │   ├── hints.go            #       hint 注入 + steering drain
-│   │   │   ├── final_synthesis.go  #       forceSynthesize 兜底总结
-│   │   │   ├── control/            #       ResponseGate（治理重试限制）
-│   │   │   ├── messages/           #       runtime 文案常量
-│   │   │   ├── reasoning/          #       LLM 响应分类 + garbled tool-call 检测
-│   │   │   ├── subagents/          #       子 Agent 并发槽位
-│   │   │   ├── toolflow/           #       工具调用/结果排序与回调转换
-│   │   │   └── toolpolicy/         #       工具目标路径 + edit anchor 策略
+│   │   │   ├── loop.go             #       Run() 主循环
+│   │   │   ├── turn.go             #       单轮处理：PreTurn → 推理 → 工具执行 → PostTurn
+│   │   │   ├── state.go            #       生命周期状态管理
+│   │   │   ├── host.go             #       runnerHost 适配器
+│   │   │   ├── model/              #       LLM 调用封装
+│   │   │   │   ├── runner.go       #         Runner：调用 + 重试 + 流回调
+│   │   │   │   └── reasoning.go    #         响应分类（chat/tool_call/garbled/error）
+│   │   │   └── toolrun/            #       工具执行编排
+│   │   │       ├── runner.go       #         Runner：执行 + 结果收集
+│   │   │       ├── filter.go       #         工具调用过滤（配额 + PreToolUse hooks）
+│   │   │       ├── results.go      #         工具结果处理
+│   │   │       ├── slots.go        #         子代理槽位管理（最多 8 个）
+│   │   │       └── subagents.go    #         子代理回调路由
 │   │   ├── subagent/               #     子 Agent 系统
 │   │   │   ├── agents.go           #       内置 agent 类型定义（3 种：executor/verify/researcher）
 │   │   │   ├── agent_md.go         #       AgentMD 解析（Claude Code 格式）
@@ -476,7 +472,6 @@ New()
   ▼
 Run() 主循环 → runTurn(state)
   │
-  ├─ UserSubmit hooks: Evaluate → [System] hints
   ├─ AutoCompactIfNeeded() 看门狗
   ├─ budget.ComputeQuota() 计算工具配额
   ├─ PreTurn hooks: Evaluate → Layer2 hints
@@ -492,7 +487,6 @@ Run() 主循环 → runTurn(state)
   ├─ [工具调用] executeAndFeedback(calls, reasoning, state)
   │   ├─ filterToolCalls() 配额过滤 + PreToolUse hooks（per-tool）
   │   ├─ 工具执行 + 事件记录（Ledger.Inc/Flag）
-  │   ├─ PostToolUse hooks（per-tool）
   │   └─ PostTool hooks（batch）: Evaluate → Stop/Hint
   │
   ├─ [文本响应] handleText(reasoning, state)
@@ -510,18 +504,17 @@ Agent 循环硬限制：
 
 ### Agent 子包结构
 
-`bot/agent/` 的实现位于子包，根门面已删除：
+`bot/agent/` 的实现位于子包：
 
 | 子包 | 职责 |
 |------|------|
-| `runtime/` | Agent 结构体 + `Run()` 主循环 + `Reason()` + 工具/文本分支 |
-| `runtime/run_loop.go` | 主循环阅读入口：start → loop → stop evaluation → finish |
-| `runtime/turn.go` | 单轮执行：PreTurn → steering/interruption → Reason → tool/text branch |
-| `runtime/tool_*.go` | 工具调用过滤、执行、结果合并、subagent 回调 |
+| `runtime/` | Agent 结构体 + `Run()` 主循环 + 单轮处理 + 状态管理 |
+| `runtime/model/` | LLM 调用封装（Runner）+ 响应分类（reasoning） |
+| `runtime/toolrun/` | 工具执行编排（过滤/结果/槽位/子代理回调） |
+| `subagent/` | 子 Agent 引擎 + 注册表 + 安全审核 |
 | `policy/` | GovManager：整合 HookReg + Ledger + Exploration + Gate |
 | `policy/ledger/` | 工具执行账本：readFiles / modifiedFiles / blockedTools / verifications |
 | `budget/` | ExplorationTracker + ToolQuota |
-| `subagent/` | 子 Agent 引擎 + 注册表 + 安全审核 |
 
 ## 上下文管理
 
@@ -594,7 +587,7 @@ type Tool interface {
 
 | 工具 | 模式 | 危险等级 | 位置 |
 |------|------|----------|------|
-| bash | Sequential | 智能分级（Safe～Forbidden） | `tools/shell/` |
+| bash | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `tools/shell/` |
 | read | Parallel | Safe | `tools/filesystem/read/` |
 | write | Sequential | Write | `tools/filesystem/write/` |
 | edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `tools/filesystem/edit/` |
@@ -603,6 +596,8 @@ type Tool interface {
 | grep | Parallel | Safe | `tools/filesystem/search/` |
 | web_search | Parallel | Safe | `tools/web/` |
 | web_fetch | Parallel | Safe | `tools/web/` |
+| question | Sequential | Safe | `tools/question/` |
+| diff | Parallel | Safe | `tools/diff/` |
 | task | Parallel | Safe | `tools/tasktool/` |
 | todo_write | Sequential | Safe | `tools/todo/` |
 | tree | Parallel | Safe | `tools/filesystem/tree/` |
@@ -634,17 +629,15 @@ type Tool interface {
 
 ## Hook 系统（事件驱动）
 
-### 七种触发点
+### 五种触发点
 
 | Point | 时机 | 注入方式 |
 |-------|------|---------|
 | PreTurn | LLM 推理前 | Layer2 hints |
+| PreModelRequest | 模型请求前（request-scoped） | `[System]` 消息 |
 | PreToolUse | 单个工具执行前（per-tool） | `[System]` 消息 |
-| PostToolUse | 单个工具执行后（per-tool） | `[System]` 消息 |
 | PostTool | 全部工具执行后（batch） | `[System]` + Stop |
 | PostTurn | LLM 纯文本返回后 | `[System]` + Stop |
-| UserSubmit | 用户提交输入后 | `[System]` 消息 |
-| Stop | Agent 循环结束时 | Stop 判定 |
 
 ### 事件存储模型
 
@@ -718,7 +711,7 @@ PolicyExploreExhausted="policy:explore_exhausted"
 ## 声明式 Hooks
 
 `bot/hooks/plugin/`（`LoadPluginHooks`）：
-- 事件类型：PreTurn / PreToolUse / PostToolUse / UserSubmit / Stop（5 种）
+- 事件类型：PreToolUse / PostToolUse / PostToolUseFailure / UserPromptSubmit / SessionStart / Stop（6 种）
 - JSON 配置（hooks.json）
 - Tool name matcher（`|` 分隔，regex 支持）
 - 命令执行 + 超时
@@ -750,9 +743,9 @@ PolicyExploreExhausted="policy:explore_exhausted"
 
 | Agent | 用途 | 工具 | 特殊配置 |
 |-------|------|------|---------|
-| executor | 执行代码修改 | read/write/edit/bash/grep/glob/list | — |
+| executor | 执行代码修改 | read/write/edit/bash/grep/glob/list/question | — |
 | verify | 验证修改 | read/grep/glob/list/bash | — |
-| researcher | 代码探索/调研 | read/grep/glob/list/web_search/web_fetch | OmitProjectContext: true |
+| researcher | 代码探索/调研 | read/grep/glob/list/web_search/web_fetch/question | OmitProjectContext: true |
 
 ### Engine 特性
 
@@ -815,11 +808,10 @@ Model
 | Agent 循环 | `bot/agent/runtime/` | Reason→Execute→Feedback，中断，重试 |
 | 治理系统 | `bot/policy/` | Manager：HookReg + Ledger + Exploration |
 | 工具账本 | `bot/policy/ledger/` | 工具执行追踪（读/写/阻止/错误/验证） |
-| 响应门控 | `bot/agent/runtime/control/response_gate.go` | 治理重试限制 |
-| 推理格式 | `bot/agent/runtime/reasoning/` | LLM 响应分类 + GarbledToolCall 检测 |
-| 工具策略 | `bot/agent/runtime/toolpolicy/` | 工具目标路径 + edit anchor 纯策略 |
+| 推理格式 | `bot/agent/runtime/model/` | LLM 响应分类 + GarbledToolCall 检测 |
+| 工具策略 | `bot/agent/runtime/toolrun/` | 工具过滤/结果/槽位/子代理回调 |
 | 子 Agent | `bot/agent/subagent/` | 独立循环，3 种内置类型 + 插件扩展 |
-| 子槽位 | `bot/agent/runtime/subagents/slots.go` | 并发控制（8 槽位 + 颜色） |
+| 子槽位 | `bot/agent/runtime/toolrun/slots.go` | 并发控制（8 槽位 + 颜色） |
 | 预算配额 | `bot/policy/budget/` | 探索检测 + 工具配额 |
 | LLM 网关 | `llm/` | OpenAI/Anthropic 双协议，统一接口 |
 | 工具系统 | `bot/tools/` | Tool 接口 + Executor + Registry + FileCache |
@@ -837,8 +829,8 @@ Model
 | Plugin 系统 | `bot/extension/plugin/` | manager 编排 + manifest/registry |
 | MCP 客户端 | `bot/extension/mcp/` | JSON-RPC 2.0 |
 | Skill 系统 | `bot/extension/skill/` | manager + 管理快照 + YAML 技能加载 |
-| Hook 系统 | `bot/hooks/` | 事件驱动（7 种触发点）+ 声明式（plugin/） |
-| 内置 Hook | `bot/hooks/builtin/` | 8 个内置 Hook 实现 |
+| Hook 系统 | `bot/hooks/` | 事件驱动（5 种触发点）+ 声明式（plugin/） |
+| 内置 Hook | `bot/hooks/builtin/` | 12 个内置 Hook 实现 |
 | 声明式 Hook | `bot/hooks/plugin/` | JSON 配置驱动 Hook |
 | Tree-sitter | `bot/index/treesitter/` | 多语言解析器注册 + AST 查询 |
 | 代码索引 | `bot/index/` | SQLite + FTS5 + Tree-sitter 代码索引 |
