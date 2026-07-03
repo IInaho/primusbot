@@ -3,12 +3,25 @@
 package sandbox
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// skipOnLandlockUnavailable skips the test if err indicates the Landlock
+// backend became unavailable at runtime (probe passed but enforcement failed).
+// This can happen in CI/container environments where the kernel reports
+// Landlock support but intermittently blocks landlock_restrict_self at runtime.
+func skipOnLandlockUnavailable(t *testing.T, err error) {
+	t.Helper()
+	var ue UnavailableError
+	if errors.As(err, &ue) {
+		t.Skipf("Landlock unavailable at runtime: %s", ue.Reason)
+	}
+}
 
 func TestLandlockAvailable(t *testing.T) {
 	if !LandlockAvailable() {
@@ -22,6 +35,7 @@ func TestRunLandlockBash_SimpleEcho(t *testing.T) {
 	}
 	ws := t.TempDir()
 	out, err := RunLandlockBash(t.Context(), "echo hello", BashProfile{Workspace: ws}, 10*time.Second)
+	skipOnLandlockUnavailable(t, err)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,6 +53,7 @@ func TestRunLandlockBash_WriteProtection(t *testing.T) {
 
 	// Write inside workspace (allowed) — must succeed.
 	_, err := RunLandlockBash(t.Context(), "echo ok > wsfile.txt", BashProfile{Workspace: ws}, 10*time.Second)
+	skipOnLandlockUnavailable(t, err)
 	if err != nil {
 		t.Fatalf("workspace write should succeed: %v", err)
 	}
@@ -48,6 +63,7 @@ func TestRunLandlockBash_WriteProtection(t *testing.T) {
 
 	// Write outside workspace (denied by Landlock) — must fail.
 	_, err = RunLandlockBash(t.Context(), "echo bad > "+filepath.Join(denied, "denied.txt"), BashProfile{Workspace: ws}, 10*time.Second)
+	skipOnLandlockUnavailable(t, err)
 	if err == nil {
 		t.Fatal("expected write outside workspace to be denied")
 	}
@@ -62,6 +78,7 @@ func TestRunLandlockBash_Timeout(t *testing.T) {
 	}
 	ws := t.TempDir()
 	_, err := RunLandlockBash(t.Context(), "sleep 30", BashProfile{Workspace: ws}, 2*time.Second)
+	skipOnLandlockUnavailable(t, err)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -79,6 +96,7 @@ func TestRunSandboxed_FallbackToLandlock(t *testing.T) {
 	t.Setenv("NEKOCODE_DISABLE_NATIVE_SANDBOX", "1")
 	ws := t.TempDir()
 	out, err := RunSandboxed(t.Context(), "echo fallback", BashProfile{Workspace: ws}, 10*time.Second)
+	skipOnLandlockUnavailable(t, err)
 	if err != nil {
 		t.Fatalf("expected fallback to landlock, got error: %v", err)
 	}
