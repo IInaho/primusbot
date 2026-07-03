@@ -6,6 +6,7 @@ import (
 
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/runner"
 	"nekocode/common"
 )
@@ -16,27 +17,18 @@ func (t *testTool) Name() string                                    { return t.n
 func (t *testTool) Description() string                             { return "test" }
 func (t *testTool) Parameters() []core.Parameter                    { return nil }
 func (t *testTool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeParallel }
-func (t *testTool) DangerLevel(map[string]any) common.DangerLevel   { return common.LevelSafe }
 func (t *testTool) Execute(context.Context, map[string]any) (string, error) {
 	return "ok", nil
 }
 
-// forbiddenTool always returns common.LevelForbidden.
-type forbiddenTool struct{ testTool }
-
-func (t *forbiddenTool) DangerLevel(map[string]any) common.DangerLevel { return common.LevelForbidden }
-
-// writeTool returns common.LevelWrite.
 type writeTool struct{ testTool }
 
-func (t *writeTool) DangerLevel(map[string]any) common.DangerLevel   { return common.LevelWrite }
 func (t *writeTool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeSequential }
 
 func TestExecutorBatch(t *testing.T) {
 	r := tools.NewRegistry()
 	r.Register(&testTool{name: "read"})
 	r.Register(&testTool{name: "safe"})
-	r.Register(&forbiddenTool{testTool{name: "blocked"}})
 	r.Register(&writeTool{testTool{name: "writer"}})
 	e := runner.NewExecutor(r)
 
@@ -44,14 +36,6 @@ func TestExecutorBatch(t *testing.T) {
 	results := e.ExecuteBatch(context.Background(), nil)
 	if len(results) != 0 {
 		t.Error("expected empty results")
-	}
-
-	// Forbidden tool is blocked.
-	results = e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "blocked"},
-	})
-	if results[0].Error == "" {
-		t.Error("expected forbidden error")
 	}
 
 	// Safe tool runs.
@@ -100,8 +84,8 @@ func TestExecutorConfirm(t *testing.T) {
 	r := tools.NewRegistry()
 	r.Register(&writeTool{testTool{name: "writer"}})
 	e := runner.NewExecutor(r)
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"writer"}}, "/repo", "/home/user")
 
-	// Deny all writes.
 	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
 
 	results := e.ExecuteBatch(context.Background(), []core.ToolCallItem{

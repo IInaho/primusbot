@@ -211,8 +211,7 @@ func (a *Agent) ConfirmFn() common.ConfirmFunc {
 }
 
 // SetPermissionPolicy configures the declarative permission rule engine
-// (claude-code style allow/ask/deny). When set, tool calls are gated by the
-// engine instead of the legacy DangerLevel confirm prompt.
+// (claude-code style allow/ask/deny). Tool calls are gated by this engine.
 func (a *Agent) SetPermissionPolicy(decl permission.PermissionsDecl, workspace, home string) {
 	a.deps.executor.SetPermissionPolicy(decl, workspace, home)
 }

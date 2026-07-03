@@ -37,7 +37,6 @@ type MCPServerView struct {
 	Plugin        string   `json:"plugin"`
 	Command       string   `json:"command"`
 	Args          []string `json:"args,omitempty"`
-	DangerLevel   string   `json:"dangerLevel,omitempty"`
 	PluginEnabled bool     `json:"pluginEnabled"`
 	Status        string   `json:"status,omitempty"`
 	Error         string   `json:"error,omitempty"`

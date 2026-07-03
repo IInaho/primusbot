@@ -18,13 +18,21 @@ func (m *Model) View() tea.View {
 	} else {
 		parts = append(parts, m.Header.View())
 
+		msgWidth := m.Width
+		if m.Messages.TotalContentHeight() > m.Messages.Height() {
+			msgWidth = max(m.Width-1, 1)
+		}
+		if m.Messages.Width() != msgWidth {
+			m.Messages.SetSize(msgWidth, m.Messages.Height())
+		}
+
 		m.Scrollbar.Update(
 			m.Messages.TotalContentHeight(),
 			m.Messages.Height(),
 			m.Messages.ScrollPercent(),
 		)
 
-		msgView := lipgloss.NewStyle().Width(m.Width - 1).Render(m.Messages.Render())
+		msgView := lipgloss.NewStyle().Width(msgWidth).Render(m.Messages.Render())
 		barView := m.Scrollbar.View()
 		row := msgView
 		if barView != "" {

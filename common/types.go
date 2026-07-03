@@ -1,31 +1,6 @@
 // types.go — shared types used by both bot and tui.
 package common
 
-// DangerLevel classifies tool risk for confirmation and planning.
-type DangerLevel int
-
-const (
-	LevelSafe        DangerLevel = iota // read-only, auto-approve
-	LevelWrite                          // file modification, confirm
-	LevelDestructive                    // deletion, critical changes, confirm
-	LevelForbidden                      // never allow
-)
-
-func (d DangerLevel) String() string {
-	switch d {
-	case LevelSafe:
-		return "safe"
-	case LevelWrite:
-		return "modify"
-	case LevelDestructive:
-		return "danger"
-	case LevelForbidden:
-		return "blocked"
-	default:
-		return "unknown"
-	}
-}
-
 // CmdResult tells the TUI what to do after a command is executed.
 type CmdResult int
 
@@ -147,7 +122,8 @@ type ImageRef struct {
 // DisplayMessage is a lightweight message representation for the UI layer
 // to reconstruct chat history from a restored session. Assistant messages
 // with tool calls carry their persistent tool results (edit/write/bash) as
-// Blocks and have empty Content (the text is internal reasoning).
+// Blocks. Reloaded turns may combine multiple tool-call messages and the final
+// assistant text into one DisplayMessage.
 // Images holds any generated image references (from image_gen etc.).
 type DisplayMessage struct {
 	Role    string

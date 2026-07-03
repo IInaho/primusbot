@@ -137,7 +137,7 @@ export interface ConfirmEvent {
   toolName: string
   args: Record<string, unknown>
   preview?: string
-  level: number
+  kind?: string
   can_escalate?: boolean
 }
 

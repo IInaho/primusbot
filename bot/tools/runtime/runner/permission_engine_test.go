@@ -12,23 +12,21 @@ import (
 
 // fakeToolForPerm is a minimal tool for permission-engine integration tests.
 type fakeToolForPerm struct {
-	name   string
-	danger common.DangerLevel
+	name string
 }
 
 func (t fakeToolForPerm) Name() string                                    { return t.name }
 func (t fakeToolForPerm) Description() string                             { return "test" }
 func (t fakeToolForPerm) Parameters() []core.Parameter                    { return nil }
 func (t fakeToolForPerm) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeSequential }
-func (t fakeToolForPerm) DangerLevel(map[string]any) common.DangerLevel   { return t.danger }
 func (t fakeToolForPerm) Execute(context.Context, map[string]any) (string, error) {
 	return "ran", nil
 }
 
 func newPermTestExecutor() *Executor {
 	e := NewExecutor(fakeRegistry{
-		"bash":  fakeToolForPerm{name: "bash", danger: common.LevelWrite},
-		"write": fakeToolForPerm{name: "write", danger: common.LevelWrite},
+		"bash":  fakeToolForPerm{name: "bash"},
+		"write": fakeToolForPerm{name: "write"},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	return e
@@ -46,6 +44,40 @@ func TestPermEngine_DeniesSudo(t *testing.T) {
 	}
 }
 
+func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
+	e := newPermTestExecutor()
+	asked := false
+	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+		asked = true
+		return common.AllowOnce()
+	})
+
+	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "1", Name: "bash", Args: map[string]any{"command": "git add ."}},
+	})[0]
+	if r.Error != "" {
+		t.Fatalf("git add should ask and run, got error: %v", r.Error)
+	}
+	if !asked {
+		t.Fatal("git add should be an ask prompt, not a builtin deny")
+	}
+}
+
+func TestPermEngine_DeniesDdCommand(t *testing.T) {
+	e := newPermTestExecutor()
+	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+		t.Fatal("dd deny should not ask for confirmation")
+		return common.AllowOnce()
+	})
+
+	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
+		{ID: "1", Name: "bash", Args: map[string]any{"command": "dd if=/dev/zero of=/tmp/x bs=1 count=1"}},
+	})[0]
+	if r.Error == "" {
+		t.Fatal("dd should be denied by builtin rule")
+	}
+}
+
 func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
 	e := newPermTestExecutor()
 	asked := false
@@ -55,7 +87,7 @@ func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "go version"}},
+		{ID: "1", Name: "bash", Args: map[string]any{"command": "go test ./..."}},
 	})[0]
 	if r.Error != "" {
 		t.Fatalf("approved bash should run, got error: %v", r.Error)
@@ -117,7 +149,7 @@ func TestPermEngine_WriteToolNoPrompt(t *testing.T) {
 
 func TestPermEngine_DeclaredDenyOverridesBuiltinAllow(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+		"bash": fakeToolForPerm{name: "bash"},
 	})
 	// User declares: deny Bash(git push *). Builtin has no git-push rule, so
 	// without the deny it would fall to default (ask). The deny must block it.
@@ -138,7 +170,7 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+		"bash": fakeToolForPerm{name: "bash"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -183,7 +215,7 @@ func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+		"bash": fakeToolForPerm{name: "bash"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -211,7 +243,7 @@ func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+		"bash": fakeToolForPerm{name: "bash"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -243,7 +275,7 @@ func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
 		}
 	}
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash", danger: common.LevelWrite},
+		"bash": fakeToolForPerm{name: "bash"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -254,7 +286,7 @@ func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
 		return common.AllowOnce()
 	})
 
-	cmd := `echo "=== Go 版本 ===" && go version && echo "" && echo "=== 项目模块 ===" && head -5 go.mod && echo "" && echo "=== 最近 git 日志 ===" && git log --oneline -5`
+	cmd := `echo "=== 测试 ===" && go test ./... && echo "" && echo "=== 项目模块 ===" && head -5 go.mod && echo "" && echo "=== 最近 git 日志 ===" && git log --oneline -5`
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "bash", Args: map[string]any{"command": cmd}},
 	})

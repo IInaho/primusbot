@@ -67,6 +67,7 @@ func NewModel(b bot.UI) *Model {
 		questionCh:  make(chan common.QuestionRequest),
 		notifyCh:    make(chan string, 8),
 	}
+	m.Input.SetHistory(loadInputHistory())
 
 	b.Configure(
 		func(req common.ConfirmRequest) common.ConfirmReply {
@@ -110,7 +111,11 @@ func (m *Model) resizeMessages() {
 	if msgHeight < 0 {
 		msgHeight = 0
 	}
-	m.Messages.SetSize(m.Width-1, msgHeight)
+	width := m.Width
+	if m.Messages.TotalContentHeight() > msgHeight {
+		width = max(m.Width-1, 1)
+	}
+	m.Messages.SetSize(width, msgHeight)
 }
 
 func (m *Model) transitionTo(state chatState) {

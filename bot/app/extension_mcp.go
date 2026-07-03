@@ -18,7 +18,6 @@ func (e *extensionFacade) InitConfigMCPServers(servers map[string]config.MCPServ
 			Plugin:        "配置",
 			Command:       cfg.Command,
 			Args:          append([]string(nil), cfg.Args...),
-			DangerLevel:   cfg.DangerLevel,
 			PluginEnabled: cfg.Enabled,
 			Status:        "disabled",
 		}
@@ -45,24 +44,21 @@ func (e *extensionFacade) closePluginMCPServers() {
 }
 
 func (e *extensionFacade) registerPluginMCPServer(pluginDir, name string, cfg plugin.MCPServerConfig) error {
-	level := mcp.ParseDangerLevel(cfg.DangerLevel)
 	cfg = plugin.ExpandPluginMCPConfig(cfg, pluginDir)
 	client := mcp.NewClient(name, cfg)
-	return e.registerMCPClient(name, client, level)
+	return e.registerMCPClient(name, client)
 }
 
 func (e *extensionFacade) registerConfigMCPServer(name string, cfg config.MCPServerConfig) error {
-	level := mcp.ParseDangerLevel(cfg.DangerLevel)
 	client := mcp.NewClient(name, mcp.ServerConfig{
-		Command:     cfg.Command,
-		Args:        append([]string(nil), cfg.Args...),
-		Env:         cfg.Env,
-		DangerLevel: cfg.DangerLevel,
+		Command: cfg.Command,
+		Args:    append([]string(nil), cfg.Args...),
+		Env:     cfg.Env,
 	})
-	return e.registerMCPClient(name, client, level)
+	return e.registerMCPClient(name, client)
 }
 
-func (e *extensionFacade) registerMCPClient(name string, client *mcp.Client, level common.DangerLevel) error {
+func (e *extensionFacade) registerMCPClient(name string, client *mcp.Client) error {
 	if old, exists := e.mcpClients[name]; exists {
 		old.Close()
 	}
@@ -81,7 +77,7 @@ func (e *extensionFacade) registerMCPClient(name string, client *mcp.Client, lev
 		return fmt.Errorf("list tools: %w", err)
 	}
 	for _, td := range mcpTools {
-		e.toolRegistry.Register(mcp.NewMCPTool(client, td, level))
+		e.toolRegistry.Register(mcp.NewMCPTool(client, td))
 	}
 	e.mcpHealth[name] = mcpHealth{Status: "ready", ToolCount: len(mcpTools)}
 	return nil

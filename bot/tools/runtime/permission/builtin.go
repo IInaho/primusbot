@@ -8,9 +8,10 @@ package permission
 // like "npm run *" matches commands starting with "npm run ". The bash
 // matcher handles the wildcard logic; here we only declare the policies.
 //
-// Bash uses explicit authorization: builtins only block obviously unsafe
-// commands and force prompts for destructive ones. Everything else falls to the
-// engine caller's default ask until a user/project/remembered allow rule exists.
+// Bash uses explicit authorization: builtins block obviously unsafe commands,
+// force prompts for destructive ones, and allow common read-only inspection
+// commands. Everything else falls to the engine caller's default ask until a
+// user/project/remembered allow rule exists.
 
 var builtinRules = []Rule{
 	// --- Bash: hard-deny (irreversible / privilege escalation) ---
@@ -36,6 +37,41 @@ var builtinRules = []Rule{
 	{Tool: "bash", Specifier: "mv *", Effect: EffectAsk, Source: "builtin"},
 	{Tool: "bash", Specifier: "shutdown *", Effect: EffectAsk, Source: "builtin"},
 	{Tool: "bash", Specifier: "reboot *", Effect: EffectAsk, Source: "builtin"},
+
+	// --- Bash: allow common read-only inspection ---
+	{Tool: "bash", Specifier: "ls *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "pwd", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "whoami", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "date", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "printenv *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "which *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "uname *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "hostname", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "wc *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "cat *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "head *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "tail *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "less *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "more *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "du *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "df *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "free *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "uptime", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "pgrep *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "file *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "stat *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "go version", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "go env *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "go doc *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "go vet *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "go fmt *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git status *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git log *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git diff *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git show *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git blame *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git tag *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "bash", Specifier: "git remote *", Effect: EffectAllow, Source: "builtin"},
 
 	// --- File tools: workspace writes default to allow (path boundary enforces scope) ---
 	{Tool: "write", Effect: EffectAllow, Source: "builtin"},

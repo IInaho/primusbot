@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 func TestBashTool(t *testing.T) {
@@ -30,24 +29,6 @@ func TestBashTool(t *testing.T) {
 	_, err = b.Execute(context.Background(), nil)
 	if err == nil {
 		t.Error("expected error for missing command")
-	}
-
-	if b.DangerLevel(map[string]any{"command": "rm -rf /"}) != common.LevelDestructive {
-		t.Error("rm -rf should be destructive")
-	}
-	if b.DangerLevel(map[string]any{"command": "ls"}) != common.LevelSafe {
-		t.Error("ls should be safe")
-	}
-
-	// cat > file: writes via redirection, must not be LevelSafe.
-	if b.DangerLevel(map[string]any{"command": "cat > /tmp/test_edit.go << 'EOF'"}) != common.LevelWrite {
-		t.Error("cat > file should be LevelWrite (writes via redirection)")
-	}
-
-	// cat heredoc with Go source code: must not be LevelForbidden.
-	cmd := "cat > /tmp/test_edit.go << 'EOF'\npackage main\n\nfunc main() {}\nEOF"
-	if b.DangerLevel(map[string]any{"command": cmd}) == common.LevelForbidden {
-		t.Error("cat heredoc with Go code should not be LevelForbidden (heredoc body stripped before matching)")
 	}
 
 	// stripHeredocBodies unit tests

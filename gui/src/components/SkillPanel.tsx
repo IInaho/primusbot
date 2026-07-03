@@ -377,7 +377,6 @@ function SkillRow({ skill }: { skill: SkillView }) {
             <span className="truncate text-xs font-semibold text-text">{skill.name}</span>
             {skill.loaded && <span className="rounded-sm bg-success/12 px-1.5 py-0.5 text-[10px] text-success">已加载</span>}
           </span>
-          <span className="mt-1 line-clamp-1 block text-[11px] text-text-3">{skill.description || '暂无描述'}</span>
         </span>
         <SourcePill skill={skill} />
       </button>
@@ -632,11 +631,6 @@ function McpRow({ server }: { server: MCPServerView }) {
               {server.toolCount ?? 0} tools
             </span>
           )}
-          {server.dangerLevel && (
-            <span className={cn('shrink-0 rounded-sm px-1.5 py-0.5 text-[10px]', dangerTone(server.dangerLevel))}>
-              {server.dangerLevel}
-            </span>
-          )}
           {!server.pluginEnabled && <span className="shrink-0 rounded-sm bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-3">插件已停用</span>}
         </div>
         <p className="mt-1 line-clamp-1 font-mono text-[11px] text-text-3">{cmd || '未配置命令'}</p>
@@ -663,13 +657,6 @@ function statusTone(status: string): string {
   if (status === 'starting') return 'bg-primary/12 text-primary'
   if (status === 'disabled') return 'bg-surface-3 text-text-3'
   return 'bg-warning/12 text-warning'
-}
-
-function dangerTone(level: string): string {
-  const l = level.toLowerCase()
-  if (l === 'high' || l === 'danger' || l === 'dangerous') return 'bg-danger/15 text-danger'
-  if (l === 'medium' || l === 'moderate') return 'bg-warning/15 text-warning'
-  return 'bg-surface-3 text-text-2'
 }
 
 function Metric({ label, value, tone }: { label: string; value: number | string; tone: 'primary' | 'success' | 'accent' | 'warning' }) {

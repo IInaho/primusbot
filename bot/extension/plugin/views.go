@@ -44,7 +44,6 @@ func MCPServersFor(p *Plugin) []common.MCPServerView {
 			Plugin:        p.Name,
 			Command:       cfg.Command,
 			Args:          args,
-			DangerLevel:   cfg.DangerLevel,
 			PluginEnabled: p.Enabled,
 		})
 	}

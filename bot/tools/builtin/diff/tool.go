@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common"
 	"os"
 	"strings"
 )
@@ -17,7 +16,6 @@ func NewTool() *Tool { return &Tool{} }
 
 func (t *Tool) Name() string                                    { return "diff" }
 func (t *Tool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeParallel }
-func (t *Tool) DangerLevel(map[string]any) common.DangerLevel   { return common.LevelSafe }
 
 func (t *Tool) Description() string {
 	return "Show unified diff between two texts or files. Useful for previewing changes before applying them, comparing file versions, or reviewing what an edit would change."

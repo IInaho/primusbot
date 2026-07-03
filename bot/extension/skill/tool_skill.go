@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 // SkillTool implements tools.Tool to let the model load skills by name.
@@ -39,10 +38,6 @@ func (t *SkillTool) Parameters() []core.Parameter {
 
 func (t *SkillTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 	return core.ModeSequential
-}
-
-func (t *SkillTool) DangerLevel(args map[string]any) common.DangerLevel {
-	return common.LevelSafe
 }
 
 func (t *SkillTool) Execute(ctx context.Context, args map[string]any) (string, error) {

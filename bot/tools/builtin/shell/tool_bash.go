@@ -8,7 +8,6 @@ import (
 
 	"nekocode/bot/tools/builtin/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 const defaultBashTimeout = 120 * time.Second
@@ -32,11 +31,6 @@ func (t *BashTool) Parameters() []core.Parameter {
 		{Name: "command", Type: "string", Required: true, Description: "The command to execute"},
 		{Name: "timeout_ms", Type: "number", Required: false, Description: "Timeout in milliseconds (default 120000, max 600000)"},
 	}
-}
-
-func (t *BashTool) DangerLevel(args map[string]any) common.DangerLevel {
-	cmd, _ := args["command"].(string)
-	return classifyShellDanger(strings.TrimSpace(cmd))
 }
 
 func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, error) {

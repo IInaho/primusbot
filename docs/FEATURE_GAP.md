@@ -10,7 +10,7 @@
 
 | 工具 | 文件 | 说明 |
 |------|------|------|
-| `bash` | shell/tool_bash.go | Shell 执行，四级危险分类（LevelSafe/Write/Destructive/Forbidden），heredoc 剥离 |
+| `bash` | shell/tool_bash.go | Shell 执行；权限由统一 permission engine 决定 |
 | `read` | filesystem/read/tool_read.go | 文件读取（文本/图片/PDF），支持行范围，输出 `[path#TAG]` 和行号内容 |
 | `write` | filesystem/write/tool_write.go | 文件创建/覆写，自动创建父目录 |
 | `edit` | filesystem/edit/tool_edit.go | oldString/newString 内容锚定编辑，唯一匹配校验，自动快照 + 撤销 + gofmt lint |
@@ -86,23 +86,21 @@
 #### 1. Bash 安全机制薄弱
 
 ```
-当前：关键词模式匹配四级分类（LevelSafe / LevelWrite / LevelDestructive / LevelForbidden）
+当前：统一 permission engine（deny / ask / allow）集中处理权限
 缺失：
-  ❌ Bash AST 解析器 — 无法理解命令语法树，只能做字符串/前缀匹配
   ❌ 路径约束检查 — 无法限制文件访问范围（如只允许项目目录内操作）
   ❌ 沙箱执行 — 无容器/隔离环境执行
-说明：字符串匹配会漏判命令替换 $()、管道权限逃逸，是当前最大安全隐患。
+说明：权限逻辑已集中到 rule engine；沙箱和更严格路径约束仍需补齐。
 ```
 
 #### 2. 权限系统薄弱
 
 ```
-当前：四级工具危险分类 + 确认弹框（工具执行前交互一次）
+当前：统一 permission engine（deny / ask / allow）+ remembered allow
 缺失：
-  ❌ allow/deny 规则持久化 — 同一类命令每次都要确认
-  ❌ 自动模式（auto-approve）— 对已知安全操作不能"记住我的决定"
-  ❌ 权限规则匹配引擎 — 无法按路径/命令模式做持久化放行当
-说明：当前每次确认已能保安全，但频繁确认带来的体验摩擦会在长会话中放大。P0 中优先级低于 Bash 安全。
+  ❌ 更细的沙箱能力授权 — 网络、主机进程、文件写边界仍需持续收敛
+  ❌ 权限审计视图 — 用户缺少集中查看/撤销 remembered rules 的界面
+说明：权限决策已集中到 engine，后续重点是更细粒度授权、可审计性和沙箱能力收敛。
 ```
 
 #### 3. CLI 主入口仍需完善

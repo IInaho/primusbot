@@ -79,6 +79,19 @@ func (i *Input) AddHistory(entry string) {
 	i.historyIdx = len(i.history)
 }
 
+func (i *Input) SetHistory(entries []string) {
+	i.history = append(i.history[:0], entries...)
+	i.historyIdx = len(i.history)
+	i.historyActive = false
+	i.savedInput = ""
+}
+
+func (i *Input) History() []string {
+	out := make([]string, len(i.history))
+	copy(out, i.history)
+	return out
+}
+
 func (i *Input) HistoryUp() {
 	if len(i.history) == 0 {
 		return

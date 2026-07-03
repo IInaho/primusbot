@@ -39,11 +39,10 @@ type ImageGenConfig struct {
 }
 
 type MCPServerConfig struct {
-	Command     string            `json:"command"`
-	Args        []string          `json:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	DangerLevel string            `json:"dangerLevel,omitempty"`
-	Enabled     bool              `json:"enabled"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
 }
 
 type Config struct {
@@ -212,7 +211,6 @@ func Validate(cfg *Config) error {
 			}
 			srv := cfg.MCPServers[rawName]
 			srv.Command = strings.TrimSpace(srv.Command)
-			srv.DangerLevel = strings.TrimSpace(srv.DangerLevel)
 			for i := range srv.Args {
 				srv.Args[i] = strings.TrimSpace(srv.Args[i])
 			}
@@ -229,11 +227,6 @@ func Validate(cfg *Config) error {
 			}
 			if srv.Command == "" {
 				return fmt.Errorf("mcp server %q command is required", name)
-			}
-			switch strings.ToLower(srv.DangerLevel) {
-			case "", "safe", "modify", "write", "danger", "destructive", "blocked", "forbidden":
-			default:
-				return fmt.Errorf("mcp server %q dangerLevel must be safe, write, danger, or forbidden", name)
 			}
 			normalized[name] = srv
 		}

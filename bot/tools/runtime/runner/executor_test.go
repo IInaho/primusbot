@@ -24,7 +24,6 @@ func (r fakeRegistry) Get(name string) (core.Tool, error) {
 type fakeTool struct {
 	name   string
 	mode   core.ExecutionMode
-	danger common.DangerLevel
 	output string
 }
 
@@ -32,7 +31,6 @@ func (t fakeTool) Name() string                                    { return t.na
 func (t fakeTool) Description() string                             { return "test" }
 func (t fakeTool) Parameters() []core.Parameter                    { return nil }
 func (t fakeTool) ExecutionMode(map[string]any) core.ExecutionMode { return t.mode }
-func (t fakeTool) DangerLevel(map[string]any) common.DangerLevel   { return t.danger }
 func (t fakeTool) Execute(context.Context, map[string]any) (string, error) {
 	if t.output != "" {
 		return t.output, nil
@@ -42,8 +40,8 @@ func (t fakeTool) Execute(context.Context, map[string]any) (string, error) {
 
 func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"read":  fakeTool{name: "read", mode: core.ModeParallel, danger: common.LevelSafe},
-		"write": fakeTool{name: "write", mode: core.ModeSequential, danger: common.LevelWrite},
+		"read":  fakeTool{name: "read", mode: core.ModeParallel},
+		"write": fakeTool{name: "write", mode: core.ModeSequential},
 	})
 
 	results := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -59,14 +57,15 @@ func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 	}
 }
 
-func TestExecutorBlocksForbiddenAndPlanMode(t *testing.T) {
+func TestExecutorBlocksPermissionDenyAndPlanMode(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"blocked": fakeTool{name: "blocked", mode: core.ModeParallel, danger: common.LevelForbidden},
-		"writer":  fakeTool{name: "writer", mode: core.ModeSequential, danger: common.LevelWrite},
+		"blocked": fakeTool{name: "blocked", mode: core.ModeParallel},
+		"writer":  fakeTool{name: "writer", mode: core.ModeSequential},
 	})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Deny: []string{"blocked"}}, "/repo", "/home/user")
 
 	if got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "blocked"}})[0]; got.Error == "" {
-		t.Fatal("expected forbidden error")
+		t.Fatal("expected permission deny error")
 	}
 
 	e.SetPlanMode(true)
@@ -77,8 +76,9 @@ func TestExecutorBlocksForbiddenAndPlanMode(t *testing.T) {
 
 func TestExecutorConfirmDenial(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"writer": fakeTool{name: "writer", mode: core.ModeSequential, danger: common.LevelWrite},
+		"writer": fakeTool{name: "writer", mode: core.ModeSequential},
 	})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"writer"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "writer"}})[0]
@@ -107,7 +107,7 @@ func TestExecutorPreservesTaskOutput(t *testing.T) {
 		output += fmt.Sprintf("line %d\n", i)
 	}
 	e := NewExecutor(fakeRegistry{
-		"task": fakeTool{name: "task", mode: core.ModeParallel, danger: common.LevelSafe, output: output},
+		"task": fakeTool{name: "task", mode: core.ModeParallel, output: output},
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "task"}})[0]
@@ -148,7 +148,7 @@ func (e testPermissionError) PermissionRequest() core.PermissionRequest {
 }
 
 func TestExecutorUsesPersistedGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential, danger: common.LevelSafe}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	req := core.PermissionRequest{
 		Capabilities: []string{"net.public"},
@@ -162,6 +162,7 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 	}
 	e := NewExecutor(fakeRegistry{"bash": tool})
 	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		t.Fatal("confirm should not be called when a persisted grant matches")
 		return common.Deny()
@@ -178,10 +179,11 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 }
 
 func TestExecutorPermissionAllowOnceDoesNotPersistGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential, danger: common.LevelSafe}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	e := NewExecutor(fakeRegistry{"bash": tool})
 	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.AllowOnce()
 	})
@@ -204,10 +206,11 @@ func TestExecutorPermissionAllowOnceDoesNotPersistGrant(t *testing.T) {
 }
 
 func TestExecutorPermissionRememberPersistsGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential, danger: common.LevelSafe}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	e := NewExecutor(fakeRegistry{"bash": tool})
 	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.AllowRemembered()
 	})

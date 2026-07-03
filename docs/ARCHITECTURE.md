@@ -71,7 +71,7 @@ nekocode/
 │           ├── icon_16..1024.png    #     中间产物
 │           └── build_icns.js        #     任意平台生成 ICNS 的脚本
 ├── common/                         # 公共类型
-│   ├── types.go                    #   DangerLevel / TodoItem / BotStats / CmdResult / SubSlot
+│   ├── types.go                    #   TodoItem / BotStats / CmdResult / SubSlot
 │   ├── confirm.go                  #   ConfirmRequest / ConfirmFunc / PhaseFunc / TodoFunc
 │   └── util.go                     #   通用辅助函数
 ├── llm/                            # LLM 抽象层
@@ -582,7 +582,6 @@ type Tool interface {
     Description() string
     Parameters() []Parameter
     ExecutionMode(args map[string]any) ExecutionMode
-    DangerLevel(args map[string]any) DangerLevel
     Execute(ctx context.Context, args map[string]any) (string, error)
 }
 ```

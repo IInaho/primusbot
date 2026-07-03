@@ -183,7 +183,7 @@ export default function App() {
           toolName: ce.toolName,
           args: ce.args ?? {},
           preview: ce.preview ?? '',
-          level: ce.level ?? 0,
+          kind: ce.kind ?? 'permission',
           can_escalate: ce.can_escalate ?? false,
         })
       }

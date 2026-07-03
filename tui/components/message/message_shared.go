@@ -5,13 +5,13 @@ import (
 	"image/color"
 	"strings"
 
+	"nekocode/tui/styles"
+
 	"charm.land/lipgloss/v2"
 )
 
 const (
-	maxTextWidth       = 150
-	messageLeftPadding = 2
-	barOverhead        = 3
+	barOverhead = 3
 )
 
 var barBorder = lipgloss.Border{Left: "▐"}
@@ -22,8 +22,8 @@ type cachedRender struct {
 	height   int
 }
 
-func cappedWidth(available int) int {
-	return min(available-messageLeftPadding, maxTextWidth)
+func fullMessageWidth(available int) int {
+	return styles.MessageWidth(available)
 }
 
 func stripLeadingSpaces(s string) string {

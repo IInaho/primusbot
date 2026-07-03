@@ -20,7 +20,6 @@ export interface MCPServerConfig {
   command: string
   args?: string[]
   env?: Record<string, string>
-  dangerLevel?: 'safe' | 'write' | 'danger' | 'forbidden' | ''
   enabled: boolean
 }
 

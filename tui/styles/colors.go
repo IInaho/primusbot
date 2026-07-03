@@ -16,17 +16,26 @@ var SubColors = [8]string{
 
 // Exported color hex values for direct use by other packages.
 const (
-	Primary   = "#4ec9b0"
-	Yellow    = "#c9a96e"
-	Red       = "#e06c75"
-	Blue      = "#7a8ba0"
-	DiffGreen = "#98c379"
-	DiffDelBg = "#3d2020"
-	DiffAddBg = "#1e3024"
-	BtnYesBg  = "#1e3024"
-	BtnNoBg   = "#3d2020"
-	BtnNoFg   = "#e06c75"
+	Primary      = "#4ec9b0"
+	Yellow       = "#c9a96e"
+	Red          = "#e06c75"
+	Blue         = "#7a8ba0"
+	DiffGreen    = "#98c379"
+	DiffDelBg    = "#3d2020"
+	DiffAddBg    = "#1e3024"
+	BtnYesBg     = "#1e3024"
+	BtnNoBg      = "#3d2020"
+	BtnNoFg      = "#e06c75"
+	MaxTextWidth = 150
 )
+
+// MessageWidth returns the unified outer width for every chat message block
+// (user / assistant / system / error / processing), capped to MaxTextWidth so
+// lines stay readable on wide terminals. All message types share this so their
+// boxes align vertically.
+func MessageWidth(available int) int {
+	return max(min(available, MaxTextWidth), 1)
+}
 
 const (
 	fgText   = "#a0a0a0"

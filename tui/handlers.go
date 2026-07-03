@@ -191,7 +191,7 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 		if value != "" {
 			m.Suggestions.Hide()
 			m.resizeMessages()
-			m.Input.AddHistory(value)
+			m.rememberInput(value)
 			m.Input.Reset()
 			m.Messages.AddMessage(message.ChatMessage{Role: "user", Content: value})
 			m.Messages.ClearProcessing()
@@ -245,7 +245,7 @@ func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		m.Suggestions.Hide()
 		m.resizeMessages()
-		m.Input.AddHistory(value)
+		m.rememberInput(value)
 		m.Input.Reset()
 		return m.startChat(value)
 	default:

@@ -174,7 +174,6 @@ export namespace common {
 	    plugin: string;
 	    command: string;
 	    args?: string[];
-	    dangerLevel?: string;
 	    pluginEnabled: boolean;
 	    status?: string;
 	    error?: string;
@@ -190,7 +189,6 @@ export namespace common {
 	        this.plugin = source["plugin"];
 	        this.command = source["command"];
 	        this.args = source["args"];
-	        this.dangerLevel = source["dangerLevel"];
 	        this.pluginEnabled = source["pluginEnabled"];
 	        this.status = source["status"];
 	        this.error = source["error"];
@@ -322,7 +320,6 @@ export namespace config {
 	    command: string;
 	    args?: string[];
 	    env?: Record<string, string>;
-	    dangerLevel?: string;
 	    enabled: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -334,7 +331,6 @@ export namespace config {
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.env = source["env"];
-	        this.dangerLevel = source["dangerLevel"];
 	        this.enabled = source["enabled"];
 	    }
 	}

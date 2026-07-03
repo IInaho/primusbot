@@ -33,7 +33,6 @@ const emptyMcpServer = (): MCPServerConfig => ({
   command: '',
   args: [],
   env: {},
-  dangerLevel: 'safe',
   enabled: true,
 })
 
@@ -541,18 +540,6 @@ function McpServerCard({
             }}
           />
         </Field>
-        <Field label="危险等级">
-          <select
-            className="field"
-            value={server.dangerLevel || 'write'}
-            onChange={(e) => onChange({ dangerLevel: e.target.value as MCPServerConfig['dangerLevel'] })}
-          >
-            <option value="safe">safe</option>
-            <option value="write">write</option>
-            <option value="danger">danger</option>
-            <option value="forbidden">forbidden</option>
-          </select>
-        </Field>
         <Field label="Command">
           <input className="field font-mono" value={server.command} onChange={(e) => onChange({ command: e.target.value })} />
         </Field>
@@ -687,7 +674,6 @@ function trimMcpServers(servers: Record<string, MCPServerConfig>): Record<string
       command: server.command.trim(),
       args: (server.args ?? []).map((arg) => arg.trim()).filter(Boolean),
       env: trimEnv(server.env ?? {}),
-      dangerLevel: server.dangerLevel || 'write',
       enabled: server.enabled,
     }
   }

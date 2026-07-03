@@ -4,8 +4,6 @@ package core
 
 import (
 	"context"
-
-	"nekocode/common"
 )
 
 // ExecutionMode controls whether a tool can run concurrently.
@@ -43,7 +41,6 @@ type Tool interface {
 	Description() string
 	Parameters() []Parameter
 	ExecutionMode(args map[string]any) ExecutionMode
-	DangerLevel(args map[string]any) common.DangerLevel
 	Execute(ctx context.Context, args map[string]any) (string, error)
 }
 

@@ -36,7 +36,7 @@ func DisplayMessages(messages []types.Message, compactBoundary int) []common.Dis
 			}
 			i++
 		case "assistant":
-			msg, next := displayAssistantMessage(messages, i, toolNames, toolArgs)
+			msg, next := displayAssistantTurn(messages, i, toolNames, toolArgs)
 			if msg.Content != "" || len(msg.Blocks) > 0 || len(msg.Images) > 0 {
 				out = append(out, msg)
 			}
@@ -70,41 +70,51 @@ func toolMetaByID(msgs []types.Message) (names map[string]string, args map[strin
 	return names, args
 }
 
-func displayAssistantMessage(msgs []types.Message, idx int, toolNames, toolArgs map[string]string) (common.DisplayMessage, int) {
-	m := msgs[idx]
+func displayAssistantTurn(msgs []types.Message, idx int, toolNames, toolArgs map[string]string) (common.DisplayMessage, int) {
+	var contentParts []string
 	var blocks []common.DisplayBlock
 	var images []common.ImageRef
-	next := idx + 1
 
-	if len(m.ToolCalls) > 0 {
+	next := idx
+	for next < len(msgs) && msgs[next].Role == "assistant" {
+		m := msgs[next]
+		next++
+
+		if len(m.ToolCalls) == 0 {
+			if content := strings.TrimSpace(m.Content); content != "" && !isInternalMessage(m) {
+				contentParts = append(contentParts, content)
+			}
+			continue
+		}
+
 		for next < len(msgs) && msgs[next].Role == "tool" {
 			name := toolNames[msgs[next].ToolCallID]
-			if isPersistentTool(name) {
-				blocks = append(blocks, common.DisplayBlock{
-					ToolName: name,
-					Args:     toolArgs[msgs[next].ToolCallID],
-					Content:  msgs[next].Content,
-					IsError:  msgs[next].IsError,
-				})
-			}
-			if isImageTool(name) {
-				refs := extractImageRefs(msgs[next].Content)
-				images = append(images, refs...)
-			}
+			blocks, images = appendDisplayToolResult(blocks, images, name, toolArgs[msgs[next].ToolCallID], msgs[next])
 			next++
 		}
 	}
 
-	content := m.Content
-	if len(m.ToolCalls) > 0 {
-		content = ""
-	}
 	return common.DisplayMessage{
 		Role:    "assistant",
-		Content: content,
+		Content: strings.Join(contentParts, "\n\n"),
 		Blocks:  blocks,
 		Images:  images,
 	}, next
+}
+
+func appendDisplayToolResult(blocks []common.DisplayBlock, images []common.ImageRef, name, args string, msg types.Message) ([]common.DisplayBlock, []common.ImageRef) {
+	if isPersistentTool(name) {
+		blocks = append(blocks, common.DisplayBlock{
+			ToolName: name,
+			Args:     args,
+			Content:  msg.Content,
+			IsError:  msg.IsError,
+		})
+	}
+	if isImageTool(name) {
+		images = append(images, extractImageRefs(msg.Content)...)
+	}
+	return blocks, images
 }
 
 func isPersistentTool(name string) bool {

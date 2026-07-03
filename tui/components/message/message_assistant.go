@@ -9,6 +9,7 @@ import (
 	"nekocode/tui/styles"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type AssistantMessageItem struct {
@@ -56,11 +57,12 @@ func (m *AssistantMessageItem) Render(width int) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cw := cappedWidth(width)
-	contentW := cw - barOverhead
+	cw := fullMessageWidth(width)
+	contentW := cw
 
-	header := m.sty.Primary.Bold(true).Render("Assistant")
-	msgParts := []string{header, ""}
+	sepW := contentW
+	separator := m.sty.Border.Render(strings.Repeat("─", sepW))
+	msgParts := []string{separator}
 
 	if len(m.blocks) > 0 {
 		cards := block.RenderTools(m.blocks, contentW, m.sty)
@@ -73,18 +75,22 @@ func (m *AssistantMessageItem) Render(width int) string {
 	if m.renderedContent != "" {
 		raw = m.renderedContent
 	}
-	body := strings.TrimSpace(RenderMarkdown(strings.TrimSpace(raw), contentW))
+	bodyW := max(contentW-4, 10)
+	body := strings.TrimSpace(RenderMarkdown(strings.TrimSpace(raw), bodyW))
 	if body != "" {
 		if len(m.blocks) > 0 {
 			msgParts = append(msgParts, "")
 		}
-		msgParts = append(msgParts, stripLeadingSpaces(body))
+		msgParts = append(msgParts, renderAssistantBody(body, m.sty))
 	}
 	if m.footer != "" {
 		msgParts = append(msgParts, "", styles.SubtleStyle.Render(m.footer))
 	}
 
-	msgBlock := thickLeftBar(strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left, msgParts...)), lipgloss.Color(styles.Primary), cw)
+	msgBlock := lipgloss.NewStyle().
+		Width(cw).
+		MaxWidth(cw).
+		Render(strings.TrimSpace(lipgloss.JoinVertical(lipgloss.Left, msgParts...)))
 
 	m.cache.rendered = msgBlock
 	m.cache.width = cw
@@ -95,7 +101,7 @@ func (m *AssistantMessageItem) Render(width int) string {
 func (m *AssistantMessageItem) Height(width int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cw := cappedWidth(width)
+	cw := fullMessageWidth(width)
 	if m.cache.height > 0 && m.cache.width == cw {
 		return m.cache.height
 	}
@@ -104,4 +110,30 @@ func (m *AssistantMessageItem) Height(width int) int {
 	_ = m.Render(width)
 	m.mu.Lock()
 	return m.cache.height
+}
+
+func renderAssistantBody(body string, sty *styles.Styles) string {
+	body = stripLeadingSpaces(body)
+	lines := strings.Split(body, "\n")
+	prefix := "  " + sty.Teal.Render("•") + " "
+	continuation := "    "
+
+	var out strings.Builder
+	bulletWritten := false
+	for _, line := range lines {
+		if out.Len() > 0 {
+			out.WriteByte('\n')
+		}
+		if strings.TrimSpace(ansi.Strip(line)) == "" {
+			continue
+		}
+		if !bulletWritten {
+			out.WriteString(prefix)
+			bulletWritten = true
+		} else {
+			out.WriteString(continuation)
+		}
+		out.WriteString(line)
+	}
+	return strings.TrimRight(out.String(), "\n")
 }

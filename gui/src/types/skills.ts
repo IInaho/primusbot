@@ -31,7 +31,6 @@ export interface MCPServerView {
   plugin: string
   command: string
   args?: string[]
-  dangerLevel?: string
   pluginEnabled: boolean
   status?: 'ready' | 'error' | 'disabled' | 'starting' | 'unknown' | string
   error?: string

@@ -16,7 +16,7 @@ func (p *ProcessingItem) Render(width int) string {
 	if p.cachedRenderW == width && p.cachedRender != "" {
 		return p.cachedRender
 	}
-	cw := width - 4
+	cw := styles.MessageWidth(width)
 	contentW := cw - 4
 
 	var sections []string

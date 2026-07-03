@@ -32,7 +32,7 @@ func (m *SystemMessageItem) SetRenderedContent(content string) {
 }
 
 func (m *SystemMessageItem) Render(width int) string {
-	cw := cappedWidth(width)
+	cw := fullMessageWidth(width)
 	if m.cache.width == cw && m.cache.rendered != "" {
 		return m.cache.rendered
 	}
@@ -55,7 +55,7 @@ func (m *SystemMessageItem) Render(width int) string {
 }
 
 func (m *SystemMessageItem) Height(width int) int {
-	cw := cappedWidth(width)
+	cw := fullMessageWidth(width)
 	if m.cache.height > 0 && m.cache.width == cw {
 		return m.cache.height
 	}

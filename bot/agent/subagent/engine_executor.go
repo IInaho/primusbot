@@ -15,9 +15,6 @@ import (
 func (e *Engine) newExecutor(cfg RunConfig) (*runner.Executor, func()) {
 	executor := runner.NewExecutor(e.toolRegistry)
 	executor.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
-		if req.Level < common.LevelWrite {
-			return common.AllowOnce()
-		}
 		return common.Deny()
 	})
 	if cfg.ConfirmFn != nil {

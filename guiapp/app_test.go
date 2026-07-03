@@ -15,7 +15,7 @@ func TestCompactConfirmArgsEditUsesV2Fields(t *testing.T) {
 		"replaceAll": true,
 		"patch":      "legacy",
 		"_preview":   "diff",
-	}, common.LevelWrite)
+	}, common.ConfirmKindPermission)
 
 	got := compactConfirmArgs(req)
 	if got["path"] != "/tmp/file.go" {

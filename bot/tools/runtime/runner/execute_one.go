@@ -16,62 +16,37 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: err.Error()}
 	}
 
-	level := tool.DangerLevel(tc.Args)
-	if level == common.LevelForbidden {
-		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "forbidden: " + tc.Name}
-	}
-
 	phaseFn, confirmFn, planMode := e.callbacks()
 	if phaseFn != nil {
 		phaseFn(common.PhaseRunning + " " + tc.Name)
 	}
-	if planMode && level >= common.LevelWrite {
+	if planMode {
 		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "plan mode: blocked"}
 	}
 
-	// Permission rule engine (claude-code style deny→ask→allow). When
-	// configured it replaces the legacy DangerLevel confirm prompt: the
-	// engine decides whether to run (allow), prompt (ask), or block (deny).
-	// The legacy prompt path is kept as a fallback when no policy is set.
-	if engine, ws, home := e.permissionEngine(); engine != nil {
-		callInfo := permission.BuildCallInfo(tc.Name, tc.Args, ws, home)
-		// Default effect when no rule matches: bash asks (unknown command),
-		// file tools allow (path boundary contains them), others allow.
-		defaultEffect := permission.EffectAllow
-		if tc.Name == "bash" {
-			defaultEffect = permission.EffectAsk
+	engine, ws, home := e.permissionEngine()
+	callInfo := permission.BuildCallInfo(tc.Name, tc.Args, ws, home)
+	dec := engine.Evaluate(tc.Name, callInfo, defaultPermissionEffect(tc.Name))
+	switch dec.Effect {
+	case permission.EffectDeny:
+		reason := "denied by permission rule"
+		if dec.Rule.Tool != "" {
+			reason = "denied by rule " + dec.Rule.Tool + "(" + dec.Rule.Specifier + ")"
 		}
-		dec := engine.Evaluate(tc.Name, callInfo, defaultEffect)
-		switch dec.Effect {
-		case permission.EffectDeny:
-			reason := "denied by permission rule"
-			if dec.Rule.Tool != "" {
-				reason = "denied by rule " + dec.Rule.Tool + "(" + dec.Rule.Specifier + ")"
-			}
-			return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: reason}
-		case permission.EffectAsk:
-			reply, ok := e.promptConfirm(tc, tool, level, confirmFn)
-			if !ok {
-				return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "cancelled"}
-			}
-			if reply.Remember {
-				e.rememberAllowRule(tc.Name, tc.Args, dec.Rule)
-			}
-			if reply.AllowWithPermission {
-				e.preApproveEscalation(tc.Name)
-			}
-		case permission.EffectAllow:
-			// run without prompting
-		}
-	} else if level >= common.LevelWrite && confirmFn != nil {
-		// Legacy confirm prompt (no permission engine configured).
-		reply, ok := e.promptConfirm(tc, tool, level, confirmFn)
+		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: reason}
+	case permission.EffectAsk:
+		reply, ok := e.promptConfirm(tc, tool, confirmFn)
 		if !ok {
 			return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "cancelled"}
+		}
+		if reply.Remember {
+			e.rememberAllowRule(tc.Name, tc.Args, dec.Rule)
 		}
 		if reply.AllowWithPermission {
 			e.preApproveEscalation(tc.Name)
 		}
+	case permission.EffectAllow:
+		// run without prompting
 	}
 
 	paths := toolPaths(tc)
@@ -89,21 +64,29 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 	return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Output: formatOutput(tc.Name, output)}
 }
 
-// permissionEngine returns the configured engine plus workspace/home, or nil.
+// permissionEngine returns the configured engine plus workspace/home. The
+// default engine is created by NewExecutor and contains builtin rules.
 func (e *Executor) permissionEngine() (*permission.Engine, string, string) {
 	e.fnMu.RLock()
 	defer e.fnMu.RUnlock()
 	return e.permEngine, e.permWorkspace, e.permHome
 }
 
+func defaultPermissionEffect(toolName string) permission.Effect {
+	if toolName == "bash" || toolName == "shell" {
+		return permission.EffectAsk
+	}
+	return permission.EffectAllow
+}
+
 // promptConfirm builds and issues a confirm request for a tool call that the
-// permission engine (or legacy DangerLevel gate) decided needs a prompt.
+// permission engine decided needs a prompt.
 // Returns (reply, true) if the user allowed, (zero, false) on deny/no-fn.
-func (e *Executor) promptConfirm(tc core.ToolCallItem, tool core.Tool, level common.DangerLevel, confirmFn common.ConfirmFunc) (common.ConfirmReply, bool) {
+func (e *Executor) promptConfirm(tc core.ToolCallItem, tool core.Tool, confirmFn common.ConfirmFunc) (common.ConfirmReply, bool) {
 	if confirmFn == nil {
 		return common.ConfirmReply{}, false
 	}
-	req := common.NewConfirmRequest(tc.Name, confirmArgs(tc.Name, tc.Args), level)
+	req := common.NewConfirmRequest(tc.Name, confirmArgs(tc.Name, tc.Args), common.ConfirmKindPermission)
 	if _, isPrivileged := tool.(core.PrivilegedTool); isPrivileged {
 		req.CanEscalatePermission = true
 	}

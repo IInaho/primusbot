@@ -27,6 +27,52 @@ func TestDisplayMessagesKeepsPersistentToolBlocks(t *testing.T) {
 	}
 }
 
+func TestDisplayMessagesCoalescesAssistantToolTurn(t *testing.T) {
+	msgs := []types.Message{
+		{Role: "user", Content: "commit README"},
+		{
+			Role: "assistant",
+			ToolCalls: []types.ToolCall{
+				{ID: "add-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git add README.md"}`}},
+			},
+		},
+		{Role: "tool", ToolCallID: "add-call", Content: ""},
+		{
+			Role: "assistant",
+			ToolCalls: []types.ToolCall{
+				{ID: "commit-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git commit -m docs"}`}},
+			},
+		},
+		{Role: "tool", ToolCallID: "commit-call", Content: "Author identity unknown", IsError: true},
+		{
+			Role: "assistant",
+			ToolCalls: []types.ToolCall{
+				{ID: "commit-retry-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git -c user.name=NekoCode commit -m docs"}`}},
+			},
+		},
+		{Role: "tool", ToolCallID: "commit-retry-call", Content: "[master e0e5307] docs"},
+		{Role: "assistant", Content: "已提交。e0e5307。"},
+	}
+
+	got := DisplayMessages(msgs, 0)
+	if len(got) != 2 {
+		t.Fatalf("display messages len = %d, want user + one assistant: %+v", len(got), got)
+	}
+	assistant := got[1]
+	if assistant.Role != "assistant" || assistant.Content != "已提交。e0e5307。" {
+		t.Fatalf("assistant = %+v, want final content preserved", assistant)
+	}
+	if len(assistant.Blocks) != 3 {
+		t.Fatalf("assistant blocks = %d, want 3: %+v", len(assistant.Blocks), assistant.Blocks)
+	}
+	if assistant.Blocks[1].ToolName != "bash" || !assistant.Blocks[1].IsError {
+		t.Fatalf("second block = %+v, want failed bash block", assistant.Blocks[1])
+	}
+	if assistant.Blocks[2].Content != "[master e0e5307] docs" {
+		t.Fatalf("third block content = %q", assistant.Blocks[2].Content)
+	}
+}
+
 func TestDisplayMessagesKeepsDiffToolBlock(t *testing.T) {
 	msgs := []types.Message{
 		{

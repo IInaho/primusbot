@@ -35,10 +35,9 @@ type Executor struct {
 	// permission escalation in the merged confirm dialog.
 	escalationMu       sync.Mutex
 	escalationApproved map[string]bool
-	// Permission rule engine (claude-code style allow/ask/deny). When set,
-	// it replaces the legacy DangerLevel-based confirm prompt (弹窗A): the
-	// engine's deny→ask→allow decision drives whether to run, prompt, or
-	// block. nil = legacy behaviour (DangerLevel + confirmFn).
+	// Permission rule engine (claude-code style allow/ask/deny). The engine's
+	// deny→ask→allow decision is the single authority for whether a tool call
+	// runs, prompts, or is blocked.
 	permEngine    *permission.Engine
 	permDecl      permission.PermissionsDecl
 	permWorkspace string
@@ -46,12 +45,14 @@ type Executor struct {
 }
 
 func NewExecutor(r ToolRegistry) *Executor {
-	return &Executor{
+	e := &Executor{
 		registry:           r,
 		state:              execution.NewExecutionState(),
 		permStore:          permission.DefaultStore(),
 		escalationApproved: make(map[string]bool),
 	}
+	e.rebuildEngine(permission.PermissionsDecl{}, e.permStore, "")
+	return e
 }
 
 func (e *Executor) ExecutionState() *execution.ExecutionState { return e.state }
@@ -93,8 +94,7 @@ func (e *Executor) SetPermissionStore(store *permission.Store) {
 }
 
 // SetPermissionPolicy configures the declarative permission rule engine.
-// When called, executeOne evaluates every tool call through the engine
-// (deny→ask→allow) instead of the legacy DangerLevel confirm prompt.
+// executeOne evaluates every tool call through this engine (deny→ask→allow).
 // workspace/home are used to resolve path anchors in file-tool rules.
 func (e *Executor) SetPermissionPolicy(decl permission.PermissionsDecl, workspace, home string) {
 	e.fnMu.Lock()

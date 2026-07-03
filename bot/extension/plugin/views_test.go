@@ -16,7 +16,7 @@ func TestViewBundleFields(t *testing.T) {
 			Agents:   []string{"agents/x.md"},
 			Commands: []CommandEntry{{Name: "run", Source: "run.sh"}},
 			MCPServers: map[string]MCPServerConfig{
-				"srv1": {Command: "node", Args: []string{"s.js"}, DangerLevel: "high"},
+				"srv1": {Command: "node", Args: []string{"s.js"}},
 			},
 		},
 		Dir:     "/plugins/demo",
@@ -49,7 +49,7 @@ func TestMCPServersFor(t *testing.T) {
 		Manifest: Manifest{
 			Name: "demo",
 			MCPServers: map[string]MCPServerConfig{
-				"srv1": {Command: "node", Args: []string{"s.js"}, DangerLevel: "high"},
+				"srv1": {Command: "node", Args: []string{"s.js"}},
 				"srv2": {Command: "python", Args: []string{"-m", "srv"}},
 				"srv3": {Command: "${CLAUDE_PLUGIN_ROOT}/mcp/neko-devkit-mcp", Args: []string{"${PLUGIN_ROOT}"}},
 			},
@@ -69,7 +69,7 @@ func TestMCPServersFor(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing srv1")
 	}
-	if s1.Plugin != "demo" || s1.Command != "node" || s1.DangerLevel != "high" || !s1.PluginEnabled {
+	if s1.Plugin != "demo" || s1.Command != "node" || !s1.PluginEnabled {
 		t.Fatalf("srv1 mismatch: %+v", s1)
 	}
 	if !reflect.DeepEqual(s1.Args, []string{"s.js"}) {

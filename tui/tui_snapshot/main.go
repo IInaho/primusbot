@@ -28,6 +28,7 @@ func main() {
 	write(outDir, "confirmations.txt", renderConfirmations())
 	write(outDir, "tool_blocks.txt", renderToolBlocks())
 	write(outDir, "processing.txt", renderProcessingStates())
+	write(outDir, "user_message.txt", renderUserMessage())
 	write(outDir, "assistant_message.txt", renderAssistantWithEdit())
 
 	log.Println("Snapshots written to", outDir)
@@ -64,7 +65,7 @@ func renderConfirmEdit() string {
 		Args: map[string]any{
 			"path": "bot/tools/builtin/tool_edit.go",
 		},
-		Level:    common.LevelWrite,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
@@ -102,7 +103,7 @@ if __name__ == "__main__":
     process_data("/tmp/input.json", "/tmp/output.json")
 PYEOF`,
 		},
-		Level:    common.LevelWrite,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 80)
@@ -121,7 +122,7 @@ func renderConfirmPermission() string {
 			"commandClass":            "network",
 			"sandbox":                 "native",
 		},
-		Level:    common.LevelDestructive,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
@@ -140,7 +141,7 @@ func renderConfirmShellUnknown() string {
 			"commandClass":            "unknown",
 			"sandbox":                 "native",
 		},
-		Level:    common.LevelDestructive,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
@@ -153,7 +154,7 @@ func renderConfirmWrite() string {
 		Args: map[string]any{
 			"path": "/tmp/nekocode/generated_report.md",
 		},
-		Level:    common.LevelWrite,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
@@ -167,7 +168,7 @@ func renderConfirmPlugin() string {
 			"source":  "github.com/example/some-skill",
 			"summary": "Install github.com/example/some-skill (v1.2.3) — adds markdown linting support",
 		},
-		Level:    common.LevelWrite,
+		Kind:     common.ConfirmKindInstall,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
@@ -328,6 +329,11 @@ func renderProcessingSubAgent() string {
 }
 
 // ── AssistantMessageItem ────────────────────────────────────────────────────
+
+func renderUserMessage() string {
+	m := message.NewUserMessageItem(&sty, "请通过 tui_snapshot 看看用户消息框的渲染，用户消息需要整行灰色背景，并且多行内容要和提示符对齐。")
+	return m.Render(width)
+}
 
 func renderAssistantWithEdit() string {
 	m := message.NewAssistantMessageItem(&sty, "I've updated the Description() method to be more concise. The key changes:\n\n- Removed QUICK-START section (duplicated HEADER+EXAMPLE)\n- Merged anti-pattern #1 into RULES\n- Compressed from 121 to 103 lines\n\nThe tool still describes all operations clearly.")

@@ -20,7 +20,7 @@ func NewErrorMessageItem(sty *styles.Styles, content string) *ErrorMessageItem {
 }
 
 func (m *ErrorMessageItem) Render(width int) string {
-	cw := cappedWidth(width)
+	cw := fullMessageWidth(width)
 	if m.cache.width == cw && m.cache.rendered != "" {
 		return m.cache.rendered
 	}
@@ -37,7 +37,7 @@ func (m *ErrorMessageItem) Render(width int) string {
 }
 
 func (m *ErrorMessageItem) Height(width int) int {
-	cw := cappedWidth(width)
+	cw := fullMessageWidth(width)
 	if m.cache.height > 0 && m.cache.width == cw {
 		return m.cache.height
 	}

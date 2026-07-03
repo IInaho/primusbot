@@ -25,7 +25,7 @@ describe('ConfirmDialog', () => {
           id: 'confirm-1',
           toolName: 'bash',
           args: { command },
-          level: 1,
+          kind: 'permission',
         }}
         onDone={onDone}
       />,
@@ -50,7 +50,7 @@ describe('ConfirmDialog', () => {
           toolName: 'edit',
           args: { path: '/tmp/file.go', oldString: 'foo', newString: 'bar', replaceAll: true },
           preview: '(25 replacements)\n-1:foo\n+1:bar',
-          level: 1,
+          kind: 'permission',
         }}
         onDone={vi.fn()}
       />,
@@ -68,7 +68,7 @@ describe('ConfirmDialog', () => {
           toolName: 'edit',
           args: { path: '/tmp/file.go', revert: true },
           preview: '[/tmp/file.go#revert]\n-1:changed\n+1:original\n',
-          level: 1,
+          kind: 'permission',
         }}
         onDone={vi.fn()}
       />,
@@ -95,7 +95,7 @@ describe('ConfirmDialog', () => {
             commandClass: 'network',
             sandbox: 'bubblewrap',
           },
-          level: 2,
+          kind: 'permission',
         }}
         onDone={vi.fn()}
       />,

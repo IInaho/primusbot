@@ -8,7 +8,7 @@ export interface ConfirmEntry {
   toolName: string
   args: Record<string, unknown>
   preview?: string
-  level: number
+  kind?: string
   can_escalate?: boolean
 }
 
@@ -62,7 +62,7 @@ function ConfirmDialog({
     onDone()
   }
 
-  const level = riskFor(entry.level)
+  const kind = kindFor(entry)
   const isEdit = entry.toolName === 'edit'
   const path = typeof entry.args.path === 'string' ? entry.args.path : ''
   const subject = subjectFor(entry)
@@ -82,8 +82,8 @@ function ConfirmDialog({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="mb-1 flex items-center gap-2">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${level.className}`}>
-                  {level.label}
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${kind.className}`}>
+                  {kind.label}
                 </span>
                 <span className="font-mono text-[12px] text-text-3">{entry.toolName}</span>
               </div>
@@ -239,11 +239,11 @@ function showArg(entry: ConfirmEntry, key: string): boolean {
   return true
 }
 
-function riskFor(level: number): { label: string; className: string } {
-  if (level >= 3) return { label: '禁止', className: 'bg-danger/15 text-danger' }
-  if (level >= 2) return { label: '高风险', className: 'bg-warning/15 text-warning' }
-  if (level >= 1) return { label: '修改', className: 'bg-primary/15 text-primary' }
-  return { label: '安全', className: 'bg-success/15 text-success' }
+function kindFor(entry: ConfirmEntry): { label: string; className: string } {
+  if (entry.kind === 'install' || entry.toolName === '/plugin install') {
+    return { label: '安装', className: 'bg-primary/15 text-primary' }
+  }
+  return { label: '权限', className: 'bg-warning/15 text-warning' }
 }
 
 function titleFor(entry: ConfirmEntry): string {

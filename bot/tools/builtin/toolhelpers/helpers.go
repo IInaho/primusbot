@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 type SafeReadOnlyTool struct{}
@@ -13,21 +12,18 @@ type SafeReadOnlyTool struct{}
 func (t *SafeReadOnlyTool) ExecutionMode(map[string]any) core.ExecutionMode {
 	return core.ModeParallel
 }
-func (t *SafeReadOnlyTool) DangerLevel(map[string]any) common.DangerLevel { return common.LevelSafe }
 
 type SequentialSafeTool struct{}
 
 func (t *SequentialSafeTool) ExecutionMode(map[string]any) core.ExecutionMode {
 	return core.ModeSequential
 }
-func (t *SequentialSafeTool) DangerLevel(map[string]any) common.DangerLevel { return common.LevelSafe }
 
 type WriteModeTool struct{}
 
 func (t *WriteModeTool) ExecutionMode(map[string]any) core.ExecutionMode {
 	return core.ModeSequential
 }
-func (t *WriteModeTool) DangerLevel(map[string]any) common.DangerLevel { return common.LevelWrite }
 
 func RequireStringArg(args map[string]any, key string) (string, error) {
 	v, ok := args[key].(string)

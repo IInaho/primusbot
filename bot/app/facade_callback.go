@@ -20,7 +20,7 @@ type callbackBus struct {
 
 	// Permission policy source: the config-declared allow/ask/deny rules
 	// plus workspace/home for path-anchor resolution. Injected by the Bot
-	// at startup; nil = legacy DangerLevel confirm flow.
+	// at startup; nil still uses builtin permission rules.
 	policyCfg *config.PermissionsConfig
 	cwd       string
 	home      string
@@ -44,11 +44,6 @@ func (c *callbackBus) applyAgentControlCallbacksTo(ag *runtime.Agent) {
 	}
 	ag.SetConfirmFn(c.confirmFn)
 	ag.SetPhaseFn(c.phaseFn)
-	// Always enable the permission rule engine. Even with no user-declared
-	// rules (policyCfg nil), the builtin rules apply (sudo deny, rm ask,
-	// ls/write allow...) and — crucially — the "remember" button on ask
-	// prompts persists an allow rule. Without this, write/edit would fall
-	// back to the legacy DangerLevel prompt that has no remember option.
 	ag.SetPermissionPolicy(toPermDecl(c.policyCfg), c.cwd, c.home)
 }
 
@@ -113,7 +108,7 @@ func (c *callbackBus) ConfirmInstall(source string, p *plugin.Plugin, isRemote b
 		c.UnblockConfirm()
 		return false
 	}
-	result := c.confirmFn(common.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, common.LevelWrite))
+	result := c.confirmFn(common.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, common.ConfirmKindInstall))
 	c.setPendingConfirmation(false)
 	if !result.Allowed && c.notifyFn != nil {
 		c.notifyFn("Install cancelled: " + source)

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"nekocode/bot/llm/types"
-	"nekocode/common"
 )
 
 func TestMCPToolAdapter(t *testing.T) {
@@ -38,7 +37,7 @@ func TestMCPToolAdapter(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 
-	mt := NewMCPTool(c, tools[0], common.LevelWrite)
+	mt := NewMCPTool(c, tools[0])
 
 	if !strings.HasPrefix(mt.Name(), "search-mcp__") {
 		t.Errorf("Name = %q, should have prefix search-mcp__", mt.Name())
@@ -80,7 +79,7 @@ func TestMCPToolExecute(t *testing.T) {
 	defer c.Close()
 
 	tools, _ := c.ListTools()
-	mt := NewMCPTool(c, tools[0], common.LevelWrite)
+	mt := NewMCPTool(c, tools[0])
 
 	result, err := mt.Execute(context.Background(), map[string]any{"msg": "hello"})
 	if err != nil {
@@ -88,56 +87,5 @@ func TestMCPToolExecute(t *testing.T) {
 	}
 	if result != "ok: echo" {
 		t.Errorf("result = %q, want 'ok: echo'", result)
-	}
-}
-
-func TestParseDangerLevel(t *testing.T) {
-	tests := []struct {
-		input string
-		want  common.DangerLevel
-	}{
-		{"safe", common.LevelSafe},
-		{"SAFE", common.LevelSafe},
-		{"Safe", common.LevelSafe},
-		{"modify", common.LevelWrite},
-		{"write", common.LevelWrite},
-		{"danger", common.LevelDestructive},
-		{"destructive", common.LevelDestructive},
-		{"blocked", common.LevelForbidden},
-		{"forbidden", common.LevelForbidden},
-		{"", common.LevelWrite},        // unrecognized defaults to Write
-		{"unknown", common.LevelWrite}, // unrecognized defaults to Write
-	}
-	for _, tt := range tests {
-		got := ParseDangerLevel(tt.input)
-		if got != tt.want {
-			t.Errorf("ParseDangerLevel(%q) = %v, want %v", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestMCPToolDangerLevel(t *testing.T) {
-	mockTools := []ToolDef{
-		{Name: "test", Description: "test", InputSchema: InputSchema{Type: "object"}},
-	}
-	cmd, cleanup := startMockMCP(t, mockTools)
-	defer cleanup()
-
-	c := NewClient("test-mcp", ServerConfig{Command: cmd.Path})
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Close()
-
-	tools, _ := c.ListTools()
-
-	// Test each danger level is properly stored and returned.
-	cases := []common.DangerLevel{common.LevelSafe, common.LevelWrite, common.LevelDestructive}
-	for _, want := range cases {
-		mt := NewMCPTool(c, tools[0], want)
-		got := mt.DangerLevel(nil)
-		if got != want {
-			t.Errorf("DangerLevel(%v) = %v, want %v", want, got, want)
-		}
 	}
 }

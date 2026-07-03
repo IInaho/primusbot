@@ -19,7 +19,6 @@ func NewTool() *Tool { return &Tool{} }
 
 func (t *Tool) Name() string                                    { return "question" }
 func (t *Tool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeSequential }
-func (t *Tool) DangerLevel(map[string]any) common.DangerLevel   { return common.LevelSafe }
 
 func (t *Tool) Description() string {
 	return "Ask the user structured questions during execution and wait for their answers. Use this when a decision, preference, or clarification is required before continuing."

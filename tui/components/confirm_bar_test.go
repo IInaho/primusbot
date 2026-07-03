@@ -21,7 +21,7 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 			"workspace":               "/repo",
 			"commandClass":            "unknown",
 		},
-		Level:    common.LevelDestructive,
+		Kind:     common.ConfirmKindPermission,
 		Response: make(chan common.ConfirmReply, 1),
 	})
 

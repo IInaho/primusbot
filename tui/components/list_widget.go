@@ -27,8 +27,8 @@ type List struct {
 	cache       map[int]renderedItem
 	cacheMu     sync.RWMutex
 	cacheWid    int
-	totalHeight int  // cached total content height, -1 if dirty
-	pixelsAbove int  // cumulative pixels scrolled above viewport, -1 if dirty
+	totalHeight int // cached total content height, -1 if dirty
+	pixelsAbove int // cumulative pixels scrolled above viewport, -1 if dirty
 }
 
 func NewList(items ...Item) *List {
@@ -41,6 +41,10 @@ func NewList(items ...Item) *List {
 }
 
 func (l *List) SetSize(width, height int) {
+	if l.width != width {
+		l.totalHeight = -1
+		l.pixelsAbove = -1
+	}
 	l.width = width
 	if height < 0 {
 		height = 0
@@ -237,8 +241,14 @@ func (l *List) ScrollBy(lines int) {
 		// pixelsAbove tracks cumulative scroll; lines already includes any consumed gaps.
 		l.pixelsAbove += lines
 		th := l.TotalContentHeight()
-		if th > l.height && l.pixelsAbove > th-l.height {
-			l.pixelsAbove = th - l.height
+		if th > l.height && l.pixelsAbove >= th-l.height {
+			// Crossing the bottom: re-anchor every scroll offset to the real
+			// bottom so offsetIdx/offsetLine/pixelsAbove stay consistent. A bare
+			// clamp of pixelsAbove alone would leave offsetLine pointing past
+			// the last visible line and the bottom would "drift down" on the
+			// next round-trip to the top and back.
+			l.ScrollToBottom()
+			return
 		}
 	} else {
 		l.offsetLine += lines
@@ -258,11 +268,11 @@ func (l *List) ScrollBy(lines int) {
 
 		l.pixelsAbove += lines
 		if l.pixelsAbove < 0 {
-			l.pixelsAbove = 0
+			l.ScrollToTop()
+			return
 		}
 	}
 }
-
 
 func (l *List) Render() string {
 	if len(l.items) == 0 {

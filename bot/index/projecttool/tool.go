@@ -11,7 +11,6 @@ import (
 	graphpkg "nekocode/bot/index/graph"
 	"nekocode/bot/index/service"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 // ProjectInfoTool exposes the code graph to the agent via the tool system.
@@ -27,9 +26,6 @@ func NewProjectInfoTool(mgr *service.Manager) *ProjectInfoTool {
 }
 
 func (t *ProjectInfoTool) Name() string { return "project_info" }
-func (t *ProjectInfoTool) DangerLevel(args map[string]any) common.DangerLevel {
-	return common.LevelSafe
-}
 func (t *ProjectInfoTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 	return core.ModeParallel
 }

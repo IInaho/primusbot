@@ -1,4 +1,3 @@
-// GlobTool — file pattern matching, always common.LevelSafe auto-approve.
 package search
 
 import (

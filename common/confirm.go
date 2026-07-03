@@ -4,13 +4,20 @@ package common
 type ConfirmRequest struct {
 	ToolName string
 	Args     map[string]any
-	Level    DangerLevel
+	Kind     ConfirmKind
 	Response chan ConfirmReply
 	// CanEscalatePermission indicates that this tool may require permission
 	// escalation after execution. When true, the UI should offer an option
 	// to pre-approve permission escalation (merged into the same dialog).
 	CanEscalatePermission bool
 }
+
+type ConfirmKind string
+
+const (
+	ConfirmKindPermission ConfirmKind = "permission"
+	ConfirmKindInstall    ConfirmKind = "install"
+)
 
 type ConfirmReply struct {
 	Allowed  bool
@@ -38,11 +45,11 @@ func Deny() ConfirmReply {
 }
 
 // NewConfirmRequest creates a ConfirmRequest with an initialized response channel.
-func NewConfirmRequest(toolName string, args map[string]any, level DangerLevel) ConfirmRequest {
+func NewConfirmRequest(toolName string, args map[string]any, kind ConfirmKind) ConfirmRequest {
 	return ConfirmRequest{
 		ToolName: toolName,
 		Args:     args,
-		Level:    level,
+		Kind:     kind,
 		Response: make(chan ConfirmReply, 1),
 	}
 }

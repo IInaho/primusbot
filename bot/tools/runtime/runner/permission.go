@@ -38,7 +38,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 		output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
 		return output, err == nil
 	}
-	confirmReq := common.NewConfirmRequest(tc.Name, permissionConfirmArgs(tc.Args, req), common.LevelDestructive)
+	confirmReq := common.NewConfirmRequest(tc.Name, permissionConfirmArgs(tc.Args, req), common.ConfirmKindPermission)
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
 		return "", false

@@ -203,6 +203,9 @@ func (c *ConfirmBar) titleText() string {
 	if c.isPermissionConfirm() {
 		return "权限确认"
 	}
+	if c.req.Kind == common.ConfirmKindInstall {
+		return "安装确认"
+	}
 	return "Confirm"
 }
 
@@ -214,11 +217,10 @@ func (c *ConfirmBar) levelText() string {
 		}
 		return c.sty.Yellow.Render("可记住")
 	}
-	levelTag := c.sty.Yellow.Render("[" + c.req.Level.String() + "]")
-	if c.req.Level == common.LevelForbidden {
-		levelTag = c.sty.Red.Render("[" + c.req.Level.String() + "]")
+	if c.req.Kind == common.ConfirmKindInstall {
+		return c.sty.Yellow.Render("插件")
 	}
-	return levelTag
+	return c.sty.Yellow.Render("确认")
 }
 
 func (c *ConfirmBar) descLines(maxW int) []string {

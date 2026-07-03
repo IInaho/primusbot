@@ -106,12 +106,12 @@ func (a *App) DomReady(_ context.Context) {
 		a.confs[id] = req
 		a.confirmMu.Unlock()
 		runtime.EventsEmit(a.ctx, "agent:confirm", map[string]any{
-			"id":       id,
-			"toolName": req.ToolName,
-			"args":     compactConfirmArgs(req),
-			"preview":  confirmPreview(req),
-			"level":               int(req.Level),
-			"can_escalate":       req.CanEscalatePermission,
+			"id":           id,
+			"toolName":     req.ToolName,
+			"args":         compactConfirmArgs(req),
+			"preview":      confirmPreview(req),
+			"kind":         string(req.Kind),
+			"can_escalate": req.CanEscalatePermission,
 		})
 		// 阻塞等前端调 ReplyConfirm 写回。
 		return <-req.Response

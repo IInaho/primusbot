@@ -3,27 +3,23 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 // MCPTool adapts an MCP server tool to the tools.Tool interface.
 type MCPTool struct {
-	client      *Client
-	def         ToolDef
-	fullName    string
-	dangerLevel common.DangerLevel
+	client   *Client
+	def      ToolDef
+	fullName string
 }
 
 // NewMCPTool creates a tool adapter.
-func NewMCPTool(client *Client, def ToolDef, level common.DangerLevel) *MCPTool {
+func NewMCPTool(client *Client, def ToolDef) *MCPTool {
 	return &MCPTool{
-		client:      client,
-		def:         def,
-		fullName:    client.Name + "__" + def.Name,
-		dangerLevel: level,
+		client:   client,
+		def:      def,
+		fullName: client.Name + "__" + def.Name,
 	}
 }
 
@@ -50,30 +46,9 @@ func (t *MCPTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 	return core.ModeSequential
 }
 
-func (t *MCPTool) DangerLevel(args map[string]any) common.DangerLevel {
-	return t.dangerLevel
-}
-
 func (t *MCPTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	_ = ctx
 	return t.client.CallTool(t.def.Name, args)
-}
-
-// ParseDangerLevel converts a string to a DangerLevel.
-// Defaults to LevelWrite for unrecognized values.
-func ParseDangerLevel(s string) common.DangerLevel {
-	switch strings.ToLower(s) {
-	case "safe":
-		return common.LevelSafe
-	case "modify", "write":
-		return common.LevelWrite
-	case "danger", "destructive":
-		return common.LevelDestructive
-	case "blocked", "forbidden":
-		return common.LevelForbidden
-	default:
-		return common.LevelWrite
-	}
 }
 
 func isRequired(required []string, name string) bool {
