@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <sub>多模型 · Agent 循环 · 子 Agent · TUI + GUI 双前端 · Plugin / MCP / Skill 生态</sub>
+  <sub>多模型 · Agent 循环 · 子 Agent · TUI + GUI 双前端 · Plugin / MCP / Skill 生态 · Hook 治理 · 权限沙箱</sub>
 </p>
 
 <p align="center">
@@ -36,18 +36,26 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 - 并行工具调度，自动判断依赖
 - Mid-run BTW 中断：随时插入新指令
 - 子 Agent 委派（executor / researcher / verify）
+- **Plan Mode**：`/plan` 进入只读探索，方案审批后才执行
+- **TodoWrite**：Agent 自动拆解任务，TUI 主题化渲染
 
-### 🛡️ 不搞坏你的代码
+### 🛡️ 多层安全防护
+- **权限规则引擎** — deny → ask → allow 三级，bash 命令通配 / 文件路径 gitignore / 域名匹配
+- **沙箱隔离** — Linux namespace 六重隔离（user/mount/net/pid/ipc/uts）+ Landlock 文件写保护回退
 - 没读过的文件不准改，二进制文件不碰
-- 删东西、`sudo`、`curl \| bash` 弹框确认或直接拒绝
+- `sudo`、`ssh`、`dd`、`| bash` 直接拒绝
 - LLM 输出的垃圾自动过滤，不写进文件
-- Agent 原地转圈自动停下，告诉你「可能卡住了」
 - 改完 Go 文件自动跑 gofmt，语法有错立刻提示
-- 对话长了压缩记忆时，你的核心要求不会被吞掉
+
+### 🪝 Hook 治理系统
+- 8 种事件点：PreTurn / PreModelRequest / PreToolUse / PostToolUse / PostTool / PostTurn / UserSubmit / Stop
+- 12 内置 Hook：配额预警、读前写检查、探索耗尽检测、进度停滞告警、乱码熔断、完成质量校验等
+- 插件 `hooks.json` 声明式配置 + JS runner
+- **Agent 治理层**：Ledger 全记录 + 语义分类器 + 探索预算追踪
 
 ### 🔧 工具系统
-- 14 内置 + 条件/动态注册
-- Bash 四级智能分级（安全命令自动放行）
+- 16 内置 + 条件/动态注册（read / write / edit / list / tree / glob / grep / diff / bash / web_search / web_fetch / task / todo_write / question / project_info / image_gen）
+- 统一权限引擎（内置规则 + 用户声明 + 记住授权）
 - oldString/newString 内容锚定编辑 + gofmt 自动检查
 - Web 搜索/抓取、图片生成、代码索引
 
@@ -62,7 +70,9 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 ### 💾 会话记忆
 - `/new` 新对话保留上一轮摘要，不消耗 API token
 - 会话存档/恢复，`/sessions` 管理
-- 支持 `~/.nekocode/memory.md` 手动维护项目记忆，自动注入上下文
+- `NEKOCODE.md` 项目上下文自动发现 + `@include` 递归加载
+- `~/.nekocode/memory.md` 手动维护项目记忆，自动注入上下文
+- 五级智能压缩（Normal → Warning → MicroCompact → Compact → Blocking）
 
 ### 🎨 双前端
 - **TUI** — Bubble Tea + Lip Gloss，终端原生体验
@@ -71,8 +81,10 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 
 ### 🏗️ 工程基础
 - 纯 Go SQLite（零 CGO），单二进制部署
-- Tree-sitter 多语言代码索引 + FTS5 搜索
+- Tree-sitter 多语言代码索引（Go/JS/TS/Python/Rust）+ FTS5 全文搜索
 - 全局调试日志、文件缓存（LRU）、Token 预算管理
+- Thinking 跨协议统一控制（子 Agent / 摘要自动关闭，节省 token）
+- AgentMD 解析：兼容 Claude Code `agents/*.md` 格式
 
 </td>
 </tr>
@@ -87,7 +99,7 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 ### 安装
 
 ```bash
-# 方式一：源码编译
+# 方式一：源码编译（TUI 版本）
 git clone https://github.com/lznauy/NekoCode.git
 cd NekoCode
 go build -o nekocode-tui ./cmd
@@ -191,18 +203,40 @@ wails dev
 
 ---
 
-## 安全分级
+## 权限与安全
 
-| 等级 | 行为 | 示例 |
+### 权限规则引擎（deny → ask → allow）
+
+所有工具调用经过统一权限引擎裁决，支持三级规则来源：
+
+| 来源 | 说明 |
+|:--|:--|
+| **builtin** | 内置默认策略（sudo deny、rm ask、read allow） |
+| **declared** | `config.json` 中 `permissions.allow/ask/deny` 声明 |
+| **remembered** | 用户在弹框中批准并「记住」的规则，持久化到 `~/.nekocode/permissions.json` |
+
+规则匹配支持 bash 命令通配（`npm run *`）、文件路径 gitignore 模式（`/src/**`）、域名匹配（`github.com`）。
+
+### Bash 内置策略
+
+| 规则效果 | 行为 | 示例 |
 |:--|:--|:--|
-| `safe` | 自动放行 | `read` `grep` `git log` `go vet` |
-| `modify` | 弹框确认 | `write` `edit` `mkdir` `git commit` |
-| `danger` | ⚠ 警告确认 | `rm` `kill` `git push -f` `curl` |
-| `blocked` | 🚫 直接拒绝 | `sudo` `ssh` `dd` `| bash` |
+| `allow` | 自动放行 | `ls` `cat` `git log` `go version` |
+| `ask` | 弹框确认，可记住 | `rm` `chmod` `git push` `git reset --hard` |
+| `deny` | 直接拒绝 | `sudo` `ssh` `dd` `| bash` |
 
-纯输出命令（`git diff`、`go version` 等）自动识别为 safe，无需确认。
+未匹配的 Bash 命令默认询问；批准并选择「记住」后会写入当前项目的 remembered allow 规则。
 
-> **Bash 动态分级**：`bash` 命令按内容自动判定——`ls`/`cat` 归 safe，`mkdir`/`git commit` 归 modify，`rm`/`curl` 归 danger，`sudo`/`ssh` 归 blocked。无法识别的命令默认归 modify。
+### 沙箱隔离（Linux）
+
+Bash 命令在沙箱中执行，双层回退：
+
+| 后端 | 隔离能力 |
+|:--|:--|
+| **Native** | user/mount/net/pid/ipc/uts 六重 namespace + pivot_root 文件系统隔离 |
+| **Landlock** | 文件写保护（仅 workspace 可写），作为 Native 不可用时的回退 |
+
+沙箱不可用时降级为请求用户授权后主机执行。
 
 ---
 
