@@ -43,10 +43,56 @@ func ensureNoNewPrivs() {
 }
 
 // LandlockAvailable reports whether the tbsb Landlock backend is usable.
-func LandlockAvailable() bool { return tbsb.Available() }
+//
+// It performs a one-time self-test so that kernels which report Landlock
+// support but block enforcement at runtime (common in containers / CI where
+// landlock_restrict_self returns EPERM) are treated as unavailable. Without
+// this, callers would attempt the backend, fail to enforce, and surface a
+// confusing "landlock restrict failed" error instead of falling back.
+func LandlockAvailable() bool {
+	if !tbsb.Available() {
+		return false
+	}
+	landlockProbeOnce.Do(func() {
+		landlockProbeOK = landlockSelfTest()
+	})
+	return landlockProbeOK
+}
 
 // LandlockReasonUnavailable returns why Landlock is unavailable, or "".
-func LandlockReasonUnavailable() string { return tbsb.ReasonUnavailable() }
+func LandlockReasonUnavailable() string {
+	if reason := tbsb.ReasonUnavailable(); reason != "" {
+		return reason
+	}
+	// Kernel reports Landlock as present, but enforcement failed at runtime
+	// (e.g. landlock_restrict_self EPERM under a restricted container).
+	if tbsb.Available() && !LandlockAvailable() {
+		return "Landlock enforcement blocked at runtime (landlock_restrict_self EPERM)"
+	}
+	return ""
+}
+
+var (
+	landlockProbeOnce sync.Once
+	landlockProbeOK   bool
+)
+
+// landlockSelfTest runs a trivial command through the Landlock backend to
+// verify that enforcement actually works at runtime. The kernel may report
+// Landlock as available (ABI version > 0) while the container/runtime blocks
+// landlock_restrict_self (EPERM); in that case the backend is unusable even
+// though tbsb.Available() returns true.
+func landlockSelfTest() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, err := os.MkdirTemp("", "landlock-probe-")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(ws)
+	_, err = RunLandlockBash(ctx, "echo ok", BashProfile{Workspace: ws}, 10*time.Second)
+	return err == nil
+}
 
 // RunLandlockBash runs command under the tbsb Landlock backend.
 //

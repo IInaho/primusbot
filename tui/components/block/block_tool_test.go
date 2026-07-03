@@ -67,10 +67,10 @@ func TestRenderToolLineWrapsLongCommand(t *testing.T) {
 	if !strings.Contains(clean, "\n  ") {
 		t.Fatalf("long command should render continuation lines:\n%s", got)
 	}
-	if strings.Contains(clean, "\n   │  ") {
+	if strings.Contains(clean, "\n    │  ") {
 		t.Fatalf("continuation lines should use one space after the rail:\n%s", clean)
 	}
-	if !strings.Contains(clean, "\n   │ tui/components/block/block_tool.go") {
+	if !strings.Contains(clean, "\n    │ tui/components/block/block_tool.go") {
 		t.Fatalf("continuation line should align with one space after rail:\n%s", clean)
 	}
 	for _, line := range strings.Split(got, "\n") {
@@ -95,7 +95,7 @@ func TestRenderToolLinePrefixesMultilineCommand(t *testing.T) {
 	if !strings.Contains(clean, "Ran echo one") {
 		t.Fatalf("first command line should stay in the header:\n%s", clean)
 	}
-	if !strings.Contains(clean, "\n   │ echo two") || !strings.Contains(clean, "\n   │ echo three") {
+	if !strings.Contains(clean, "\n    │ echo two") || !strings.Contains(clean, "\n    │ echo three") {
 		t.Fatalf("multiline command continuation should use the command rail:\n%s", clean)
 	}
 	if strings.Contains(clean, "\necho two") || strings.Contains(clean, "\necho three") {

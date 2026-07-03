@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -15,6 +16,13 @@ import (
 // The returned error is an UnavailableError when no backend could be used;
 // callers should treat it as a signal to request host-execution permission.
 func RunSandboxed(ctx context.Context, command string, profile BashProfile, timeout time.Duration) (string, error) {
+	// Validate the workspace up front so callers always get a clear
+	// "workspace is required" error rather than a confusing backend-specific
+	// failure (or an UnavailableError from a doomed landlock attempt).
+	if profile.Workspace == "" {
+		return "", fmt.Errorf("sandbox workspace is required")
+	}
+
 	// Fast path: skip the native attempt entirely when it is known to be
 	// unavailable (NEKOCODE_DISABLE_NATIVE_SANDBOX set, or unshare probe
 	// fails — common on CI/restricted kernels). Avoids spawning a doomed
