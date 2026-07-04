@@ -121,6 +121,31 @@ func TestRenderBashContentPreservesLeadingStatusSpace(t *testing.T) {
 	}
 }
 
+func TestRenderBashContentKeepsHeadAndTail(t *testing.T) {
+	sty := styles.DefaultStyles()
+	got := renderToolContent(ContentBlock{
+		Type:     BlockTool,
+		ToolName: "bash",
+		Content:  "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n",
+		Done:     true,
+	}, 80, &sty)
+	clean := ansi.Strip(got)
+
+	for _, want := range []string{"line 0", "line 1", "line 2", "line 6", "line 7", "line 8"} {
+		if !strings.Contains(clean, want) {
+			t.Fatalf("missing retained line %q:\n%s", want, clean)
+		}
+	}
+	for _, notWant := range []string{"line 3", "line 5"} {
+		if strings.Contains(clean, notWant) {
+			t.Fatalf("middle line %q should be hidden:\n%s", notWant, clean)
+		}
+	}
+	if !strings.Contains(clean, "3 lines truncated") {
+		t.Fatalf("missing truncation marker:\n%s", clean)
+	}
+}
+
 func TestRenderToolOutputUsesCornerConnector(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolLine(ContentBlock{

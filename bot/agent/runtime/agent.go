@@ -216,6 +216,14 @@ func (a *Agent) SetPermissionPolicy(decl permission.PermissionsDecl, workspace, 
 	a.deps.executor.SetPermissionPolicy(decl, workspace, home)
 }
 
+// SetProjectStore binds the agent's executor to a per-project permissions
+// file at <project>/.nekocode/permissions.json. Call before
+// SetPermissionPolicy (or immediately after construction) so grants and
+// remembered rules stay scoped to this project.
+func (a *Agent) SetProjectStore(projectRoot string) {
+	a.deps.executor.SetProjectStore(projectRoot)
+}
+
 // SetWorkspace updates the workspace for path-anchor resolution (e.g. after
 // /cd) and rebuilds the permission engine if a policy is configured.
 func (a *Agent) SetWorkspace(workspace, home string) {

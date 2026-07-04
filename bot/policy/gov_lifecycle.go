@@ -21,7 +21,12 @@ func (g *Manager) SyncLedgerToHooks() {
 		return
 	}
 	snap := g.Ledger.Snapshot()
-	if len(snap.ReadFiles) > 0 || len(snap.ModifiedFiles) > 0 || len(snap.Verifications) > 0 {
+	// Stall detection only considers turn-scoped activity. Session-persisted
+	// readFiles intentionally do not count, otherwise progress would be reported
+	// forever once any file had been read in the session.
+	if len(snap.ModifiedFiles) > 0 || len(snap.Verifications) > 0 ||
+		len(snap.BlockedTools) > 0 || len(snap.ToolErrors) > 0 ||
+		snap.ToolEventCount > 0 {
 		g.HookReg.Set(hooks.StoreLedgerProgress, 1)
 	} else {
 		g.HookReg.Set(hooks.StoreLedgerProgress, 0)

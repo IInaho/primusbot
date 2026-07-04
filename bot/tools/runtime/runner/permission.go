@@ -91,7 +91,7 @@ func (e *Executor) rememberPermission(toolName string, req core.PermissionReques
 	if store == nil {
 		return
 	}
-	_ = store.AllowProject(toolName, req)
+	_ = store.Allow(toolName, req)
 }
 
 func permissionConfirmArgs(args map[string]any, req core.PermissionRequest) map[string]any {

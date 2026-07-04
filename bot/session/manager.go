@@ -11,6 +11,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/llm/types"
+	"nekocode/bot/policy/ledger"
 	"nekocode/common"
 )
 
@@ -34,6 +35,8 @@ type Manager struct {
 	addTokens       func(prompt, completion int)
 	loadedSkills    func() map[string]bool
 	markSkillLoaded func(string)
+	ledgerSnapshot  func() ledger.Snapshot
+	restoreLedger   func(ledger.Snapshot)
 }
 
 type ManagerOptions struct {
@@ -43,6 +46,8 @@ type ManagerOptions struct {
 	AddTokens       func(prompt, completion int)
 	LoadedSkills    func() map[string]bool
 	MarkSkillLoaded func(string)
+	LedgerSnapshot  func() ledger.Snapshot
+	RestoreLedger   func(ledger.Snapshot)
 }
 
 // DefaultExportPath is the default context-export destination under ~/.nekocode/exports.
@@ -56,6 +61,8 @@ func NewManager(opts ManagerOptions) *Manager {
 		addTokens:       opts.AddTokens,
 		loadedSkills:    opts.LoadedSkills,
 		markSkillLoaded: opts.MarkSkillLoaded,
+		ledgerSnapshot:  opts.LedgerSnapshot,
+		restoreLedger:   opts.RestoreLedger,
 	}
 }
 
@@ -124,6 +131,9 @@ func (m *Manager) Save() error {
 		loaded = m.loadedSkills()
 	}
 	ApplyContextSnapshot(sess, m.ctx.Snapshot(), promptTokens, completionTokens, loaded)
+	if m.ledgerSnapshot != nil {
+		sess.Ledger = m.ledgerSnapshot()
+	}
 	return sess.Save()
 }
 
@@ -142,6 +152,9 @@ func (m *Manager) Resume(id string) (*Snapshot, error) {
 		for _, name := range sess.LoadedSkills {
 			m.markSkillLoaded(name)
 		}
+	}
+	if m.restoreLedger != nil {
+		m.restoreLedger(sess.Ledger)
 	}
 	m.Set(sess)
 	return sess, nil

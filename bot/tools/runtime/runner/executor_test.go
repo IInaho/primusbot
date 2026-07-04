@@ -99,6 +99,16 @@ func TestTruncateOutput(t *testing.T) {
 	if !strings.Contains(got, "truncated") {
 		t.Fatalf("missing truncation marker: %q", got)
 	}
+	for _, want := range []string{"line 0", "line 49", "line 1955", "line 2004"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing retained line %q in %q", want, got)
+		}
+	}
+	for _, notWant := range []string{"line 50\n", "line 1954\n"} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("middle line %q should be truncated from %q", notWant, got)
+		}
+	}
 }
 
 func TestExecutorPreservesTaskOutput(t *testing.T) {
@@ -160,7 +170,7 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 			"workspace": "/repo",
 		},
 	}
-	if err := store.AllowProject("bash", req); err != nil {
+	if err := store.Allow("bash", req); err != nil {
 		t.Fatalf("AllowProject: %v", err)
 	}
 	e := NewExecutor(fakeRegistry{"bash": tool})

@@ -400,6 +400,9 @@ func buildSandboxEnv() []string {
 		"PATH":   path,
 		"LC_ALL": "C.UTF-8",
 		"TERM":   "xterm-256color",
+		"TMPDIR": "/tmp",
+		"TMP":    "/tmp",
+		"TEMP":   "/tmp",
 	} {
 		env = setEnv(env, k, v)
 	}

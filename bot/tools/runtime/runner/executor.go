@@ -3,6 +3,7 @@ package runner
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"nekocode/bot/tools/runtime/core"
@@ -45,13 +46,14 @@ type Executor struct {
 }
 
 func NewExecutor(r ToolRegistry) *Executor {
+	root, _ := os.Getwd()
 	e := &Executor{
 		registry:           r,
 		state:              execution.NewExecutionState(),
-		permStore:          permission.DefaultStore(),
+		permStore:          permission.NewStore(root),
 		escalationApproved: make(map[string]escalationApproval),
 	}
-	e.rebuildEngine(permission.PermissionsDecl{}, e.permStore, "")
+	e.rebuildEngine(permission.PermissionsDecl{}, e.permStore, root)
 	return e
 }
 
@@ -90,6 +92,33 @@ func (e *Executor) SetPreviewFn(fn func(string, map[string]any, string)) {
 func (e *Executor) SetPermissionStore(store *permission.Store) {
 	e.fnMu.Lock()
 	e.permStore = store
+	e.fnMu.Unlock()
+}
+
+// SetProjectStore binds the executor to a per-project permissions file at
+// <project>/.nekocode/permissions.json. After this, the engine is rebuilt
+// against that project's grants/rules. Subsequent Allow/Remember calls
+// target that project file (no more cross-project leakage).
+func (e *Executor) SetProjectStore(projectRoot string) {
+	projectRoot = filepath.Clean(projectRoot)
+	e.fnMu.Lock()
+	e.permStore = permission.NewStore(projectRoot)
+	e.permWorkspace = projectRoot
+	decl := e.permDecl
+	store := e.permStore
+	e.fnMu.Unlock()
+	eng, err := permission.NewEngineForWorkspace(decl, store, projectRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "permission: %v — blocking tool calls until config is fixed\n", err)
+		eng = permission.NewEngine(permission.DefaultMatchers())
+		eng.SetRules([]permission.Rule{{Tool: "*", Effect: permission.EffectDeny, Source: "config-error"}})
+		e.fnMu.Lock()
+		e.permEngine = eng
+		e.fnMu.Unlock()
+		return
+	}
+	e.fnMu.Lock()
+	e.permEngine = eng
 	e.fnMu.Unlock()
 }
 

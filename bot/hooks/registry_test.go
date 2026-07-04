@@ -1,6 +1,9 @@
 package hooks
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRegistryCountsAndGovernanceStatsReset(t *testing.T) {
 	r := NewRegistry()
@@ -21,13 +24,16 @@ func TestRegistryCountsAndGovernanceStatsReset(t *testing.T) {
 		t.Fatalf("counts = %+v, want one evaluation and hint", counts)
 	}
 
-	_ = r.GovernanceStats()
+	stats := r.GovernanceStats()
 	counts = r.HookCountsSnapshot()
 	if counts != (HookCounts{}) {
 		t.Fatalf("counts after GovernanceStats = %+v, want zero", counts)
 	}
-	if audit := r.HookAuditSnapshot(); len(audit) != 1 || audit[0].Hook != "hint" || audit[0].Action != "hint" {
-		t.Fatalf("audit after GovernanceStats = %+v, want preserved hint event", audit)
+	if audit := r.HookAuditSnapshot(); len(audit) != 0 {
+		t.Fatalf("audit after GovernanceStats = %+v, want consumed", audit)
+	}
+	if !strings.Contains(stats, "hook events: hint=hint") || !strings.Contains(stats, "recent hooks: hint@pre_turn:hint") {
+		t.Fatalf("stats = %q, want hook event summary and recent hooks", stats)
 	}
 }
 
@@ -87,6 +93,7 @@ func TestResetSession(t *testing.T) {
 
 func TestRegistryHookAuditRecordsAction(t *testing.T) {
 	r := NewRegistry()
+	r.SetSessionID("sess-1")
 	r.Register(Hook{
 		Name:  "block",
 		Point: PreToolUse,
@@ -102,6 +109,64 @@ func TestRegistryHookAuditRecordsAction(t *testing.T) {
 	}
 	if audit[0].Hook != "block" || audit[0].Point != PreToolUse || audit[0].Action != "block_tool" || audit[0].Detail != "read first" {
 		t.Fatalf("audit = %+v", audit[0])
+	}
+	if audit[0].Session != "sess-1" || audit[0].Tool != "edit" {
+		t.Fatalf("audit context = %+v, want session and tool", audit[0])
+	}
+}
+
+func TestGovernanceStatsGroupsHookEvents(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Hook{
+		Name:  "read_before_write",
+		Point: PreToolUse,
+		On: func(s State) *Result {
+			return &Result{BlockTool: &BlockTool{Tool: "edit", Reason: "read first"}}
+		},
+	})
+	r.Register(Hook{
+		Name:  "tool_result_guardrail",
+		Point: PreToolUse,
+		On: func(s State) *Result {
+			return &Result{Hint: &Hint{Type: "tool_results", Severity: "warning"}}
+		},
+	})
+
+	r.Evaluate(PreToolUse, "edit", false)
+	r.Evaluate(PreToolUse, "edit", false)
+	stats := r.GovernanceStats()
+	if !strings.Contains(stats, "block_tool=read_before_write×2") {
+		t.Fatalf("stats = %q, want grouped block hook count", stats)
+	}
+	if !strings.Contains(stats, "hint=tool_result_guardrail×2") {
+		t.Fatalf("stats = %q, want grouped hint hook count", stats)
+	}
+}
+
+func TestHookAuditIncludesTriggerContext(t *testing.T) {
+	r := NewRegistry()
+	r.SetSessionID("sess-2")
+	r.SetStr(StoreEditTargetPath, "/repo/main.go")
+	r.Set(StoreEditTargetExists, 1)
+	r.Set(StoreEditTargetWasRead, 0)
+	r.Set(StoreEditAnchorSufficient, 0)
+	r.Register(Hook{
+		Name:  "read_before_write",
+		Point: PreToolUse,
+		On: func(s State) *Result {
+			return &Result{BlockTool: &BlockTool{Tool: "edit", Reason: "read first"}}
+		},
+	})
+
+	r.Evaluate(PreToolUse, "edit", false, map[string]any{"path": "/repo/main.go"})
+	audit := r.HookAuditSnapshot()
+	if len(audit) != 1 {
+		t.Fatalf("audit len = %d, want 1", len(audit))
+	}
+	for _, want := range []string{"target=/repo/main.go", "exists=1", "was_read=0", "anchor_sufficient=0"} {
+		if !strings.Contains(audit[0].Trigger, want) {
+			t.Fatalf("trigger = %q, want %q", audit[0].Trigger, want)
+		}
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 
 const (
 	maxLines = 2000
-	headLen  = 40
-	tailLen  = 20
+	headLen  = 50
+	tailLen  = 50
 )
 
 func formatOutput(toolName, output string) string {
@@ -25,7 +25,7 @@ func preserveFullOutput(toolName string) bool {
 }
 
 func truncateOutput(output string) string {
-	lines := strings.Split(output, "\n")
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
 	if len(lines) <= maxLines {
 		return output
 	}

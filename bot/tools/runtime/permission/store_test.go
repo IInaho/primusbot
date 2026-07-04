@@ -5,22 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"nekocode/bot/tools/runtime/core"
 )
 
 func TestStorePersistsProjectGrant(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	store := NewStore(t.TempDir())
 	req := core.PermissionRequest{
 		Reason:       "needs network",
 		Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
-		Details: map[string]any{
-			"workspace": "/repo",
-		},
 	}
 
-	if err := store.AllowProject("bash", req); err != nil {
+	if err := store.Allow("bash", req); err != nil {
 		t.Fatalf("AllowProject: %v", err)
 	}
 	if _, ok := store.Match("bash", req); !ok {
@@ -29,14 +25,11 @@ func TestStorePersistsProjectGrant(t *testing.T) {
 }
 
 func TestStoreDoesNotPersistHostExecution(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	store := NewStore(t.TempDir())
 	req := core.PermissionRequest{
 		Capabilities: []string{core.CapProcessHost},
-		Details: map[string]any{
-			"workspace": "/repo",
-		},
 	}
-	if err := store.AllowProject("bash", req); err != nil {
+	if err := store.Allow("bash", req); err != nil {
 		t.Fatalf("AllowProject: %v", err)
 	}
 	if _, ok := store.Match("bash", req); ok {
@@ -45,36 +38,27 @@ func TestStoreDoesNotPersistHostExecution(t *testing.T) {
 }
 
 func TestStoreDenyTakesPrecedence(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "permissions.json")
-	store := NewStore(path)
+	dir := t.TempDir()
+	store := NewStore(dir)
 	req := core.PermissionRequest{
 		Capabilities: []string{core.CapNetOutbound},
-		Details: map[string]any{
-			"workspace": "/repo",
-		},
 	}
 	f := permissionFile{
 		Version: 1,
 		Projects: map[string]permissionProject{
-			"/repo": {
+			dir: {
 				Grants: []Grant{
 					{
-						ID:           "deny",
 						Effect:       "deny",
 						Tool:         "bash",
 						Capabilities: []string{core.CapNetOutbound},
-						Workspace:    "/repo",
-						Scope:        "project",
-						CreatedAt:    time.Now(),
+						Workspace:    dir,
 					},
 					{
-						ID:           "allow",
 						Effect:       "allow",
 						Tool:         "bash",
 						Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
-						Workspace:    "/repo",
-						Scope:        "project",
-						CreatedAt:    time.Now(),
+						Workspace:    dir,
 					},
 				},
 			},
@@ -84,7 +68,10 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Dir(store.projectPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.projectPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,7 +84,7 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 }
 
 func TestRememberRuleRejectsEmptySpecifier(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	store := NewStore(t.TempDir())
 	err := store.RememberRule("/repo", Rule{Tool: "bash", Effect: EffectAllow})
 	if err == nil {
 		t.Fatal("empty remembered specifier should be rejected")
@@ -108,7 +95,7 @@ func TestRememberRuleRejectsEmptySpecifier(t *testing.T) {
 }
 
 func TestRememberRuleCanonicalizesDuplicates(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	store := NewStore(t.TempDir())
 	rules := []Rule{
 		{Tool: "Bash", Specifier: "  echo hi  ", Effect: EffectAllow},
 		{Tool: "bash", Specifier: "echo hi", Effect: EffectAllow},
@@ -128,7 +115,7 @@ func TestRememberRuleCanonicalizesDuplicates(t *testing.T) {
 }
 
 func TestRememberRuleRejectsAutoBroadenedBashSpecifier(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
+	store := NewStore(t.TempDir())
 	if err := store.RememberRule("/repo", Rule{Tool: "bash", Specifier: "echo *", Effect: EffectAllow}); err != nil {
 		t.Fatalf("command-scoped wildcard should be allowed: %v", err)
 	}

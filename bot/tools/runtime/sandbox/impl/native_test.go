@@ -49,3 +49,26 @@ func TestRunNativeBashAcceptsArbitraryWritePath(t *testing.T) {
 		t.Fatalf("sandbox should not whitelist-reject write paths: %v", err)
 	}
 }
+
+func TestBuildSandboxEnvUsesSandboxTmp(t *testing.T) {
+	t.Setenv("TMPDIR", "/tmp/nix-shell-missing")
+	t.Setenv("TMP", "/tmp/nix-shell-missing")
+	t.Setenv("TEMP", "/tmp/nix-shell-missing")
+
+	env := buildSandboxEnv()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if got := envValue(env, key); got != "/tmp" {
+			t.Fatalf("%s = %q, want /tmp", key, got)
+		}
+	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			return strings.TrimPrefix(kv, prefix)
+		}
+	}
+	return ""
+}

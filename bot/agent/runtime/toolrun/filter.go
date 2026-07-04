@@ -56,7 +56,6 @@ func (r *Runner) applyPreToolPolicy(c core.ToolCallItem, blocked map[int]string,
 			if blocked[idx] == "" {
 				blocked[idx] = policyBlockedDefault
 			}
-			debug.Log("policy: blocked %s — %s", c.Name, blocked[idx])
 			shouldBlock = true
 		}
 		if result.Stop != nil {

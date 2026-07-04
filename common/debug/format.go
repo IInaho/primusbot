@@ -2,6 +2,8 @@ package debug
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -11,8 +13,23 @@ func callerFileLine(skip int) string {
 	if !ok {
 		return "?:?"
 	}
-	if idx := strings.LastIndexByte(file, '/'); idx >= 0 {
-		file = file[idx+1:]
+	return fmt.Sprintf("%s:%d", trimPath(file), line)
+}
+
+func trimPath(path string) string {
+	path = filepath.ToSlash(path)
+	if cwd, err := os.Getwd(); err == nil {
+		cwd = filepath.ToSlash(cwd)
+		if rel, err := filepath.Rel(cwd, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.ToSlash(rel)
+		}
 	}
-	return fmt.Sprintf("%s:%d", file, line)
+	if idx := strings.LastIndex(path, "/NekoCode/"); idx >= 0 {
+		return path[idx+len("/NekoCode/"):]
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], "/")
+	}
+	return path
 }

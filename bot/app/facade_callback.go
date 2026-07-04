@@ -44,6 +44,7 @@ func (c *callbackBus) applyAgentControlCallbacksTo(ag *runtime.Agent) {
 	}
 	ag.SetConfirmFn(c.confirmFn)
 	ag.SetPhaseFn(c.phaseFn)
+	ag.SetProjectStore(c.cwd)
 	ag.SetPermissionPolicy(toPermDecl(c.policyCfg), c.cwd, c.home)
 }
 

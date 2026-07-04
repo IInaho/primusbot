@@ -11,6 +11,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/llm/types"
+	"nekocode/bot/policy/ledger"
 )
 
 func TestFormatSessionList(t *testing.T) {
@@ -118,4 +119,61 @@ func TestManagerSnapshot(t *testing.T) {
 	if got.Tracker.LastPromptTokens != 1000 || got.Tracker.LastCompTokens != 200 || got.Tracker.NewMessageTokens != 50 {
 		t.Fatalf("tracker token state mismatch: %+v", got.Tracker)
 	}
+}
+
+func TestManagerPersistsAndRestoresLedgerSnapshot(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := &testContextStore{}
+	want := ledger.Snapshot{
+		ReadFiles:      []string{"/tmp/read.go"},
+		ModifiedFiles:  []string{"/tmp/write.go"},
+		ToolEventCount: 2,
+	}
+	var restored ledger.Snapshot
+	m := NewManager(ManagerOptions{
+		CWD:            "/tmp/work",
+		Context:        ctx,
+		LedgerSnapshot: func() ledger.Snapshot { return want },
+		RestoreLedger:  func(s ledger.Snapshot) { restored = s },
+	})
+	if err := m.Init(); err != nil {
+		t.Fatal(err)
+	}
+	id := m.CurrentID()
+	if err := m.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded.Ledger.ReadFiles, want.ReadFiles) || !reflect.DeepEqual(loaded.Ledger.ModifiedFiles, want.ModifiedFiles) {
+		t.Fatalf("saved ledger = %+v, want %+v", loaded.Ledger, want)
+	}
+	if _, err := m.Resume(id); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.ReadFiles, want.ReadFiles) || !reflect.DeepEqual(restored.ModifiedFiles, want.ModifiedFiles) {
+		t.Fatalf("restored ledger = %+v, want %+v", restored, want)
+	}
+}
+
+type testContextStore struct {
+	snap ctxmgr.ManagerSnapshot
+}
+
+func (s *testContextStore) Snapshot() ctxmgr.ManagerSnapshot {
+	return s.snap
+}
+
+func (s *testContextStore) Restore(snap ctxmgr.ManagerSnapshot) {
+	s.snap = snap
+}
+
+func (s *testContextStore) Build() []types.Message {
+	return s.snap.Messages
+}
+
+func (s *testContextStore) Clear() {
+	s.snap = ctxmgr.ManagerSnapshot{}
 }

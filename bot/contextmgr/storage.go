@@ -2,7 +2,6 @@ package contextmgr
 
 import (
 	"nekocode/bot/contextmgr/compact"
-	"nekocode/common/debug"
 	"nekocode/bot/llm/types"
 )
 
@@ -18,7 +17,6 @@ func (m *Manager) Add(role, content string, source ...string) {
 }
 
 func (m *Manager) AddAssistantResponse(content, reasoning string) {
-	debug.Log("add_assistant: len=%d reasoning=%d", len(content), len(reasoning))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ctx.Messages = append(m.ctx.Messages, types.Message{
@@ -30,11 +28,6 @@ func (m *Manager) AddAssistantResponse(content, reasoning string) {
 }
 
 func (m *Manager) AddAssistantToolCall(content, reasoning string, toolCalls []types.ToolCall) {
-	var names []string
-	for _, tc := range toolCalls {
-		names = append(names, tc.Function.Name)
-	}
-	debug.Log("add_assistant_tool: len=%d tools=%v", len(content), names)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ctx.Messages = append(m.ctx.Messages, types.Message{
@@ -56,11 +49,6 @@ type ToolResultMsg struct {
 }
 
 func (m *Manager) AddToolResultsBatch(results []ToolResultMsg) {
-	var names []string
-	for _, r := range results {
-		names = append(names, r.ToolName)
-	}
-	debug.Log("add_tool_results_batch: tools=%v count=%d", names, len(results))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range results {

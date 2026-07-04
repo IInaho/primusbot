@@ -69,8 +69,5 @@ func runChild(
 	}
 
 	out := toolutil.StripAnsi(stdout.String())
-	if len(out) > maxOutputBytes {
-		out = out[:maxOutputBytes] + "\n[output truncated]\n"
-	}
-	return out, nil
+	return truncateCapturedOutput(out), nil
 }

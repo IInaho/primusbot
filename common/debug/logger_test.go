@@ -15,15 +15,42 @@ func TestLoggerWritesDebugLine(t *testing.T) {
 		return time.Date(2026, 6, 19, 1, 2, 3, 4_000_000, time.UTC)
 	}
 
-	logger.Log(1, "[DBG]", "", "hello %s", "world")
+	logger.Log(2, "DBG", "", "hello %s", "world")
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(data)
-	if !strings.Contains(got, "01:02:03.004 [DBG]") || !strings.Contains(got, "hello world") {
+	if !strings.Contains(got, "01:02:03.004 DBG") ||
+		!strings.Contains(got, "logger_test.go:") ||
+		!strings.Contains(got, " | hello world") ||
+		strings.Contains(got, "logger.go:") {
 		t.Fatalf("unexpected log line: %q", got)
+	}
+}
+
+func TestPackageLogUsesCallerLocation(t *testing.T) {
+	old := defaultLogger
+	defer func() { defaultLogger = old }()
+
+	path := filepath.Join(t.TempDir(), "debug.log")
+	defaultLogger = NewLogger(path)
+	defaultLogger.now = func() time.Time {
+		return time.Date(2026, 6, 19, 1, 2, 3, 4_000_000, time.UTC)
+	}
+
+	Log("public %s", "entry")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "logger_test.go:") ||
+		!strings.Contains(got, " | public entry") ||
+		strings.Contains(got, "logger.go:") {
+		t.Fatalf("unexpected package log line: %q", got)
 	}
 }
 

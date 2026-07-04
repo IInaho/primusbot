@@ -31,13 +31,13 @@ var defaultLogger = NewLogger(defaultPath())
 
 // Log writes a timestamped, caller-annotated debug message.
 func Log(format string, args ...any) {
-	defaultLogger.Log(2, "[DBG]", "", format, args...)
+	defaultLogger.Log(3, "DBG", "", format, args...)
 }
 
 // Sub returns a logger that prefixes messages with a subagent tag.
 func Sub(name string) func(format string, args ...any) {
 	return func(format string, args ...any) {
-		defaultLogger.Log(3, "[SUB]", "["+name+"] ", format, args...)
+		defaultLogger.Log(3, "SUB", "["+name+"] ", format, args...)
 	}
 }
 
@@ -55,7 +55,7 @@ func (l *Logger) Log(skip int, level, prefix, format string, args ...any) {
 	}
 	ts := now().Format("15:04:05.000")
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(lf, "%s %s %s%s %s\n", ts, level, prefix, callerFileLine(skip), msg)
+	fmt.Fprintf(lf, "%s %-3s %-36s | %s%s\n", ts, level, callerFileLine(skip), prefix, msg)
 }
 
 func defaultPath() string {

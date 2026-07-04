@@ -35,6 +35,19 @@ func TestBashTool(t *testing.T) {
 	}
 }
 
+func TestBashToolDescriptionClarifiesPersistence(t *testing.T) {
+	desc := (&BashTool{}).Description()
+	for _, want := range []string{
+		"Shell process state is NOT preserved",
+		"Workspace filesystem changes ARE persistent",
+		"/tmp is isolated per call and not persistent",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("description missing %q: %s", want, desc)
+		}
+	}
+}
+
 func TestBashToolHostExecutionWritesOutsideWorkspace(t *testing.T) {
 	b := &BashTool{}
 	workspace := t.TempDir()
@@ -107,9 +120,25 @@ func TestBashToolProcessHostAlwaysOnceScope(t *testing.T) {
 	}
 }
 
+func TestFsWriteCacheIncludesGoBuildCache(t *testing.T) {
+	profile := buildProfile("/workspace", []string{core.CapFsWriteCache}, nil)
+	if !containsString(profile.WritePaths, "~/.cache/go-build") {
+		t.Fatalf("fs.write.cache write paths = %v, want ~/.cache/go-build", profile.WritePaths)
+	}
+}
+
 func containsCapability(caps []string, target string) bool {
 	for _, c := range caps {
 		if c == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
 			return true
 		}
 	}

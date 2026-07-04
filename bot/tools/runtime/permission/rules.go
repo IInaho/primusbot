@@ -47,6 +47,7 @@ type Rule struct {
 	Specifier string    `json:"specifier,omitempty"` // raw specifier text (e.g. "npm run *", "/src/**", "domain:github.com")
 	Effect    Effect    `json:"effect"`
 	Source    string    `json:"source,omitempty"`    // "builtin" | "user" | "project" | "remembered"
+	Workspace string    `json:"workspace,omitempty"` // project root scope; empty → global (legacy)
 	CreatedAt time.Time `json:"createdAt,omitempty"` // set when persisted
 }
 

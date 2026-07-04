@@ -125,6 +125,9 @@ func (b *Bot) initToolRegistry() {
 
 func (b *Bot) initHooks() {
 	b.hookReg = hooks.NewRegistry()
+	if b.sess != nil {
+		b.hookReg.SetSessionID(b.sess.CurrentID())
+	}
 	builtin.Register(b.hookReg)
 }
 

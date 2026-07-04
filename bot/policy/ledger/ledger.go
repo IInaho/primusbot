@@ -49,7 +49,9 @@ func New() *Ledger {
 func (l *Ledger) Reset() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.readFiles = make(map[string]bool)
+	// readFiles is intentionally preserved across turns: once the LLM has read a
+	// file in this session, we trust it to edit that file without re-reading.
+	// Only turn-scoped bookkeeping is cleared here.
 	l.modifiedFiles = make(map[string]bool)
 	l.blockedTools = nil
 	l.toolErrors = nil
@@ -74,8 +76,14 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 		}
 	}
 	if ev.Semantics.Mutating {
-		for _, p := range extractModifiedPaths(ev) {
+		modified := extractModifiedPaths(ev)
+		for _, p := range modified {
 			l.modifiedFiles[p] = true
+		}
+		if ev.Name == "write" {
+			for _, p := range modified {
+				l.readFiles[p] = true
+			}
 		}
 	}
 	if ev.Semantics.Verifying {
@@ -92,9 +100,7 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 func (l *Ledger) Snapshot() Snapshot {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	s := Snapshot{
-		ToolEventCount: len(l.blockedTools) + len(l.toolErrors),
-	}
+	s := Snapshot{}
 	for p := range l.readFiles {
 		s.ReadFiles = append(s.ReadFiles, p)
 	}
@@ -106,6 +112,30 @@ func (l *Ledger) Snapshot() Snapshot {
 	s.Verifications = append(s.Verifications, l.verifications...)
 	s.ToolEventCount = l.toolEventCount
 	return s
+}
+
+func (l *Ledger) Restore(s Snapshot) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.readFiles = make(map[string]bool, len(s.ReadFiles))
+	for _, p := range s.ReadFiles {
+		if p != "" {
+			l.readFiles[filepath.Clean(p)] = true
+		}
+	}
+	l.modifiedFiles = make(map[string]bool, len(s.ModifiedFiles))
+	for _, p := range s.ModifiedFiles {
+		if p != "" {
+			l.modifiedFiles[filepath.Clean(p)] = true
+		}
+	}
+	l.blockedTools = append([]ToolEvent(nil), s.BlockedTools...)
+	l.toolErrors = append([]ToolEvent(nil), s.ToolErrors...)
+	l.verifications = append([]Verification(nil), s.Verifications...)
+	l.toolEventCount = s.ToolEventCount
+	// NOTE: After Restore, callers should NOT call Reset() before the next turn,
+	// otherwise session-persisted readFiles would be lost. Restore is typically
+	// used at session start, followed by turn-level Resets that preserve reads.
 }
 
 type Snapshot struct {

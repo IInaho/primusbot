@@ -37,9 +37,7 @@ func RunHost(ctx context.Context, command string, timeout time.Duration) (string
 
 	output, err := cmd.CombinedOutput()
 	cleaned := toolutil.StripAnsi(string(output))
-	if len(cleaned) > maxOutputBytes {
-		cleaned = cleaned[:maxOutputBytes] + "\n[output truncated]\n"
-	}
+	cleaned = truncateCapturedOutput(cleaned)
 	if err != nil {
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("command timed out after %v: %v\nOutput: %s", timeout, err, cleaned)

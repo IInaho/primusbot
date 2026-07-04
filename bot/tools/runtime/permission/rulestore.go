@@ -2,7 +2,6 @@ package permission
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,12 +9,17 @@ import (
 )
 
 // RememberRule persists a rule (typically an allow rule created when the user
-// approved an "ask" prompt) for the given workspace. Duplicates are skipped.
-func (s *Store) RememberRule(workspace string, rule Rule) error {
-	workspace = filepath.Clean(workspace)
-	if workspace == "" || rule.Tool == "" {
+// approved an "ask" prompt) into the project's permissions file. The
+// workspace argument is kept for signature compatibility but ignored — the
+// store is already bound to a project root.
+func (s *Store) RememberRule(_ string, rule Rule) error {
+	if s.root == "" || rule.Tool == "" {
 		return nil
 	}
+	return s.rememberRule(s.root, rule)
+}
+
+func (s *Store) rememberRule(workspace string, rule Rule) error {
 	var err error
 	rule, err = canonicalRememberedRule(rule)
 	if err != nil {
@@ -99,17 +103,17 @@ func isCommandWildcardSpecifier(spec string) bool {
 	return true
 }
 
-// RememberedRules returns the rules remembered for the given workspace.
-func (s *Store) RememberedRules(workspace string) []Rule {
-	workspace = filepath.Clean(workspace)
-	if workspace == "" {
+// RememberedRules returns the rules persisted in the project's permissions
+// file.
+func (s *Store) RememberedRules(_ string) []Rule {
+	if s.root == "" {
 		return nil
 	}
 	f, err := s.load()
 	if err != nil {
 		return nil
 	}
-	p, ok := f.Projects[workspace]
+	p, ok := f.Projects[s.root]
 	if !ok {
 		return nil
 	}

@@ -62,6 +62,91 @@ func TestWasRead(t *testing.T) {
 	}
 }
 
+func TestResetPreservesSessionReadFiles(t *testing.T) {
+	l := New()
+	l.RecordTool(ToolEvent{
+		Name:      "read",
+		Args:      map[string]any{"path": "/tmp/session-read.go"},
+		Semantics: semantics.Semantics{SourceProducing: true},
+	})
+
+	// Reset is called between turns, but historical reads survive.
+	l.Reset()
+
+	if !l.WasRead("/tmp/session-read.go") {
+		t.Fatal("Reset must preserve session-scoped readFiles across turns")
+	}
+
+	// Turn-scoped counters are still reset.
+	snap := l.Snapshot()
+	if snap.ToolEventCount != 0 {
+		t.Fatalf("ToolEventCount = %d, want 0 after Reset", snap.ToolEventCount)
+	}
+	if len(snap.ModifiedFiles) != 0 {
+		t.Fatalf("ModifiedFiles = %+v, want empty after Reset", snap.ModifiedFiles)
+	}
+	if len(snap.BlockedTools) != 0 || len(snap.ToolErrors) != 0 || len(snap.Verifications) != 0 {
+		t.Fatalf("turn-scoped slices should be empty after Reset: %+v", snap)
+	}
+
+	// A new read after Reset is also retained (accumulates).
+	l.RecordTool(ToolEvent{
+		Name:      "read",
+		Args:      map[string]any{"path": "/tmp/second-read.go"},
+		Semantics: semantics.Semantics{SourceProducing: true},
+	})
+	if !l.WasRead("/tmp/session-read.go") || !l.WasRead("/tmp/second-read.go") {
+		t.Fatal("both reads should be known after Reset+Record")
+	}
+}
+
+func TestSuccessfulWriteMarksFileAsKnownContent(t *testing.T) {
+	l := New()
+	l.RecordTool(ToolEvent{
+		Name:      "write",
+		Args:      map[string]any{"path": "/tmp/new.go"},
+		Semantics: semantics.ClassifyToolCall("write", nil),
+	})
+
+	if !l.WasRead("/tmp/new.go") {
+		t.Fatal("successful write should mark file as known content")
+	}
+}
+
+func TestRestorePreservesReadAndModifiedFiles(t *testing.T) {
+	l := New()
+	l.Restore(Snapshot{
+		ReadFiles:      []string{"/tmp/../tmp/read.go"},
+		ModifiedFiles:  []string{"./main.go"},
+		ToolEventCount: 3,
+	})
+
+	if !l.WasRead("/tmp/read.go") {
+		t.Fatal("restored read file should be known")
+	}
+	snap := l.Snapshot()
+	if len(snap.ModifiedFiles) != 1 || snap.ModifiedFiles[0] != "main.go" {
+		t.Fatalf("modified files = %+v, want main.go", snap.ModifiedFiles)
+	}
+	if snap.ToolEventCount != 3 {
+		t.Fatalf("tool event count = %d, want 3", snap.ToolEventCount)
+	}
+}
+
+func TestFailedWriteDoesNotMarkFileAsKnownContent(t *testing.T) {
+	l := New()
+	l.RecordTool(ToolEvent{
+		Name:      "write",
+		Args:      map[string]any{"path": "/tmp/new.go"},
+		Error:     "write failed",
+		Semantics: semantics.ClassifyToolCall("write", nil),
+	})
+
+	if l.WasRead("/tmp/new.go") {
+		t.Fatal("failed write should not mark file as known content")
+	}
+}
+
 func TestLedgerRecordsBashReadPaths(t *testing.T) {
 	l := New()
 	l.RecordTool(ToolEvent{

@@ -24,6 +24,7 @@ type Snapshot struct {
 	Tool    string
 	Args    map[string]any
 	Error   bool
+	session string
 	strVals map[string]string
 	patch   StatePatch
 }

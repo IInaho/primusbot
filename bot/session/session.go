@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nekocode/bot/llm/types"
+	"nekocode/bot/policy/ledger"
 	"nekocode/common"
 )
 
@@ -39,7 +40,8 @@ type Snapshot struct {
 	SubCacheHit       int `json:"sub_cache_hit,omitempty"`
 	SubCacheMiss      int `json:"sub_cache_miss,omitempty"`
 
-	LoadedSkills []string `json:"loaded_skills"`
+	LoadedSkills []string        `json:"loaded_skills"`
+	Ledger       ledger.Snapshot `json:"ledger,omitempty"`
 }
 
 type Meta struct {

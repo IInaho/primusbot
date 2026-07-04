@@ -2,6 +2,8 @@ package hooks
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,10 +25,13 @@ func (c HookCounts) String() string {
 }
 
 type HookAuditEvent struct {
-	Hook   string
-	Point  HookPoint
-	Action string
-	Detail string
+	Session string
+	Hook    string
+	Point   HookPoint
+	Tool    string
+	Action  string
+	Detail  string
+	Trigger string
 }
 
 func (e HookAuditEvent) String() string {
@@ -45,6 +50,7 @@ type Registry struct {
 	strVals map[string]string
 	counts  HookCounts
 	audit   []HookAuditEvent
+	session string
 }
 
 func NewRegistry() *Registry {
@@ -84,7 +90,7 @@ func (r *Registry) evaluationSnapshot(tool string, toolError bool, toolArgs ...m
 		strCopy[k] = v
 	}
 
-	snap := &Snapshot{Store: storeCopy, Tool: tool, Error: toolError, strVals: strCopy}
+	snap := &Snapshot{Store: storeCopy, Tool: tool, Error: toolError, strVals: strCopy, session: r.session}
 	if len(toolArgs) > 0 && toolArgs[0] != nil {
 		snap.Args = toolArgs[0]
 	}
@@ -107,8 +113,9 @@ func evaluateHooks(hooks []Hook, point HookPoint, snap *Snapshot) ([]Result, int
 		}
 		applyResultPatch(snap, result.StatePatch)
 		results = append(results, *result)
-		audit = append(audit, hookAuditEvent(h, point, result))
-		logHookResult(h, point, result)
+		event := hookAuditEvent(h, point, snap, result)
+		audit = append(audit, event)
+		logHookAudit(event)
 	}
 
 	return results, evaluated, audit
@@ -126,23 +133,14 @@ func applyResultPatch(snap *Snapshot, patch *StatePatch) {
 	}
 }
 
-func logHookResult(h Hook, point HookPoint, result *Result) {
-	switch {
-	case result.Stop != nil:
-		debug.Log("[HOOK] %s @%s → STOP(%s)", h.Name, point, result.Stop.String())
-	case result.BlockTool != nil:
-		debug.Log("[HOOK] %s @%s → BLOCK_TOOL(%s: %s)", h.Name, point, result.BlockTool.Tool, result.BlockTool.Reason)
-	case result.RequireTool != nil:
-		debug.Log("[HOOK] %s @%s → REQUIRE_TOOL(%s: %s)", h.Name, point, result.RequireTool.Tool, result.RequireTool.Reason)
-	case result.BlockFinal != nil:
-		debug.Log("[HOOK] %s @%s → BLOCK_FINAL(%s)", h.Name, point, result.BlockFinal.Reason)
-	case result.Hint != nil:
-		debug.Log("[HOOK] %s @%s → HINT(%s)", h.Name, point, result.Hint.Content)
+func hookAuditEvent(h Hook, point HookPoint, snap *Snapshot, result *Result) HookAuditEvent {
+	event := HookAuditEvent{
+		Session: snap.session,
+		Hook:    h.Name,
+		Point:   point,
+		Tool:    snap.Tool,
+		Trigger: hookTrigger(h.Name, snap),
 	}
-}
-
-func hookAuditEvent(h Hook, point HookPoint, result *Result) HookAuditEvent {
-	event := HookAuditEvent{Hook: h.Name, Point: point}
 	switch {
 	case result.Stop != nil:
 		event.Action = "stop"
@@ -166,6 +164,75 @@ func hookAuditEvent(h Hook, point HookPoint, result *Result) HookAuditEvent {
 		event.Action = "state_patch"
 	}
 	return event
+}
+
+func logHookAudit(event HookAuditEvent) {
+	debug.Log("hook_audit session=%s point=%s hook=%s action=%s tool=%s trigger={%s} detail=%q",
+		emptyAsDash(event.Session), event.Point, event.Hook, event.Action, emptyAsDash(event.Tool), event.Trigger, event.Detail)
+}
+
+func emptyAsDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func hookTrigger(name string, snap *Snapshot) string {
+	switch name {
+	case "read_before_write":
+		return fmt.Sprintf("target=%s exists=%d was_read=%d anchor_sufficient=%d",
+			emptyAsDash(snap.getStr(StoreEditTargetPath)),
+			snap.get(StoreEditTargetExists),
+			snap.get(StoreEditTargetWasRead),
+			snap.get(StoreEditAnchorSufficient))
+	case "tool_result_guardrail":
+		return fmt.Sprintf("tool_results=%d last_warned=%d threshold=40 interval=10",
+			snap.get(StoreToolResultCount), snap.get(CounterToolResultWarned))
+	case "bash_ls_guardrail":
+		return "command=" + quoteArg(snap.Args["command"])
+	case "quota":
+		return fmt.Sprintf("reads_left=%d last_warned=%d", snap.get(StoreQuotaReads), snap.get(CounterQuotaWarned))
+	case "read_only_spiral":
+		return fmt.Sprintf("read_only_streak=%d", snap.get(StoreReadOnlyStreak))
+	case "verification":
+		return fmt.Sprintf("has_tasks=%d tasks_all_done=%d turn_tool_calls=%d final_intent=%s",
+			snap.get(StoreHasTasks), snap.get(StoreTasksAllDone), snap.get(StoreTurnToolCalls), emptyAsDash(snap.getStr(StoreFinalIntent)))
+	case "exploration_exhausted":
+		return fmt.Sprintf("explore_calls=%d has_edits=%d", snap.get(StoreExploreCalls), snap.get(StoreHasEdits))
+	case "explore_cascade":
+		return fmt.Sprintf("researcher_calls=%d", snap.get(StoreToolResearcher))
+	case "progress_stall":
+		return fmt.Sprintf("stall_turns=%d ledger_progress=%d", snap.get(CounterStallTurns), snap.get(StoreLedgerProgress))
+	case "garbled_circuit_breaker":
+		return fmt.Sprintf("garbled_count=%d", snap.get(StoreRespGarbled))
+	default:
+		return formatToolArgs(snap.Args)
+	}
+}
+
+func quoteArg(v any) string {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return "-"
+	}
+	return strconv.Quote(truncateAuditDetail(s))
+}
+
+func formatToolArgs(args map[string]any) string {
+	if len(args) == 0 {
+		return "args=-"
+	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+quoteArg(args[k]))
+	}
+	return "args=" + strings.Join(parts, ",")
 }
 
 func (r *Registry) recordEvaluation(results []Result, evaluated int64, audit []HookAuditEvent) {
@@ -224,13 +291,14 @@ func (r *Registry) ResetSession() {
 func (r *Registry) GovernanceStats() string {
 	r.mu.Lock()
 	c := r.counts
-	audit := recentHookAudit(r.audit, 3)
+	audit := append([]HookAuditEvent(nil), r.audit...)
 	r.counts = HookCounts{}
+	r.audit = nil
 	r.mu.Unlock()
 	if len(audit) == 0 {
 		return " | " + c.String()
 	}
-	return " | " + c.String() + " | recent hooks: " + formatHookAudit(audit)
+	return " | " + c.String() + " | hook events: " + formatHookEventSummary(audit) + " | recent hooks: " + formatHookAudit(recentHookAudit(audit, 5))
 }
 
 func (r *Registry) HookCountsSnapshot() HookCounts {
@@ -262,6 +330,28 @@ func formatHookAudit(events []HookAuditEvent) string {
 	parts := make([]string, 0, len(events))
 	for _, event := range events {
 		parts = append(parts, event.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatHookEventSummary(events []HookAuditEvent) string {
+	counts := make(map[string]int)
+	order := make([]string, 0)
+	for _, event := range events {
+		key := event.Action + ":" + event.Hook
+		if counts[key] == 0 {
+			order = append(order, key)
+		}
+		counts[key]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, key := range order {
+		n := counts[key]
+		label := strings.Replace(key, ":", "=", 1)
+		if n > 1 {
+			label = fmt.Sprintf("%s×%d", label, n)
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -321,6 +411,12 @@ func (r *Registry) Flag(k string, v bool) {
 func (r *Registry) SetStr(k, v string) {
 	r.mu.Lock()
 	r.strVals[k] = v
+	r.mu.Unlock()
+}
+
+func (r *Registry) SetSessionID(id string) {
+	r.mu.Lock()
+	r.session = id
 	r.mu.Unlock()
 }
 

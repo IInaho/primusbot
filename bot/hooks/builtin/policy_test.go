@@ -200,6 +200,26 @@ func TestReadBeforeWriteHook(t *testing.T) {
 	}
 }
 
+func TestBashLsGuardrailHook(t *testing.T) {
+	hk := BashLsGuardrailHook()
+	s := newState()
+
+	s.SetTool("bash", map[string]any{"command": "ls /home/lznauy/precode/nekotest/nekocode/"})
+	if r := hk.On(s); r == nil || r.BlockTool == nil || !strings.Contains(r.BlockTool.Reason, "list") {
+		t.Fatalf("bash ls result = %+v, want block with list guidance", r)
+	}
+
+	s.SetTool("bash", map[string]any{"command": "go test ./..."})
+	if r := hk.On(s); r != nil {
+		t.Fatalf("non-ls bash should pass, got %+v", r)
+	}
+
+	s.SetTool("list", map[string]any{"path": "/repo"})
+	if r := hk.On(s); r != nil {
+		t.Fatalf("list tool should pass, got %+v", r)
+	}
+}
+
 func TestReadOnlySpiralHook(t *testing.T) {
 	hk := ReadOnlySpiralHook()
 	s := newState()

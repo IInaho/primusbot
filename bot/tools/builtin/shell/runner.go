@@ -17,6 +17,7 @@ var cacheRoots = []string{
 	"~/.npm",
 	"~/.pnpm-store",
 	"~/.cache/yarn",
+	"~/.cache/go-build",
 	"~/go/pkg/mod",
 	"~/.cargo",
 }

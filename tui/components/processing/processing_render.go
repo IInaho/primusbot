@@ -186,9 +186,6 @@ func (p *ProcessingItem) renderActivitySection(sepW int) string {
 		if b.ToolArgs != "" {
 			fmt.Fprintf(&sb, " %s", p.sty.Muted.Render(b.ToolArgs))
 		}
-		if !b.Done && b.Content == "" {
-			fmt.Fprintf(&sb, " %s", p.sty.Muted.Render("…"))
-		}
 		sb.WriteString("\n")
 	}
 

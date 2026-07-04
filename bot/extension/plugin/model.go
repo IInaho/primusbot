@@ -39,7 +39,7 @@ func (p *Plugin) AgentPaths() []string {
 // HooksPath returns the hooks.json path and whether it exists.
 func (p *Plugin) HooksPath() (string, bool) {
 	if p.Manifest.Hooks != nil && p.Manifest.Hooks.Source != "" {
-		return resolvePath(p.Dir, p.Manifest.Hooks.Source), true
+		return p.Manifest.Hooks.Source, true
 	}
 	return p.autoDiscoverHooks()
 }

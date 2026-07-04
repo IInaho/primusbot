@@ -6,6 +6,7 @@ import (
 
 	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
 	"nekocode/common"
 )
@@ -22,6 +23,8 @@ type sessionDeps struct {
 	AddTokens       func(prompt, completion int)
 	LoadedSkills    func() map[string]bool
 	MarkSkillLoaded func(name string)
+	LedgerSnapshot  func() ledger.Snapshot
+	RestoreLedger   func(ledger.Snapshot)
 }
 
 func newSessionFacade(d sessionDeps) *sessionFacade {
@@ -49,6 +52,17 @@ func newSessionFacade(d sessionDeps) *sessionFacade {
 		MarkSkillLoaded: func(name string) {
 			if d.MarkSkillLoaded != nil {
 				d.MarkSkillLoaded(name)
+			}
+		},
+		LedgerSnapshot: func() ledger.Snapshot {
+			if d.LedgerSnapshot == nil {
+				return ledger.Snapshot{}
+			}
+			return d.LedgerSnapshot()
+		},
+		RestoreLedger: func(snap ledger.Snapshot) {
+			if d.RestoreLedger != nil {
+				d.RestoreLedger(snap)
 			}
 		},
 	})
@@ -106,15 +120,33 @@ func (s *sessionFacade) DisplayMessages() []common.DisplayMessage {
 	return s.mgr.DisplayMessages()
 }
 
-func (b *Bot) CWD() string                       { return b.sess.CWD() }
-func (b *Bot) CurrentSessionID() string          { return b.sess.CurrentID() }
-func (b *Bot) SetSession(sess *session.Snapshot) { b.sess.Set(sess) }
-func (b *Bot) ClearContext()                     { b.sess.ClearContext() }
+func (b *Bot) CWD() string              { return b.sess.CWD() }
+func (b *Bot) CurrentSessionID() string { return b.sess.CurrentID() }
+func (b *Bot) SetSession(sess *session.Snapshot) {
+	b.sess.Set(sess)
+	if sess != nil {
+		b.restoreLedger(sess.Ledger)
+	}
+	b.syncHookSessionID()
+}
+func (b *Bot) ClearContext() { b.sess.ClearContext() }
 func (b *Bot) SessionMessages() []common.DisplayMessage {
 	return b.sess.DisplayMessages()
 }
 
-func (b *Bot) ResumeSession(id string) error { return b.sess.Resume(id) }
+func (b *Bot) ResumeSession(id string) error {
+	err := b.sess.Resume(id)
+	if err == nil {
+		b.syncHookSessionID()
+	}
+	return err
+}
+
+func (b *Bot) syncHookSessionID() {
+	if b.hookReg != nil && b.sess != nil {
+		b.hookReg.SetSessionID(b.sess.CurrentID())
+	}
+}
 
 func (b *Bot) initSession() {
 	b.sess = newSessionFacade(sessionDeps{
@@ -144,5 +176,36 @@ func (b *Bot) initSession() {
 				b.ext.skills.MarkLoaded(name)
 			}
 		},
+		LedgerSnapshot: func() ledger.Snapshot {
+			return b.ledgerSnapshot()
+		},
+		RestoreLedger: func(snap ledger.Snapshot) {
+			b.restoreLedger(snap)
+		},
 	})
+}
+
+func (b *Bot) ledgerSnapshot() ledger.Snapshot {
+	ag := b.getAgent()
+	if ag == nil {
+		return ledger.Snapshot{}
+	}
+	gov := ag.GovernanceManager()
+	if gov == nil || gov.Ledger == nil {
+		return ledger.Snapshot{}
+	}
+	return gov.Ledger.Snapshot()
+}
+
+func (b *Bot) restoreLedger(snap ledger.Snapshot) {
+	ag := b.getAgent()
+	if ag == nil {
+		return
+	}
+	gov := ag.GovernanceManager()
+	if gov == nil || gov.Ledger == nil {
+		return
+	}
+	gov.Ledger.Restore(snap)
+	gov.SyncLedgerToHooks()
 }

@@ -10,7 +10,7 @@ import (
 	"nekocode/bot/tools/runtime/core"
 )
 
-const defaultBashTimeout = 120 * time.Second
+const defaultBashTimeout = 10 * time.Second
 
 type BashTool struct{}
 
@@ -20,7 +20,9 @@ func (t *BashTool) ExecutionMode(map[string]any) core.ExecutionMode { return cor
 func (t *BashTool) Description() string {
 	return "Execute shell commands in an isolated sandbox. " +
 		strconv.Itoa(int(defaultBashTimeout.Seconds())) + "s timeout by default, configurable via timeout_ms parameter (max 600s). " +
-		"Shell state NOT preserved between calls (use && to chain, absolute paths instead of cd). " +
+		"Shell process state is NOT preserved between calls: cwd changes from cd, shell variables, exported env vars, aliases, and functions are lost. " +
+		"Workspace filesystem changes ARE persistent across calls because the workspace is bind-mounted read-write; /tmp is isolated per call and not persistent. " +
+		"Use && to chain dependent shell steps, and use absolute paths instead of relying on prior cd. " +
 		"Prefer dedicated tools (Read, Edit, Write, Grep, Glob) — bash is a last resort when no dedicated tool fits. " +
 		"Confirm OS compatibility before running distro-specific commands. " +
 		"Exploratory bash (ls, cat, grep, find, git diff/log/status) consumes read quota and may be blocked when budget exhausted. " +

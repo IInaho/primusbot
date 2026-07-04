@@ -30,6 +30,9 @@ func (b *Bot) ExecuteCommand(input string) (string, common.CmdResult) {
 	resp, _ := b.cmdParser.Execute(cmd)
 
 	resumed := b.sess.DrainResumed()
+	if resumed {
+		b.syncHookSessionID()
+	}
 	result := commandResult(b.cb.pendingConfirmation(), resumed)
 	return resp, result
 }

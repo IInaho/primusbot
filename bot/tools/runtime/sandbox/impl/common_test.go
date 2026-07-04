@@ -1,8 +1,10 @@
 package impl
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +86,27 @@ func TestResolveWritePaths_SkipDot(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected 0 paths, got %d: %v", len(got), got)
+	}
+}
+
+func TestTruncateCapturedOutputKeepsHeadAndTailLines(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&b, "line %d %s\n", i, strings.Repeat("x", maxOutputBytes/60))
+	}
+
+	got := truncateCapturedOutput(b.String())
+	for _, want := range []string{"line 0 ", "line 49 ", "line 70 ", "line 119 "} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing retained line %q", want)
+		}
+	}
+	for _, notWant := range []string{"line 50 ", "line 69 "} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("middle line %q should be truncated", notWant)
+		}
+	}
+	if !strings.Contains(got, "20 lines truncated") {
+		t.Fatalf("missing truncation marker: %q", got)
 	}
 }

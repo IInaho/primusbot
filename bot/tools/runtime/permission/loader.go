@@ -59,7 +59,8 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		rules = append(rules, r)
 	}
 
-	// 3. remembered rules (user approved at an ask prompt)
+	// 3. remembered rules (user approved at an ask prompt). Bound to current
+	//    project (workspace).
 	for _, r := range src.Remembered {
 		var err error
 		r, err = canonicalRememberedRule(r)
@@ -68,6 +69,11 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		}
 		if r.Source == "" {
 			r.Source = "remembered"
+		}
+		// Skip remembered rules scoped to other projects (when a rule has a
+		// workspace, it only applies to runs in that project).
+		if r.Workspace != "" && src.Workspace != "" && r.Workspace != src.Workspace {
+			continue
 		}
 		rules = append(rules, r)
 	}

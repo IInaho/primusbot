@@ -96,10 +96,6 @@ func (r *Registry) loadPlugin(pluginDir string, regData registryJSON, seen map[s
 	p.Enabled = enabled
 	p.InstalledAt = installedAt
 	r.plugins[m.Name] = p
-
-	if r.Logf != nil {
-		r.Logf("plugin: loaded %s v%s (enabled=%v) from %s", m.Name, m.Version, enabled, pluginDir)
-	}
 	return p
 }
 

@@ -11,49 +11,23 @@ import (
 )
 
 func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
-	running := !b.Done && b.Content == ""
-
 	summary := b.ToolArgs
 	if b.Content != "" {
 		summary = toolSummary(b)
-	}
-
-	toggle := ""
-	if running {
-		toggle = sty.Yellow.Render("…")
 	}
 
 	bullet, bulletStyle := styles.BulletForBlock(b.SubID, b.SubColor, sty.Teal)
 	nameStyle := sty.Blue.Bold(true)
 	if b.IsError {
 		nameStyle = sty.Red.Bold(true)
-	} else if running {
-		nameStyle = sty.Yellow.Bold(true)
 	}
 	headPrefix := fmt.Sprintf("%s %s", bulletStyle.Render(bullet), nameStyle.Render(toolDisplayName(b.ToolName)))
-	headSuffix := strings.TrimSpace(strings.Join([]string{toolStatus(b, sty), toggle}, " "))
-	accentLine := renderToolHeader(headPrefix, summary, headSuffix, width, sty)
-
-	if running {
-		return accentLine
-	}
+	accentLine := renderToolHeader(headPrefix, summary, width, sty)
 
 	contentW := width - 12
 	contentW = max(contentW, 10)
 	rendered := renderToolContent(b, contentW, sty)
 	return lipgloss.JoinVertical(lipgloss.Left, accentLine, renderToolBody(rendered, sty))
-}
-
-func toolStatus(b ContentBlock, sty *styles.Styles) string {
-	switch {
-	case b.IsError:
-		// Error is already conveyed by the red accent/glyph; no text label.
-		return ""
-	case !b.Done:
-		return sty.Yellow.Render("running")
-	default:
-		return ""
-	}
 }
 
 func toolDisplayName(toolName string) string {
@@ -63,20 +37,13 @@ func toolDisplayName(toolName string) string {
 	return toolName
 }
 
-func renderToolHeader(headPrefix, summary, headSuffix string, width int, sty *styles.Styles) string {
+func renderToolHeader(headPrefix, summary string, width int, sty *styles.Styles) string {
 	headerPrefix := "  " + headPrefix
 	if summary == "" {
-		if headSuffix == "" {
-			return headerPrefix
-		}
-		return headerPrefix + " " + headSuffix
+		return headerPrefix
 	}
 
-	suffixW := 0
-	if headSuffix != "" {
-		suffixW = lipgloss.Width(headSuffix) + 1
-	}
-	firstW := width - lipgloss.Width(headerPrefix) - suffixW - 1
+	firstW := width - lipgloss.Width(headerPrefix) - 1
 	contPrefix := "    " + sty.Border.Render(styles.Vertical) + " "
 	contW := width - lipgloss.Width(contPrefix)
 	if contW < 8 {
@@ -100,10 +67,6 @@ func renderToolHeader(headPrefix, summary, headSuffix string, width int, sty *st
 	if first != "" {
 		out.WriteByte(' ')
 		out.WriteString(renderSummary(first, sty))
-	}
-	if headSuffix != "" {
-		out.WriteByte(' ')
-		out.WriteString(headSuffix)
 	}
 	for _, line := range rest {
 		out.WriteByte('\n')
@@ -462,12 +425,13 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 		}
 		c := strings.TrimRight(b.Content, "\r\n")
 		lines := strings.Split(c, "\n")
-		if len(lines) <= 3 {
+		if len(lines) <= 6 {
 			return sty.Muted.MaxWidth(contentW).Render(c)
 		}
 		head := strings.Join(lines[:3], "\n")
-		tail := sty.Subtle.Render(fmt.Sprintf("\n... (%d more lines)", len(lines)-3))
-		return sty.Muted.MaxWidth(contentW).Render(head) + tail
+		tail := strings.Join(lines[len(lines)-3:], "\n")
+		marker := sty.Subtle.Render(fmt.Sprintf("\n... (%d lines truncated) ...\n", len(lines)-6))
+		return sty.Muted.MaxWidth(contentW).Render(head) + marker + sty.Muted.MaxWidth(contentW).Render(tail)
 	default:
 		return sty.Muted.MaxWidth(contentW).Render(b.Content)
 	}

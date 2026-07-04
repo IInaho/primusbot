@@ -80,3 +80,23 @@ func TestSkillDirsDefault(t *testing.T) {
 		t.Errorf("SkillDirs[0] = %q, want skills/", dirs[0])
 	}
 }
+
+func TestHooksPathFromManifestStaysRelative(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".claude-plugin"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
+		[]byte(`{"name":"hook-plugin","hooks":{"source":"hooks.json"}}`), 0o644)
+
+	m, err := ParseManifest(dir)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	p := &Plugin{Manifest: *m, Dir: dir}
+	got, ok := p.HooksPath()
+	if !ok {
+		t.Fatal("HooksPath ok = false, want true")
+	}
+	if got != "hooks.json" {
+		t.Fatalf("HooksPath = %q, want hooks.json", got)
+	}
+}

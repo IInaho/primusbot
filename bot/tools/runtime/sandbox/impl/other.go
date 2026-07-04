@@ -56,9 +56,7 @@ func Run(ctx context.Context, command string, profile Profile, timeout time.Dura
 
 	out, err := cmd.CombinedOutput()
 	cleaned := toolutil.StripAnsi(string(out))
-	if len(cleaned) > maxOutputBytes {
-		cleaned = cleaned[:maxOutputBytes] + "\n[output truncated]\n"
-	}
+	cleaned = truncateCapturedOutput(cleaned)
 	if err != nil {
 		return "", fmt.Errorf("command failed: %v\nOutput: %s", err, cleaned)
 	}

@@ -6,16 +6,25 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"time"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 const permissionStoreVersion = 1
 
+// Store persists capability grants and remembered rules for one project. The
+// project's permissions live at <root>/.nekocode/permissions.json.
 type Store struct {
-	path string
+	root string
+}
+
+// NewStore creates a store bound to a project root.
+func NewStore(root string) *Store {
+	return &Store{root: filepath.Clean(root)}
+}
+
+func (s *Store) projectPath() string {
+	return filepath.Join(s.root, ".nekocode", "permissions.json")
 }
 
 type permissionFile struct {
@@ -25,31 +34,18 @@ type permissionFile struct {
 
 type permissionProject struct {
 	Grants []Grant `json:"grants"`
-	// Rules holds user-approved permission rules remembered from the "ask"
-	// dialog (the new declarative rule model). They are evaluated alongside
-	// builtin and config-declared rules.
-	Rules []Rule `json:"rules,omitempty"`
+	Rules  []Rule  `json:"rules,omitempty"`
 }
 
+// Grant records a user-authorized capability opening for a tool. The JSON is
+// intentionally minimal: effect + tool + capabilities + the workspace it was
+// granted for (for traceability) + the human-readable reason.
 type Grant struct {
-	ID           string         `json:"id"`
-	Effect       string         `json:"effect"`
-	Tool         string         `json:"tool"`
-	Capabilities []string       `json:"capabilities"`
-	Workspace    string         `json:"workspace"`
-	Scope        string         `json:"scope"`
-	Details      map[string]any `json:"details,omitempty"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	ExpiresAt    *time.Time     `json:"expiresAt,omitempty"`
-	Reason       string         `json:"reason,omitempty"`
-}
-
-func DefaultStore() *Store {
-	return &Store{path: filepath.Join(common.NekocodeHome(), "permissions.json")}
-}
-
-func NewStore(path string) *Store {
-	return &Store{path: path}
+	Effect       string   `json:"effect"`
+	Tool         string   `json:"tool"`
+	Capabilities []string `json:"capabilities"`
+	Workspace    string   `json:"workspace,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
 }
 
 func (s *Store) Match(tool string, req core.PermissionRequest) (Grant, bool) {
@@ -68,20 +64,15 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, cap
 	if err != nil {
 		return Grant{}, false
 	}
-	workspace := workspaceFromPermission(req)
-	project, ok := f.Projects[workspace]
+	project, ok := f.Projects[s.root]
 	if !ok {
 		return Grant{}, false
 	}
-	now := time.Now()
 	for _, g := range project.Grants {
-		if g.ExpiresAt != nil && now.After(*g.ExpiresAt) {
-			continue
-		}
 		if g.Effect != effect || g.Tool != tool {
 			continue
 		}
-		if g.Workspace != "" && workspace != "" && g.Workspace != workspace {
+		if g.Workspace != "" && g.Workspace != s.root {
 			continue
 		}
 		if capabilityMatch(g.Capabilities, req.Capabilities) {
@@ -91,12 +82,8 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, cap
 	return Grant{}, false
 }
 
-func (s *Store) AllowProject(tool string, req core.PermissionRequest) error {
+func (s *Store) Allow(tool string, req core.PermissionRequest) error {
 	if hasCapability(req.Capabilities, core.CapProcessHost) {
-		return nil
-	}
-	workspace := workspaceFromPermission(req)
-	if workspace == "" {
 		return nil
 	}
 	f, err := s.load()
@@ -109,31 +96,29 @@ func (s *Store) AllowProject(tool string, req core.PermissionRequest) error {
 	if f.Projects == nil {
 		f.Projects = map[string]permissionProject{}
 	}
-	p := f.Projects[workspace]
+	p := f.Projects[s.root]
 	g := Grant{
-		ID:           "grant_" + time.Now().UTC().Format("20060102T150405.000000000"),
 		Effect:       "allow",
 		Tool:         tool,
 		Capabilities: append([]string(nil), req.Capabilities...),
-		Workspace:    workspace,
-		Scope:        "project",
-		Details:      req.Details,
-		CreatedAt:    time.Now().UTC(),
+		Workspace:    s.root,
 		Reason:       req.Reason,
 	}
 	for _, existing := range p.Grants {
-		if existing.Effect == g.Effect && existing.Tool == g.Tool && existing.Workspace == g.Workspace &&
+		if existing.Effect == g.Effect && existing.Tool == g.Tool &&
+			existing.Workspace == g.Workspace &&
 			slices.Equal(existing.Capabilities, g.Capabilities) {
 			return nil
 		}
 	}
 	p.Grants = append(p.Grants, g)
-	f.Projects[workspace] = p
+	f.Projects[s.root] = p
 	return s.save(f)
 }
 
 func (s *Store) load() (permissionFile, error) {
-	data, err := os.ReadFile(s.path)
+	path := s.projectPath()
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return permissionFile{Version: permissionStoreVersion, Projects: map[string]permissionProject{}}, nil
 	}
@@ -151,7 +136,8 @@ func (s *Store) load() (permissionFile, error) {
 }
 
 func (s *Store) save(f permissionFile) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+	path := s.projectPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(f, "", "  ")
@@ -159,15 +145,7 @@ func (s *Store) save(f permissionFile) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(s.path, data, 0o600)
-}
-
-func workspaceFromPermission(req core.PermissionRequest) string {
-	if req.Details == nil {
-		return ""
-	}
-	v, _ := req.Details["workspace"].(string)
-	return filepath.Clean(v)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func containsAllCapabilities(have, need []string) bool {

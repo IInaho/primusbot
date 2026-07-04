@@ -96,6 +96,23 @@ func TestFilterToolCallsReadBeforeWriteBlockComesFromHook(t *testing.T) {
 	}
 }
 
+func TestFilterToolCallsAllowsEditAfterSuccessfulWrite(t *testing.T) {
+	host := newFakeHost()
+	path := filepath.Join(t.TempDir(), "main.go")
+	host.gov.RecordToolCall(aggov.ToolCallInfo{
+		Name: "write",
+		Args: map[string]any{"path": path},
+	}, false, "")
+
+	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
+		{Name: "edit", Args: map[string]any{"path": path, "oldString": "package main\n", "newString": "package main\n\nfunc main() {}\n"}},
+	}, &budget.ToolQuota{MaxSlots: 8})
+
+	if len(filtered.Allowed) != 1 {
+		t.Fatalf("allowed = %d, want edit allowed after write; blocked=%v", len(filtered.Allowed), filtered.Blocked)
+	}
+}
+
 func TestApplyPostToolHooksForwardsStopResult(t *testing.T) {
 	host := newFakeHost()
 	host.gov.HookReg.Register(hooks.Hook{
