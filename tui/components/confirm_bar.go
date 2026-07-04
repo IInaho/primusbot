@@ -64,14 +64,14 @@ func (c *ConfirmBar) Respond(ok bool, remember bool) {
 }
 
 func (c *ConfirmBar) RespondWithPermission(ok bool, remember bool) {
-	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember, AllowWithPermission: ok && remember}
+	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember, AllowWithPermission: ok}
 	c.req = nil
 }
 
 // CanRemember reports whether the user can persist the decision. The legacy
 // capability model only persists "project"-scope grants; the new rule engine
-// persists an allow Rule for any ask except "once"-scope (CapShellUnknown /
-// CapProcessHost), which is intentionally non-persistent.
+// persists an allow Rule for any ask except CapProcessHost, which is
+// intentionally non-persistent (every host-execution must prompt).
 func (c *ConfirmBar) CanRemember() bool {
 	if c.req == nil {
 		return false
@@ -84,11 +84,22 @@ func (c *ConfirmBar) options() []confirmOption {
 	if c.req == nil {
 		return nil
 	}
+	allowWithPermission := c.req.CanEscalatePermission
+	allowOnceLabel := "仅本次允许"
+	allowRememberLabel := "始终允许"
+	allowOnceAction := func(c *ConfirmBar) { c.Respond(true, false) }
+	allowRememberAction := func(c *ConfirmBar) { c.Respond(true, true) }
+	if allowWithPermission {
+		allowOnceLabel = "仅本次允许并授权"
+		allowRememberLabel = "始终允许并授权"
+		allowOnceAction = func(c *ConfirmBar) { c.RespondWithPermission(true, false) }
+		allowRememberAction = func(c *ConfirmBar) { c.RespondWithPermission(true, true) }
+	}
 	opts := []confirmOption{
-		{Label: "仅本次允许", Action: func(c *ConfirmBar) { c.Respond(true, false) }},
+		{Label: allowOnceLabel, Action: allowOnceAction},
 	}
 	if c.CanRemember() {
-		opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.Respond(true, true) }})
+		opts = append(opts, confirmOption{Label: allowRememberLabel, Action: allowRememberAction})
 	}
 	opts = append(opts, confirmOption{Label: "拒绝", Action: func(c *ConfirmBar) { c.Respond(false, false) }})
 	return opts
@@ -316,12 +327,12 @@ func friendlyCapabilities(caps string) string {
 			continue
 		}
 		switch cap {
-		case "shell.unknown":
-			out = append(out, "动态 Shell")
-		case "net.public":
-			out = append(out, "公共网络")
-		case "cache.write":
+		case "net.outbound":
+			out = append(out, "出站网络")
+		case "fs.write.cache":
 			out = append(out, "写入缓存")
+		case "fs.write.path":
+			out = append(out, "写入外部目录")
 		case "process.host":
 			out = append(out, "主机执行")
 		default:

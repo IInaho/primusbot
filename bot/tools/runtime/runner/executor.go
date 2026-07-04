@@ -34,7 +34,7 @@ type Executor struct {
 	// escalationApproved tracks tool names for which the user pre-approved
 	// permission escalation in the merged confirm dialog.
 	escalationMu       sync.Mutex
-	escalationApproved map[string]bool
+	escalationApproved map[string]escalationApproval
 	// Permission rule engine (claude-code style allow/ask/deny). The engine's
 	// deny→ask→allow decision is the single authority for whether a tool call
 	// runs, prompts, or is blocked.
@@ -49,7 +49,7 @@ func NewExecutor(r ToolRegistry) *Executor {
 		registry:           r,
 		state:              execution.NewExecutionState(),
 		permStore:          permission.DefaultStore(),
-		escalationApproved: make(map[string]bool),
+		escalationApproved: make(map[string]escalationApproval),
 	}
 	e.rebuildEngine(permission.PermissionsDecl{}, e.permStore, "")
 	return e
@@ -141,21 +141,25 @@ func (e *Executor) rebuildEngine(decl permission.PermissionsDecl, store *permiss
 	e.fnMu.Unlock()
 }
 
+type escalationApproval struct {
+	remember bool
+}
+
 // preApproveEscalation marks a tool as having user pre-approved permission
 // escalation, so tryPermissionEscalation will skip the second dialog.
-func (e *Executor) preApproveEscalation(toolName string) {
+func (e *Executor) preApproveEscalation(toolName string, remember bool) {
 	e.escalationMu.Lock()
-	e.escalationApproved[toolName] = true
+	e.escalationApproved[toolName] = escalationApproval{remember: remember}
 	e.escalationMu.Unlock()
 }
 
 // escalationPreApproved checks (and clears) the pre-approval flag for a tool.
-func (e *Executor) escalationPreApproved(toolName string) bool {
+func (e *Executor) escalationPreApproved(toolName string) (escalationApproval, bool) {
 	e.escalationMu.Lock()
 	defer e.escalationMu.Unlock()
-	if e.escalationApproved[toolName] {
+	if approval, ok := e.escalationApproved[toolName]; ok {
 		delete(e.escalationApproved, toolName)
-		return true
+		return approval, true
 	}
-	return false
+	return escalationApproval{}, false
 }

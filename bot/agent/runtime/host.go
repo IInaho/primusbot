@@ -44,9 +44,8 @@ func (h runnerHost) IncStep() {
 	h.agent.run.step++
 }
 
-func (h runnerHost) StopPostTool(reason hooks.StopReason) {
-	h.agent.run.stopReason = reason
-	h.agent.run.lastText = ""
+func (h runnerHost) ApplyPostToolHookResult(result hooks.Result) bool {
+	return h.agent.applyPostToolHookResult(result)
 }
 
 func (h runnerHost) LLM() types.LLM {

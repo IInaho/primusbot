@@ -13,6 +13,7 @@ import (
 
 	"nekocode/bot/config"
 	"nekocode/bot/tools/builtin/toolhelpers"
+	"nekocode/common"
 )
 
 type jimengSubmitResp struct {
@@ -142,11 +143,19 @@ func (t *ImageGenTool) jimengCallRaw(ctx context.Context, signer *Signer, baseUR
 	query.Set("Action", action)
 	query.Set("Version", "2022-08-31")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"?"+query.Encode(), bytes.NewReader(bodyBytes))
+	endpoint, err := jimengEndpoint(baseURL, query)
+	if err != nil {
+		return nil, fmt.Errorf("build endpoint: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	sr, err := signer.Sign("POST", "/", req.URL.Host, query, bodyBytes)
+	signPath := req.URL.EscapedPath()
+	if signPath == "" {
+		signPath = "/"
+	}
+	sr, err := signer.Sign("POST", signPath, req.URL.Host, query, bodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("sign: %w", err)
 	}
@@ -169,4 +178,16 @@ func (t *ImageGenTool) jimengCallRaw(ctx context.Context, signer *Signer, baseUR
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+func jimengEndpoint(baseURL string, query url.Values) (string, error) {
+	u, err := url.Parse(common.JoinURLPath(baseURL))
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid base_url %q", baseURL)
+	}
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }

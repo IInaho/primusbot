@@ -1,40 +1,68 @@
 package hooks
 
-// Store keys used by builtin hooks and the agent loop.
 const (
-	StoreToolPrefix           = "counter:tool:" // + name
-	StoreToolResearcher       = "turn:researcher"
-	StoreQuotaReads           = "gauge:quota_reads"
-	StoreExploreScore         = "gauge:explore"
-	StoreTasksAllDone         = "gauge:tasks_done"
-	StoreHasTasks             = "turn:has_tasks"
-	StoreTurnToolCalls        = "turn:tool_calls"
-	StoreStepInputLen         = "turn:step_len"
-	StoreStepInput            = "value:step"
-	StoreExploreCalls         = "counter:explore_calls"
-	StoreHasEdits             = "turn:has_edits"
-	StoreRespGarbled          = "counter:garbled"
-	StoreLedgerModified       = "gauge:ledger_modified"
-	StoreLedgerVerified       = "gauge:ledger_verified"
-	StoreLedgerErrors         = "gauge:ledger_errors"
-	StoreLedgerBlocked        = "gauge:ledger_blocked"
-	StoreLedgerNonDocModified = "gauge:ledger_nondoc_modified" // 1 if non-documentation files were modified
-	StoreLedgerProgress       = "turn:ledger_progress"         // 1 if this turn added new evidence
-	StoreFinalAnswerText      = "value:final_answer"           // current turn's assistant final-answer text
-	StoreSessionStarted       = "session:started"
-	StoreToolResultCount      = "gauge:tool_results"
-	StoreEditTargetPath       = "value:edit_target_path"
-	StoreEditTargetExists     = "turn:edit_target_exists"
-	StoreEditTargetWasRead    = "turn:edit_target_was_read"
-	StoreEditAnchorSufficient = "turn:edit_anchor_sufficient"
-	StoreReadOnlyStreak       = "turn:read_only_streak"
+	KeyPrefixCounter = "counter:"
+	KeyPrefixGauge   = "gauge:"
+	KeyPrefixValue   = "value:"
+	KeyPrefixTurn    = "turn:"
+	KeyPrefixFlag    = "flag:"
+	KeyPrefixSession = "session:"
+	KeyPrefixPolicy  = "policy:"
+)
 
-	CounterQuotaWarned      = "counter:quota_warned"
-	CounterVerifyInjected   = "counter:verify_injected"
-	CounterExploreInjected  = "counter:explore_injected"
-	CounterStallTurns       = "counter:stall_turns"
-	CounterQualityWarned    = "counter:quality_warned"
-	CounterToolResultWarned = "counter:tool_result_warned"
+// Store keys used by runtime/policy instrumentation and builtin hooks.
+//
+// Lifecycle:
+//   - counter: survives ResetTurn; cleared by ResetSession.
+//   - gauge/value/turn/flag: cleared by ResetTurn and recomputed for each turn.
+//   - session/policy: survives ResetTurn; cleared by ResetSession unless a
+//     rule explicitly clears it.
+const (
+	// Tool call instrumentation. Written by policy.RecordToolCall.
+	StoreToolPrefix     = KeyPrefixCounter + "tool:" // + tool name
+	StoreToolResearcher = KeyPrefixTurn + "researcher"
+	StoreTurnToolCalls  = KeyPrefixTurn + "tool_calls"
+	StoreExploreCalls   = KeyPrefixCounter + "explore_calls"
+	StoreHasEdits       = KeyPrefixTurn + "has_edits"
 
-	PolicyExploreExhausted = "policy:explore_exhausted"
+	// Turn input and task state. Written by runtime/policy at turn start.
+	StoreQuotaReads      = KeyPrefixGauge + "quota_reads"
+	StoreExploreScore    = KeyPrefixGauge + "explore"
+	StoreTasksAllDone    = KeyPrefixGauge + "tasks_done"
+	StoreHasTasks        = KeyPrefixTurn + "has_tasks"
+	StoreStepInputLen    = KeyPrefixTurn + "step_len"
+	StoreStepInput       = KeyPrefixValue + "step"
+	StoreFinalIntent     = KeyPrefixValue + "final_intent"
+
+	// Ledger snapshot. Written by policy.SyncLedgerToHooks.
+	StoreLedgerProgress = KeyPrefixTurn + "ledger_progress"
+
+	// Model/tool context. Written near the relevant model/tool hook point.
+	StoreRespGarbled          = KeyPrefixCounter + "garbled"
+	StoreToolResultCount      = KeyPrefixGauge + "tool_results"
+	StoreEditTargetPath       = KeyPrefixValue + "edit_target_path"
+	StoreEditTargetExists     = KeyPrefixTurn + "edit_target_exists"
+	StoreEditTargetWasRead    = KeyPrefixTurn + "edit_target_was_read"
+	StoreEditAnchorSufficient = KeyPrefixTurn + "edit_anchor_sufficient"
+	StoreReadOnlyStreak       = KeyPrefixTurn + "read_only_streak"
+
+	// Plugin/session state.
+	StoreSessionStarted = KeyPrefixSession + "started"
+
+	// Builtin rule debounce counters.
+	CounterQuotaWarned      = KeyPrefixCounter + "quota_warned"
+	CounterVerifyInjected   = KeyPrefixCounter + "verify_injected"
+	CounterExploreInjected  = KeyPrefixCounter + "explore_injected"
+	CounterStallTurns       = KeyPrefixCounter + "stall_turns"
+	CounterToolResultWarned = KeyPrefixCounter + "tool_result_warned"
+
+	// Builtin policy latches.
+	PolicyExploreExhausted = KeyPrefixPolicy + "explore_exhausted"
+)
+
+const (
+	FinalIntentFinal       = "final"
+	FinalIntentError       = "error"
+	FinalIntentFormatError = "format_error"
+	FinalIntentNonFinal    = "non_final"
 )

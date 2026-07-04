@@ -70,19 +70,20 @@ func (p *ProcessingItem) renderHeader(width int) string {
 	}
 
 	spinner := p.sty.Teal.Render(s)
-	tail := strings.Join(meta, "   ")
+	const gap = " "
+	tail := strings.Join(meta, gap)
 	const indent = "  "
-	statusW := width - lipgloss.Width(indent) - lipgloss.Width(spinner) - 3
+	statusW := width - lipgloss.Width(indent) - lipgloss.Width(spinner) - lipgloss.Width(gap)
 	if tail != "" {
-		statusW -= lipgloss.Width(tail) + 3
+		statusW -= lipgloss.Width(tail) + lipgloss.Width(gap)
 	}
 	if statusW < 10 {
 		statusW = 10
 	}
 
-	line := indent + spinner + "   " + p.sty.Base.Render(truncatePlain(l, statusW))
+	line := indent + spinner + gap + p.sty.Base.Render(truncatePlain(l, statusW))
 	if tail != "" {
-		line += "   " + tail
+		line += gap + tail
 	}
 	return line
 }

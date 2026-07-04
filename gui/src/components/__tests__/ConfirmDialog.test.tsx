@@ -5,7 +5,7 @@ import ConfirmDialog from '../ConfirmDialog'
 const replyConfirm = vi.fn()
 
 vi.mock('../../lib/wails', () => ({
-  safeReplyConfirm: (id: string, ok: boolean, remember?: boolean) => replyConfirm(id, ok, remember),
+  safeReplyConfirm: (id: string, ok: boolean, remember?: boolean, allowWithPermission?: boolean) => replyConfirm(id, ok, remember, allowWithPermission),
 }))
 
 describe('ConfirmDialog', () => {
@@ -38,7 +38,7 @@ describe('ConfirmDialog', () => {
     expect(screen.getAllByText((text) => text.includes('cat > /tmp/test_edit.txt'))).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: '仅本次允许' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true, false)
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true, false, false)
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
@@ -105,6 +105,28 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('command requires public network access')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '仅本次允许' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '始终允许' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-permission', true, true)
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-permission', true, true, false)
+  })
+
+  it('pre-approves permission escalation for privileged tools', () => {
+    render(
+      <ConfirmDialog
+        entry={{
+          id: 'confirm-bash',
+          toolName: 'bash',
+          args: {
+            command: 'go get github.com/hajimehoshi/ebiten/v2',
+            permission_reason: 'command requires public network access',
+            permission_scope: 'project',
+          },
+          kind: 'permission',
+          can_escalate: true,
+        }}
+        onDone={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '始终允许并授权' }))
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash', true, true, true)
   })
 })

@@ -14,10 +14,9 @@ func TestStorePersistsProjectGrant(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	req := core.PermissionRequest{
 		Reason:       "needs network",
-		Capabilities: []string{core.CapNetPublic, core.CapCacheWrite},
+		Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
 		Details: map[string]any{
-			"workspace":    "/repo",
-			"commandClass": "package-install",
+			"workspace": "/repo",
 		},
 	}
 
@@ -29,22 +28,19 @@ func TestStorePersistsProjectGrant(t *testing.T) {
 	}
 }
 
-func TestStoreDoesNotPersistHostOrUnknownShell(t *testing.T) {
+func TestStoreDoesNotPersistHostExecution(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "permissions.json"))
-	for _, caps := range [][]string{{core.CapProcessHost}, {core.CapShellUnknown}} {
-		req := core.PermissionRequest{
-			Capabilities: caps,
-			Details: map[string]any{
-				"workspace":    "/repo",
-				"commandClass": "unknown",
-			},
-		}
-		if err := store.AllowProject("bash", req); err != nil {
-			t.Fatalf("AllowProject(%v): %v", caps, err)
-		}
-		if _, ok := store.Match("bash", req); ok {
-			t.Fatalf("grant %v must not be persisted", caps)
-		}
+	req := core.PermissionRequest{
+		Capabilities: []string{core.CapProcessHost},
+		Details: map[string]any{
+			"workspace": "/repo",
+		},
+	}
+	if err := store.AllowProject("bash", req); err != nil {
+		t.Fatalf("AllowProject: %v", err)
+	}
+	if _, ok := store.Match("bash", req); ok {
+		t.Fatal("process.host grant must not be persisted")
 	}
 }
 
@@ -52,10 +48,9 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "permissions.json")
 	store := NewStore(path)
 	req := core.PermissionRequest{
-		Capabilities: []string{core.CapNetPublic},
+		Capabilities: []string{core.CapNetOutbound},
 		Details: map[string]any{
-			"workspace":    "/repo",
-			"commandClass": "network",
+			"workspace": "/repo",
 		},
 	}
 	f := permissionFile{
@@ -67,8 +62,7 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 						ID:           "deny",
 						Effect:       "deny",
 						Tool:         "bash",
-						CommandClass: "network",
-						Capabilities: []string{core.CapNetPublic},
+						Capabilities: []string{core.CapNetOutbound},
 						Workspace:    "/repo",
 						Scope:        "project",
 						CreatedAt:    time.Now(),
@@ -77,8 +71,7 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 						ID:           "allow",
 						Effect:       "allow",
 						Tool:         "bash",
-						CommandClass: "network",
-						Capabilities: []string{core.CapNetPublic, core.CapCacheWrite},
+						Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
 						Workspace:    "/repo",
 						Scope:        "project",
 						CreatedAt:    time.Now(),

@@ -43,7 +43,7 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 			e.rememberAllowRule(tc.Name, tc.Args, dec.Rule)
 		}
 		if reply.AllowWithPermission {
-			e.preApproveEscalation(tc.Name)
+			e.preApproveEscalation(tc.Name, reply.Remember)
 		}
 	case permission.EffectAllow:
 		// run without prompting
@@ -52,8 +52,8 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 	paths := toolPaths(tc)
 	output, execErr := e.callTool(ctx, tool, tc)
 	if execErr != nil {
-		preApproved := e.escalationPreApproved(tc.Name)
-		if output, ok := e.tryPermissionEscalation(ctx, tool, tc, execErr, confirmFn, preApproved); ok {
+		preApproved, hasPreApproval := e.escalationPreApproved(tc.Name)
+		if output, ok := e.tryPermissionEscalation(ctx, tool, tc, execErr, confirmFn, preApproved, hasPreApproval); ok {
 			e.invalidateMutatedPaths(tc.Name, paths)
 			return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Output: formatOutput(tc.Name, output)}
 		}

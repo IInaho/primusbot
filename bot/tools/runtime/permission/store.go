@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
@@ -36,7 +35,6 @@ type Grant struct {
 	ID           string         `json:"id"`
 	Effect       string         `json:"effect"`
 	Tool         string         `json:"tool"`
-	CommandClass string         `json:"commandClass,omitempty"`
 	Capabilities []string       `json:"capabilities"`
 	Workspace    string         `json:"workspace"`
 	Scope        string         `json:"scope"`
@@ -86,9 +84,6 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, cap
 		if g.Workspace != "" && workspace != "" && g.Workspace != workspace {
 			continue
 		}
-		if g.CommandClass != "" && g.CommandClass != commandClassFromPermission(req) {
-			continue
-		}
 		if capabilityMatch(g.Capabilities, req.Capabilities) {
 			return g, true
 		}
@@ -97,7 +92,7 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, cap
 }
 
 func (s *Store) AllowProject(tool string, req core.PermissionRequest) error {
-	if hasCapability(req.Capabilities, core.CapProcessHost) || hasCapability(req.Capabilities, core.CapShellUnknown) {
+	if hasCapability(req.Capabilities, core.CapProcessHost) {
 		return nil
 	}
 	workspace := workspaceFromPermission(req)
@@ -119,7 +114,6 @@ func (s *Store) AllowProject(tool string, req core.PermissionRequest) error {
 		ID:           "grant_" + time.Now().UTC().Format("20060102T150405.000000000"),
 		Effect:       "allow",
 		Tool:         tool,
-		CommandClass: commandClassFromPermission(req),
 		Capabilities: append([]string(nil), req.Capabilities...),
 		Workspace:    workspace,
 		Scope:        "project",
@@ -129,7 +123,7 @@ func (s *Store) AllowProject(tool string, req core.PermissionRequest) error {
 	}
 	for _, existing := range p.Grants {
 		if existing.Effect == g.Effect && existing.Tool == g.Tool && existing.Workspace == g.Workspace &&
-			existing.CommandClass == g.CommandClass && slices.Equal(existing.Capabilities, g.Capabilities) {
+			slices.Equal(existing.Capabilities, g.Capabilities) {
 			return nil
 		}
 	}
@@ -174,14 +168,6 @@ func workspaceFromPermission(req core.PermissionRequest) string {
 	}
 	v, _ := req.Details["workspace"].(string)
 	return filepath.Clean(v)
-}
-
-func commandClassFromPermission(req core.PermissionRequest) string {
-	if req.Details == nil {
-		return ""
-	}
-	v, _ := req.Details["commandClass"].(string)
-	return strings.TrimSpace(v)
 }
 
 func containsAllCapabilities(have, need []string) bool {

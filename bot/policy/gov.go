@@ -10,10 +10,6 @@ type Manager struct {
 	HookReg     *hooks.Registry
 	Ledger      *ledger.Ledger
 	Exploration *budget.ExplorationTracker
-
-	prevReads         int
-	prevModifies      int
-	prevVerifications int
 }
 
 func NewManager(hookReg *hooks.Registry) *Manager {

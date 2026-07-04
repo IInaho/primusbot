@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"mvdan.cc/sh/v3/syntax"
 	"nekocode/bot/policy/semantics"
 )
 
@@ -20,9 +21,11 @@ type ToolEvent struct {
 }
 
 type Verification struct {
-	Command string
-	Passed  bool
-	Output  string
+	Command     string
+	Passed      bool
+	Trusted     bool
+	ProjectRule bool
+	Output      string
 }
 
 type Ledger struct {
@@ -66,20 +69,22 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 		l.toolErrors = append(l.toolErrors, ev)
 	}
 	if ev.Semantics.SourceProducing {
-		for _, p := range extractPaths(ev.Name, ev.Args) {
+		for _, p := range extractReadPaths(ev.Name, ev.Args) {
 			l.readFiles[p] = true
 		}
 	}
 	if ev.Semantics.Mutating {
-		for _, p := range extractPaths(ev.Name, ev.Args) {
+		for _, p := range extractModifiedPaths(ev) {
 			l.modifiedFiles[p] = true
 		}
 	}
 	if ev.Semantics.Verifying {
 		l.verifications = append(l.verifications, Verification{
-			Command: commandArg(ev.Args),
-			Passed:  ev.Error == "",
-			Output:  ev.Output,
+			Command:     commandArg(ev.Args),
+			Passed:      ev.Error == "",
+			Trusted:     ev.Semantics.VerificationTrusted,
+			ProjectRule: ev.Semantics.VerificationProjectRule,
+			Output:      ev.Output,
 		})
 	}
 }
@@ -148,15 +153,31 @@ func (s Snapshot) Summary() string {
 		len(s.ModifiedFiles), len(s.Verifications), len(s.ToolErrors), len(s.BlockedTools))
 }
 
-func extractPaths(name string, args map[string]any) []string {
+func extractReadPaths(name string, args map[string]any) []string {
 	switch name {
-	case "read", "write", "edit":
+	case "read":
 		if p, _ := args["path"].(string); p != "" {
 			return []string{filepath.Clean(p)}
 		}
 	case "bash":
 		cmd, _ := args["command"].(string)
 		return cleanPaths(extractBashReadPaths(cmd))
+	}
+	return nil
+}
+
+func extractModifiedPaths(ev ToolEvent) []string {
+	switch ev.Name {
+	case "write", "edit":
+		if ev.Error != "" {
+			return nil
+		}
+		if p, _ := ev.Args["path"].(string); p != "" {
+			return []string{filepath.Clean(p)}
+		}
+	case "bash":
+		cmd, _ := ev.Args["command"].(string)
+		return cleanPaths(extractBashWritePaths(cmd))
 	}
 	return nil
 }
@@ -177,7 +198,18 @@ func commandArg(args map[string]any) string {
 }
 
 func extractBashReadPaths(cmd string) []string {
+	if calls, ok := shellLiteralCalls(cmd); ok {
+		var out []string
+		for _, fields := range calls {
+			out = append(out, bashReadPathsForFields(fields)...)
+		}
+		return out
+	}
 	fields := shellFields(strings.TrimSpace(cmd))
+	return bashReadPathsForFields(fields)
+}
+
+func bashReadPathsForFields(fields []string) []string {
 	if len(fields) == 0 {
 		return nil
 	}
@@ -195,6 +227,249 @@ func extractBashReadPaths(cmd string) []string {
 		return gitPathArgs(fields[1:])
 	}
 	return nil
+}
+
+func extractBashWritePaths(cmd string) []string {
+	if calls, ok := shellLiteralCalls(cmd); ok {
+		out := extractBashRedirectWritePaths(cmd)
+		for _, fields := range calls {
+			out = append(out, bashCommandWritePathsForFields(fields)...)
+		}
+		return out
+	}
+	fields := shellFields(strings.TrimSpace(cmd))
+	if len(fields) == 0 {
+		return nil
+	}
+	out := extractBashRedirectWritePaths(cmd)
+	return append(out, bashCommandWritePathsForFields(fields)...)
+}
+
+func bashCommandWritePathsForFields(fields []string) []string {
+	var out []string
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		switch {
+		case isShellBoundary(f):
+			continue
+		case isRedirectOperator(f):
+			if i+1 < len(fields) {
+				out = appendPathArg(out, fields[i+1])
+				i++
+			}
+		case redirectPath(f) != "":
+			out = appendPathArg(out, redirectPath(f))
+		case filepath.Base(f) == "tee":
+			paths, next := teeWritePaths(fields, i+1)
+			out = append(out, paths...)
+			i = next
+		case filepath.Base(f) == "sed":
+			paths, next := sedWritePaths(fields, i+1)
+			out = append(out, paths...)
+			i = next
+		case isPathMutatingCommand(filepath.Base(f)):
+			paths, next := commandWritePaths(filepath.Base(f), fields, i+1)
+			out = append(out, paths...)
+			i = next
+		}
+	}
+	return out
+}
+
+func shellLiteralCalls(cmd string) ([][]string, bool) {
+	parser := syntax.NewParser()
+	file, err := parser.Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return nil, false
+	}
+	var calls [][]string
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		var fields []string
+		for i, arg := range call.Args {
+			word := shellLiteralWord(arg)
+			if i == 0 && word == "" {
+				return true
+			}
+			fields = append(fields, word)
+		}
+		calls = append(calls, fields)
+		return true
+	})
+	return calls, true
+}
+
+func isPathMutatingCommand(name string) bool {
+	switch name {
+	case "mkdir", "touch", "cp", "mv", "rm", "rmdir", "chmod", "chown":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractBashRedirectWritePaths(cmd string) []string {
+	parser := syntax.NewParser()
+	file, err := parser.Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	syntax.Walk(file, func(node syntax.Node) bool {
+		redir, ok := node.(*syntax.Redirect)
+		if !ok || !isWriteRedirect(redir.Op) {
+			return true
+		}
+		if p := shellLiteralWord(redir.Word); p != "" {
+			out = appendPathArg(out, p)
+		}
+		return true
+	})
+	return out
+}
+
+func isWriteRedirect(op syntax.RedirOperator) bool {
+	return op == syntax.RdrOut || op == syntax.AppOut || op == syntax.ClbOut ||
+		op == syntax.RdrAll || op == syntax.AppAll
+}
+
+func shellLiteralWord(w *syntax.Word) string {
+	if w == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, part := range w.Parts {
+		lit, ok := part.(*syntax.Lit)
+		if !ok {
+			return ""
+		}
+		b.WriteString(lit.Value)
+	}
+	return b.String()
+}
+
+func isShellBoundary(s string) bool {
+	switch s {
+	case "|", "||", "&&", ";":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRedirectOperator(s string) bool {
+	switch s {
+	case ">", ">>", ">|", "&>", "&>>", "1>", "1>>", "2>", "2>>":
+		return true
+	default:
+		return false
+	}
+}
+
+func redirectPath(s string) string {
+	for _, prefix := range []string{"&>>", "&>", "1>>", "1>", "2>>", "2>", ">>", ">|", ">"} {
+		if strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
+			return s[len(prefix):]
+		}
+	}
+	return ""
+}
+
+func teeWritePaths(fields []string, start int) ([]string, int) {
+	var out []string
+	i := start
+	for ; i < len(fields); i++ {
+		if isShellBoundary(fields[i]) {
+			break
+		}
+		if strings.HasPrefix(fields[i], "-") {
+			continue
+		}
+		out = appendPathArg(out, fields[i])
+	}
+	return out, i
+}
+
+func sedWritePaths(fields []string, start int) ([]string, int) {
+	var out []string
+	i := start
+	inPlace := false
+	scriptSeen := false
+	for ; i < len(fields); i++ {
+		f := fields[i]
+		if isShellBoundary(f) {
+			break
+		}
+		if f == "-i" || strings.HasPrefix(f, "-i") {
+			inPlace = true
+			continue
+		}
+		if strings.HasPrefix(f, "-") {
+			continue
+		}
+		if !scriptSeen {
+			scriptSeen = true
+			continue
+		}
+		if inPlace {
+			out = appendPathArg(out, f)
+		}
+	}
+	return out, i
+}
+
+func commandWritePaths(name string, fields []string, start int) ([]string, int) {
+	var args []string
+	i := start
+	for ; i < len(fields); i++ {
+		if isShellBoundary(fields[i]) {
+			break
+		}
+		if strings.HasPrefix(fields[i], "-") {
+			continue
+		}
+		args = append(args, fields[i])
+	}
+	switch name {
+	case "cp":
+		if len(args) == 0 {
+			return nil, i
+		}
+		return appendPathArg(nil, args[len(args)-1]), i
+	case "chmod", "chown":
+		if len(args) <= 1 {
+			return nil, i
+		}
+		var out []string
+		for _, arg := range args[1:] {
+			out = appendPathArg(out, arg)
+		}
+		return out, i
+	default:
+		var out []string
+		for _, arg := range args {
+			out = appendPathArg(out, arg)
+		}
+		return out, i
+	}
+}
+
+func appendPathArg(out []string, arg string) []string {
+	if arg != "" && !strings.HasPrefix(arg, "-") && shouldTrackWritePath(arg) {
+		return append(out, arg)
+	}
+	return out
+}
+
+func shouldTrackWritePath(arg string) bool {
+	cleaned := filepath.Clean(arg)
+	if cleaned == "/dev/null" || cleaned == "/dev/stdout" || cleaned == "/dev/stderr" {
+		return false
+	}
+	return true
 }
 
 func shellFields(s string) []string {

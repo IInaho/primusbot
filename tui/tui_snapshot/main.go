@@ -52,7 +52,7 @@ func renderConfirmations() string {
 		renderConfirmEdit(),
 		renderConfirmBashMassive(),
 		renderConfirmPermission(),
-		renderConfirmShellUnknown(),
+		renderConfirmProcessHost(),
 		renderConfirmWrite(),
 		renderConfirmPlugin(),
 	)
@@ -115,11 +115,10 @@ func renderConfirmPermission() string {
 		ToolName: "bash",
 		Args: map[string]any{
 			"command":                 "go test ./...",
-			"permission_reason":       "command requires public network access",
-			"permission_capabilities": "net.public, cache.write",
+			"permission_reason":       "command declares capabilities: net.outbound, fs.write.cache",
+			"permission_capabilities": "net.outbound, fs.write.cache",
 			"permission_scope":        "project",
 			"workspace":               "/home/user/project",
-			"commandClass":            "network",
 			"sandbox":                 "native",
 		},
 		Kind:     common.ConfirmKindPermission,
@@ -128,17 +127,16 @@ func renderConfirmPermission() string {
 	return cb.View(width, 40)
 }
 
-func renderConfirmShellUnknown() string {
+func renderConfirmProcessHost() string {
 	cb := components.NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
 		ToolName: "bash",
 		Args: map[string]any{
 			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
-			"permission_reason":       "command contains dynamic shell syntax that cannot be safely persisted",
-			"permission_capabilities": "shell.unknown",
+			"permission_reason":       "command requests unsandboxed host execution",
+			"permission_capabilities": "process.host",
 			"permission_scope":        "once",
 			"workspace":               "/home/lznauy/precode/NekoCode",
-			"commandClass":            "unknown",
 			"sandbox":                 "native",
 		},
 		Kind:     common.ConfirmKindPermission,

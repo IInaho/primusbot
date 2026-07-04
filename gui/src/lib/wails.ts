@@ -192,10 +192,14 @@ export function safeReadImageBase64(path: string): Promise<string | null> {
   }
 }
 
-export function safeReplyConfirm(id: string, ok: boolean, remember = false): void {
+export function safeReplyConfirm(id: string, ok: boolean, remember = false, allowWithPermission = false): void {
   try {
+    if (allowWithPermission) {
+      ReplyConfirmDecision(id, ok, remember)
+      return
+    }
     if (remember) {
-      ReplyConfirmDecision(id, ok, true)
+      ReplyConfirmDecision(id, ok, remember)
       return
     }
     ReplyConfirm(id, ok)

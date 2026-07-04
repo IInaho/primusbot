@@ -350,21 +350,19 @@ bash 命令执行采用多层沙箱隔离，与权限引擎独立互补——权
 
 Agent 运行时通过钩子系统在关键节点注入策略控制，分为内置钩子和插件钩子两类。
 
-**内置钩子（12 个）**，在 Agent 循环的关键节点触发：
+**内置钩子（10 个）**，在 Agent 循环的关键节点触发：
 
 | 钩子 | 触发点 | 职责 |
 |------|--------|------|
 | QuotaHook | PreTurn | 配额限制检查 |
-| ToolResultGuardrailHook | PostTool | 工具结果护栏 |
+| ToolResultGuardrailHook | PreModelRequest | 工具结果护栏 |
 | ReadBeforeWriteHook | PreToolUse | 写前必读强制 |
-| ReadOnlySpiralHook | PreToolUse | 只读螺旋检测 |
-| VerificationHook | PostTool | 修改验证 |
-| ExplorationExhaustedHook | PreToolUse | 探索耗尽检测 |
-| ExplorationGuardHook | PreToolUse | 探索护栏 |
-| ExploreCascadeHook | PreToolUse | 探索级联控制 |
-| ProgressStallHook | PreTurn | 进度停滞检测 |
-| CompletionQualityHook | PostTurn | 完成质量检查 |
-| GarbledCircuitBreaker | PostTool | 乱码断路器 |
+| ReadOnlySpiralHook | PostTool | 只读螺旋提醒 |
+| VerificationHook | PostTurn | 未完成任务最终检查 |
+| ExplorationExhaustedHook | PreTurn | 探索耗尽提醒 |
+| ExploreCascadeHook | PostTool | 探索级联提醒 |
+| ProgressStallHook | PostTool | 进度停滞提醒 |
+| GarbledCircuitBreaker | PostTurn | 乱码断路器 |
 | FinalCheckHook | PostTurn | 最终检查 |
 
 **钩子事件点**：PreTurn → PreModelRequest → PreToolUse → PostTool → PostTurn

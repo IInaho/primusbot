@@ -1,18 +1,17 @@
 package builtin
 
-func All() []Hook {
-	return []Hook{
+import "nekocode/bot/hooks"
+
+func All() []hooks.Hook {
+	return []hooks.Hook{
 		QuotaHook(),
 		ToolResultGuardrailHook(),
 		ReadBeforeWriteHook(),
 		ReadOnlySpiralHook(),
 		VerificationHook(),
 		ExplorationExhaustedHook(),
-		ExplorationGuardHook(),
 		ExploreCascadeHook(),
 		ProgressStallHook(),
-		CompletionQualityHook(),
 		GarbledCircuitBreaker(),
-		FinalCheckHook(),
 	}
 }

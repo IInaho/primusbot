@@ -193,17 +193,18 @@ nekocode/
 │   │   ├── registry.go             #     Registry + Evaluate
 │   │   ├── state.go                #     Snapshot 状态存储
 │   │   ├── format.go               #     FormatHints
-│   │   ├── builtin_register.go     #     RegisterBuiltin（12 个内置 Hook）
 │   │   ├── plugin.go               #     LoadPluginHooks（声明式 hooks）
 │   │   ├── builtin/                #     内置 Hook 实现
 │   │   │   ├── all.go              #       All() 列表
-│   │   │   ├── keys.go             #       内置 key 常量
-│   │   │   ├── types.go            #       内置 Hook 类型定义
-│   │   │   ├── quota.go            #       QuotaHook
-│   │   │   ├── verification.go     #       VerificationHook + GarbledCircuitBreaker
-│   │   │   ├── exploration.go      #       ExplorationExhaustedHook + ExplorationGuardHook
-│   │   │   ├── progress.go         #       ExploreCascadeHook + ProgressStallHook
-│   │   │   └── quality.go          #       CompletionQualityHook
+│   │   │   ├── register.go         #       Register（10 个内置 Hook）
+│   │   │   ├── quota_rules.go      #       QuotaHook
+│   │   │   ├── tool_rules.go       #       工具安全与工具结果 guardrail
+│   │   │   ├── exploration_rules.go#       探索预算与探索防护
+│   │   │   ├── progress_rules.go   #       防卡进度规则
+│   │   │   ├── quality_rules.go    #       完成质量规则
+│   │   │   ├── verification_rules.go #     验证与格式熔断规则
+│   │   │   ├── final_rules.go      #       最终回答校验规则
+│   │   │   └── text_match.go       #       文本声明/否定匹配 helper
 │   │   └── plugin/                 #     声明式 Hook 实现
 │   │       ├── types.go            #       Point / Event / Hint / Result / Hook 类型
 │   │       ├── config.go           #       配置加载
@@ -455,7 +456,7 @@ New()
   ├── initSession()       → session.Manager facade
   └── reinit()
       ├── initToolRegistry()     → catalog.RegisterAll() + projecttool（条件注册）
-      ├── initHooks()            → hooks.RegisterBuiltin()
+      ├── initHooks()            → builtin.Register()
       ├── extension.InitPlugins()
       ├── extension.InitConfigMCPServers()
       ├── extension.InitSkills()
@@ -670,6 +671,9 @@ StoreHasEdits        = "turn:has_edits"
 StoreRespGarbled     = "counter:garbled"
 StoreLedgerModified  = "gauge:ledger_modified"
 StoreLedgerVerified  = "gauge:ledger_verified"
+StoreLedgerVerifyAttempt = "gauge:ledger_verify_attempt"
+StoreLedgerVerifyTrusted = "gauge:ledger_verify_trusted"
+StoreLedgerVerifyProject = "gauge:ledger_verify_project"
 StoreLedgerErrors    = "gauge:ledger_errors"
 StoreLedgerBlocked   = "gauge:ledger_blocked"
 StoreLedgerProgress  = "turn:ledger_progress"
@@ -678,11 +682,10 @@ CounterQuotaWarned   = "counter:quota_warned"
 CounterVerifyInjected= "counter:verify_injected"
 CounterExploreInjected="counter:explore_injected"
 CounterStallTurns    = "counter:stall_turns"
-CounterQualityWarned = "counter:quality_warned"
 PolicyExploreExhausted="policy:explore_exhausted"
 ```
 
-### 内置 Hook（12 个）
+### 内置 Hook（10 个）
 
 | Hook | Point | 功能 |
 |------|-------|------|
@@ -691,11 +694,9 @@ PolicyExploreExhausted="policy:explore_exhausted"
 | read_before_write | PreToolUse | edit/write 前检查目标文件读取记录 |
 | read_only_spiral | PostTool | 连续只读探索后提醒综合发现并停止继续读 |
 | verification | PostTurn | 有未完成任务但本轮无工具调用时提醒继续 |
-| exploration_exhausted | PreTurn | 探索调用 ≥10 且分数耗尽时强制行动 |
-| exploration_guard | PreToolUse | 探索配额耗尽时阻止探索性工具 |
+| exploration_exhausted | PreTurn | 探索调用 ≥10 且分数耗尽时提醒收敛 |
 | explore_cascade | PostTool | 本轮启动 ≥4 个 researcher 时提醒综合信息 |
-| progress_stall | PostTool | 连续多轮无进展后警告开始写代码 |
-| completion_quality | PostTurn | 任务全标完成但未修改文件时提醒 |
+| progress_stall | PostTool | 连续多轮无进展后提醒推进或报告阻塞 |
 | garbled_circuit_breaker | PostTurn | 累计 5 次 garbled 工具调用则强制停止 |
 | final_check | PostTurn | 最终回答前检查验证、错误披露和测试声明 |
 
@@ -786,6 +787,8 @@ PolicyExploreExhausted="policy:explore_exhausted"
 - `SourceProducing`：产生源码信息（read/grep/glob/list）
 - `Mutating`：修改文件（write/edit/bash）
 - `Verifying`：验证操作
+- `VerificationTrusted`：直接验证命令（如 `go test`、`pytest`）
+- `VerificationProjectRule`：项目脚本/规则验证（如 `npm run test`、`make test`）
 
 ## TUI 组件树
 
@@ -830,7 +833,7 @@ Model
 | MCP 客户端 | `bot/extension/mcp/` | JSON-RPC 2.0 |
 | Skill 系统 | `bot/extension/skill/` | manager + 管理快照 + YAML 技能加载 |
 | Hook 系统 | `bot/hooks/` | 事件驱动（5 种触发点）+ 声明式（plugin/） |
-| 内置 Hook | `bot/hooks/builtin/` | 12 个内置 Hook 实现 |
+| 内置 Hook | `bot/hooks/builtin/` | 10 个内置 Hook 实现 |
 | 声明式 Hook | `bot/hooks/plugin/` | JSON 配置驱动 Hook |
 | Tree-sitter | `bot/index/treesitter/` | 多语言解析器注册 + AST 查询 |
 | 代码索引 | `bot/index/` | SQLite + FTS5 + Tree-sitter 代码索引 |

@@ -7,6 +7,7 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
+	"nekocode/bot/hooks/builtin"
 	"nekocode/bot/llm/types"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
@@ -21,7 +22,7 @@ func TestFinishRunPersistsPolicyBlockedFinalText(t *testing.T) {
 	reg := tools.NewRegistry()
 	a := New(context.Background(), ctxMgr, nil, reg)
 	a.deps.gov = aggov.NewManager(hooks.NewRegistry())
-	hooks.RegisterBuiltin(a.deps.gov.HookReg)
+	builtin.Register(a.deps.gov.HookReg)
 
 	finalText := "• P0-1 Bash 安全机制：已实现\n• P0-2 权限系统：已实现"
 
@@ -67,6 +68,59 @@ func TestFinishRunDoesNotDoublePersistRecordableText(t *testing.T) {
 	}
 	if a.deps.ctxMgr.Len() != msgCountBefore {
 		t.Fatalf("expected no duplicate persist, msgs %d → %d", msgCountBefore, a.deps.ctxMgr.Len())
+	}
+}
+
+func TestFinishRunDoesNotPersistNonRecordableText(t *testing.T) {
+	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
+	reg := tools.NewRegistry()
+	a := New(context.Background(), ctxMgr, nil, reg)
+
+	a.turnRunner.recordReasoningText(&ReasoningResult{
+		Action:      ActionChat,
+		ActionInput: "draft answer from hook-retried turn",
+	}, true)
+	a.turnRunner.recordReasoningText(&ReasoningResult{
+		Action:      ActionChat,
+		ActionInput: "LLM call failed: timeout",
+		IsError:     true,
+	}, false)
+	a.run.stopReason = hooks.StopCompleted
+
+	msgCountBefore := a.deps.ctxMgr.Len()
+	result := a.loopRunner.finishRun(nil)
+
+	if result.FinalOutput != "LLM call failed: timeout" {
+		t.Fatalf("FinalOutput = %q, want latest non-recordable text", result.FinalOutput)
+	}
+	if a.deps.ctxMgr.Len() != msgCountBefore {
+		t.Fatalf("expected latest fallback to stay out of context, msgs %d → %d", msgCountBefore, a.deps.ctxMgr.Len())
+	}
+	last := lastAssistantContent(a.deps.ctxMgr.Build())
+	if last != "draft answer from hook-retried turn" {
+		t.Fatalf("persisted assistant content = %q, want previous recordable text", last)
+	}
+}
+
+func TestPostToolStopClearsStaleFinalText(t *testing.T) {
+	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
+	reg := tools.NewRegistry()
+	a := New(context.Background(), ctxMgr, nil, reg)
+
+	a.run.lastText = "previous text"
+	a.run.finalText = "stale final"
+	a.run.finalPersisted = true
+	stop := hooks.StopCompleted
+	a.applyPostToolHookResult(hooks.Result{Stop: &stop})
+
+	if a.run.lastText != "" {
+		t.Fatalf("lastText = %q, want cleared", a.run.lastText)
+	}
+	if a.run.finalText != "" {
+		t.Fatalf("finalText = %q, want cleared", a.run.finalText)
+	}
+	if a.run.finalPersisted {
+		t.Fatal("finalPersisted = true, want false")
 	}
 }
 

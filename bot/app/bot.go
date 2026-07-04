@@ -11,6 +11,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/hooks"
+	"nekocode/bot/hooks/builtin"
 	"nekocode/bot/index/projectctx"
 	"nekocode/bot/index/projecttool"
 	"nekocode/bot/index/service"
@@ -124,7 +125,7 @@ func (b *Bot) initToolRegistry() {
 
 func (b *Bot) initHooks() {
 	b.hookReg = hooks.NewRegistry()
-	hooks.RegisterBuiltin(b.hookReg)
+	builtin.Register(b.hookReg)
 }
 
 func (b *Bot) initAgent() {

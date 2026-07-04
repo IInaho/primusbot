@@ -44,3 +44,18 @@ func TestCanonicalQueryEscapesSpacesAsPercent20(t *testing.T) {
 		t.Fatalf("canonical query did not escape space as %%20: %q", req.String())
 	}
 }
+
+func TestJimengEndpointNormalizesBaseURL(t *testing.T) {
+	query := url.Values{}
+	query.Set("Action", "CVSync2AsyncSubmitTask")
+	query.Set("Version", "2022-08-31")
+
+	got, err := jimengEndpoint("https://visual.volcengineapi.com/", query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://visual.volcengineapi.com?Action=CVSync2AsyncSubmitTask&Version=2022-08-31"
+	if got != want {
+		t.Fatalf("endpoint = %q, want %q", got, want)
+	}
+}

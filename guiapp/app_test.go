@@ -32,3 +32,20 @@ func TestCompactConfirmArgsEditUsesV2Fields(t *testing.T) {
 		t.Fatalf("oldString was not truncated: len=%d value=%q", len(old), old)
 	}
 }
+
+func TestReplyConfirmDecisionPreApprovesEscalation(t *testing.T) {
+	app := NewApp()
+	req := common.NewConfirmRequest("bash", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
+	req.CanEscalatePermission = true
+
+	app.confirmMu.Lock()
+	app.confs["confirm-1"] = req
+	app.confirmMu.Unlock()
+
+	app.ReplyConfirmDecision("confirm-1", true, true)
+
+	reply := <-req.Response
+	if !reply.Allowed || !reply.Remember || !reply.AllowWithPermission {
+		t.Fatalf("reply = %+v, want allowed+remember+permission", reply)
+	}
+}

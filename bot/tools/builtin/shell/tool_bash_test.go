@@ -2,6 +2,9 @@ package shell
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
@@ -16,7 +19,7 @@ func TestBashTool(t *testing.T) {
 			t.Fatalf("bash: %v", err)
 		}
 		out, err = b.ExecuteWithPermission(context.Background(), map[string]any{"command": "echo hello"}, core.PermissionRequest{
-			Capabilities: []string{"process.host"},
+			Capabilities: []string{core.CapProcessHost},
 		})
 		if err != nil {
 			t.Fatalf("privileged bash: %v", err)
@@ -30,69 +33,89 @@ func TestBashTool(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for missing command")
 	}
+}
 
-	// stripHeredocBodies unit tests
-	if got := stripHeredocBodies("cat > /tmp/x << 'EOF'\ncode\nEOF"); got != "cat > /tmp/x " {
-		t.Errorf("stripHeredocBodies = %q, want %q", got, "cat > /tmp/x ")
-	}
-	if got := stripHeredocBodies("ls -la"); got != "ls -la" {
-		t.Errorf("stripHeredocBodies = %q, want %q", got, "ls -la")
-	}
+func TestBashToolHostExecutionWritesOutsideWorkspace(t *testing.T) {
+	b := &BashTool{}
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	t.Chdir(workspace)
 
-	// hasWriteRedirection unit tests
-	if !hasWriteRedirection("cat > /tmp/x") {
-		t.Error("cat > /tmp/x should have write redirection")
+	target := filepath.Join(outside, "host-write.txt")
+	_, err := b.ExecuteWithPermission(context.Background(), map[string]any{
+		"command": "printf host > " + shellQuote(target),
+	}, core.PermissionRequest{
+		Capabilities: []string{core.CapProcessHost},
+	})
+	if err != nil {
+		t.Fatalf("privileged bash: %v", err)
 	}
-	if hasWriteRedirection("cat /tmp/x") {
-		t.Error("cat /tmp/x should not have write redirection")
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read host-written file: %v", err)
 	}
-	if hasWriteRedirection("echo > /dev/null") {
-		t.Error("echo > /dev/null should not have write redirection")
+	if string(got) != "host" {
+		t.Fatalf("host-written file = %q, want host", got)
 	}
-	if !hasWriteRedirection("cat >> /tmp/x") {
-		t.Error("cat >> /tmp/x (append) should have write redirection")
-	}
-	if hasWriteRedirection("echo hello") {
-		t.Error("echo hello should not have write redirection")
-	}
-	// Bare > inside a quoted string must NOT trigger write redirection.
-	if hasWriteRedirection(`echo "a>b"`) {
-		t.Error(`echo "a>b" should not have write redirection (bare > inside quoted string)`)
-	}
-	// Bare > inside a heredoc delimiter area should NOT trigger (strip happens first).
-	if hasWriteRedirection(`sort file`) {
-		t.Error("sort file should not have write redirection")
-	}
+}
 
-	// " > " inside a quoted string must NOT trigger write redirection.
-	if hasWriteRedirection(`echo "foo > bar"`) {
-		t.Error(`echo "foo > bar" should not have write redirection ( > inside double quotes)`)
-	}
-	if hasWriteRedirection(`echo 'foo > bar'`) {
-		t.Error(`echo 'foo > bar' should not have write redirection ( > inside single quotes)`)
-	}
-	// Leading redirect without space: ">file".
-	if !hasWriteRedirection(">file") {
-		t.Error(">file should have write redirection (no space after >)")
-	}
-	// << inside quoted strings should not truncate stripHeredocBodies incorrectly.
-	if got := stripHeredocBodies(`echo "a<<b"`); got != `echo "a<<b"` {
-		t.Errorf(`stripHeredocBodies for echo "a<<b" = %q, want %q`, got, `echo "a<<b"`)
-	}
+func TestBashToolDeclaresNetworkCapability(t *testing.T) {
+	b := &BashTool{}
 
-	// Compact redirect variants (no space between operator and path).
-	if !hasWriteRedirection(`cmd2>/tmp/log`) {
-		t.Error(`cmd2>/tmp/log should have write redirection (compact 2>)`)
+	// Declaring net.outbound without prior authorization should produce a
+	// RequiredPermissionError (not run in sandbox, not run on host).
+	_, err := b.Execute(context.Background(), map[string]any{
+		"command":      "curl https://example.com",
+		"capabilities": []any{"net.outbound"},
+	})
+	if err == nil {
+		t.Fatal("expected RequiredPermissionError for declared capability")
 	}
-	if !hasWriteRedirection(`cmd1>/tmp/log`) {
-		t.Error(`cmd1>/tmp/log should have write redirection (compact 1>)`)
+	permErr, ok := err.(core.PermissionError)
+	if !ok {
+		t.Fatalf("expected PermissionError, got %T: %v", err, err)
 	}
-	if !hasWriteRedirection(`cmd&>/tmp/log`) {
-		t.Error(`cmd&>/tmp/log should have write redirection (compact &>)`)
+	req := permErr.PermissionRequest()
+	if !containsCapability(req.Capabilities, core.CapNetOutbound) {
+		t.Fatalf("expected CapNetOutbound in request, got %v", req.Capabilities)
 	}
-	// Compact redirect with quoted target should not trigger.
-	if hasWriteRedirection(`cmd2>/dev/null`) {
-		t.Error(`cmd2>/dev/null should not have write redirection`)
+	if req.Scope != "project" {
+		t.Fatalf("expected project scope for capability grant, got %q", req.Scope)
 	}
+}
 
+func TestBashToolProcessHostAlwaysOnceScope(t *testing.T) {
+	b := &BashTool{}
+
+	_, err := b.Execute(context.Background(), map[string]any{
+		"command":      "echo hi",
+		"capabilities": []any{"process.host"},
+	})
+	if err == nil {
+		t.Fatal("expected RequiredPermissionError for process.host")
+	}
+	permErr, ok := err.(core.PermissionError)
+	if !ok {
+		t.Fatalf("expected PermissionError, got %T: %v", err, err)
+	}
+	req := permErr.PermissionRequest()
+	if req.Scope != "once" {
+		t.Fatalf("process.host must be scope=once (never persisted), got %q", req.Scope)
+	}
+	if !containsCapability(req.Capabilities, core.CapProcessHost) {
+		t.Fatalf("expected CapProcessHost in request, got %v", req.Capabilities)
+	}
+}
+
+func containsCapability(caps []string, target string) bool {
+	for _, c := range caps {
+		if c == target {
+			return true
+		}
+	}
+	return false
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

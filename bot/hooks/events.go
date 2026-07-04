@@ -55,5 +55,5 @@ type BlockFinal struct {
 type Hook struct {
 	Name  string
 	Point HookPoint
-	On    func(s *Snapshot) *Result
+	On    func(s State) *Result
 }

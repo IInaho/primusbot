@@ -30,7 +30,7 @@ func (g *Manager) RecordToolCall(tc ToolCallInfo, blocked bool, blockText string
 	}
 	g.HookReg.Inc(hooks.StoreToolPrefix + tc.Name)
 	g.HookReg.Inc(hooks.StoreTurnToolCalls)
-	if sem.Mutating {
+	if sem.Mutating && mutationLikelyApplied(tc, blocked) {
 		g.HookReg.Set(hooks.StoreHasEdits, 1)
 		g.HookReg.Set(hooks.PolicyExploreExhausted, 0)
 	}
@@ -38,5 +38,17 @@ func (g *Manager) RecordToolCall(tc ToolCallInfo, blocked bool, blockText string
 		if t, _ := tc.Args["type"].(string); t == "researcher" {
 			g.HookReg.Inc(hooks.StoreToolResearcher)
 		}
+	}
+}
+
+func mutationLikelyApplied(tc ToolCallInfo, blocked bool) bool {
+	if blocked {
+		return false
+	}
+	switch tc.Name {
+	case "write", "edit":
+		return tc.Error == ""
+	default:
+		return true
 	}
 }

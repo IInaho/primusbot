@@ -55,7 +55,7 @@
 
 - **5 个 Hook 点**：PreTurn、PreModelRequest、PreToolUse、PostTool、PostTurn
 - **Hook 能力**：注入 Hint、阻止工具（BlockTool）、要求工具（RequireTool）、阻止最终输出（BlockFinal）
-- **内置 Hook**：12 个（quota / tool_result_guardrail / read_before_write / read_only_spiral / verification / exploration_exhausted / exploration_guard / explore_cascade / progress_stall / completion_quality / garbled_circuit_breaker / final_check）
+- **内置 Hook**：10 个（quota / tool_result_guardrail / read_before_write / read_only_spiral / verification / exploration_exhausted / explore_cascade / progress_stall / garbled_circuit_breaker / final_check）
 - **插件 Hook**：支持从外部插件加载声明式 Hook，支持 shell 命令和 JavaScript 两种执行方式
 
 ### TUI 界面
@@ -264,7 +264,7 @@
 3. **Go 语言实现** — 编译为单一二进制，部署简单，性能优异，内存安全
 4. **架构清晰** — 模块边界明确，依赖关系简洁，易于理解和贡献
 5. **双前端架构** — TUI + GUI 共享 Bot 核心，`bot.UI` / `bot.GUI` 契约解耦
-6. **Hook 系统成熟** — 5 事件点 + 12 内置 Hook + 声明式插件 Hook
+6. **Hook 系统成熟** — 5 事件点 + 10 内置 Hook + 声明式插件 Hook
 7. **纯 Go SQLite** — 零 CGO 依赖，简化交叉编译
 8. **Edit Lint 集成** — Go 文件编辑后自动 gofmt 检查，防止语法错误积累
 9. **品牌一致性** — 独立设计的猫娘主题 logo + 全套平台图标资源（icns/ico/png），GUI/TUI 视觉统一

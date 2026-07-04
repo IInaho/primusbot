@@ -1,6 +1,8 @@
 package policy
 
-import "nekocode/bot/hooks"
+import (
+	"nekocode/bot/hooks"
+)
 
 func (g *Manager) ResetTurnBetween(input string, quota QuotaData) {
 	if g.HookReg == nil {
@@ -19,35 +21,11 @@ func (g *Manager) SyncLedgerToHooks() {
 		return
 	}
 	snap := g.Ledger.Snapshot()
-	g.HookReg.Set(hooks.StoreLedgerModified, int64(len(snap.ModifiedFiles)))
-	verified := int64(0)
-	if snap.HasPassingVerification() {
-		verified = 1
-	}
-	g.HookReg.Set(hooks.StoreLedgerVerified, verified)
-	g.HookReg.Set(hooks.StoreLedgerErrors, int64(len(snap.ToolErrors)))
-	g.HookReg.Set(hooks.StoreLedgerBlocked, int64(len(snap.BlockedTools)))
-	nonDoc := int64(0)
-	if snap.HasNonDocumentationModifications() {
-		nonDoc = 1
-	}
-	g.HookReg.Set(hooks.StoreLedgerNonDocModified, nonDoc)
-
-	curReads := len(snap.ReadFiles)
-	curModifies := len(snap.ModifiedFiles)
-	curVerifications := len(snap.Verifications)
-	newReads := curReads - g.prevReads
-	newModifies := curModifies - g.prevModifies
-	newVerifications := curVerifications - g.prevVerifications
-
-	if newReads > 0 || newModifies > 0 || newVerifications > 0 {
+	if len(snap.ReadFiles) > 0 || len(snap.ModifiedFiles) > 0 || len(snap.Verifications) > 0 {
 		g.HookReg.Set(hooks.StoreLedgerProgress, 1)
 	} else {
 		g.HookReg.Set(hooks.StoreLedgerProgress, 0)
 	}
-	g.prevReads = curReads
-	g.prevModifies = curModifies
-	g.prevVerifications = curVerifications
 }
 
 func (g *Manager) Reset() {
@@ -60,7 +38,4 @@ func (g *Manager) Reset() {
 	if g.HookReg != nil {
 		g.HookReg.ResetSession()
 	}
-	g.prevReads = 0
-	g.prevModifies = 0
-	g.prevVerifications = 0
 }

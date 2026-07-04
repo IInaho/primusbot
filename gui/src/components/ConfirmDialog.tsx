@@ -24,11 +24,12 @@ function ConfirmDialog({
   // remembered as an allow rule by the rule engine.
   const canRemember = permissionScope(entry) !== 'once'
 
-  const options: { label: string; ok: boolean; remember: boolean }[] = [
-    { label: '仅本次允许', ok: true, remember: false },
+  const allowWithPermission = entry.can_escalate === true
+  const options: { label: string; ok: boolean; remember: boolean; allowWithPermission?: boolean }[] = [
+    { label: allowWithPermission ? '仅本次允许并授权' : '仅本次允许', ok: true, remember: false, allowWithPermission },
   ]
   if (canRemember) {
-    options.push({ label: '始终允许', ok: true, remember: true })
+    options.push({ label: allowWithPermission ? '始终允许并授权' : '始终允许', ok: true, remember: true, allowWithPermission })
   }
   options.push({ label: '拒绝', ok: false, remember: false })
 
@@ -45,7 +46,7 @@ function ConfirmDialog({
       } else if (e.key === 'Enter') {
         e.preventDefault()
         const opt = options[selected]
-        safeReplyConfirm(entry.id, opt.ok, opt.remember)
+        safeReplyConfirm(entry.id, opt.ok, opt.remember, opt.allowWithPermission === true)
         onDone()
       } else if (e.key === 'Escape') {
         e.preventDefault()
@@ -58,7 +59,7 @@ function ConfirmDialog({
   }, [selected, options.length])
 
   const handle = (ok: boolean, remember = false) => {
-    safeReplyConfirm(entry.id, ok, remember)
+    safeReplyConfirm(entry.id, ok, remember, ok && allowWithPermission)
     onDone()
   }
 
@@ -274,6 +275,7 @@ function subjectFor(entry: ConfirmEntry): string {
 }
 
 function footerCopy(entry: ConfirmEntry): string {
+  if (entry.can_escalate && isPermissionConfirm(entry)) return permissionScope(entry) === 'project' ? '允许后将同时授权本次需要的网络、缓存或主机执行能力，并可记住到当前项目。' : '允许后将同时授权本次需要的额外执行能力。'
   if (isPermissionConfirm(entry)) return permissionScope(entry) === 'project' ? '可选择仅本次允许，或将同类权限记住到当前项目。' : '此权限请求不会持久化，只能本次允许。'
   if (entry.toolName === 'edit' && entry.args.revert === true) return '上方差异是本次 revert 将恢复的内容。'
   if (entry.toolName === 'edit' && entry.args.replaceAll === true) return 'replaceAll 会替换所有精确匹配，请确认替换范围。'

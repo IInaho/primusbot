@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
@@ -9,9 +10,9 @@ import (
 	"nekocode/common"
 )
 
-func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn common.ConfirmFunc, preApproved bool) (string, bool) {
-	permErr, ok := execErr.(core.PermissionError)
-	if !ok {
+func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn common.ConfirmFunc, preApproved escalationApproval, hasPreApproval bool) (string, bool) {
+	var permErr core.PermissionError
+	if !errors.As(execErr, &permErr) {
 		return "", false
 	}
 	privileged, ok := tool.(core.PrivilegedTool)
@@ -33,8 +34,10 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 	if confirmFn == nil {
 		return "", false
 	}
-	if preApproved {
-		e.rememberPermission(tc.Name, req)
+	if hasPreApproval {
+		if preApproved.remember {
+			e.rememberPermission(tc.Name, req)
+		}
 		output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
 		return output, err == nil
 	}
@@ -73,6 +76,15 @@ func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest
 }
 
 func (e *Executor) rememberPermission(toolName string, req core.PermissionRequest) {
+	// CapProcessHost must never be persisted — every unsandboxed host
+	// execution requires an explicit user prompt, regardless of prior
+	// grants. The store layer also enforces this, but we short-circuit
+	// here to make the architectural intent explicit.
+	for _, cap := range req.Capabilities {
+		if cap == core.CapProcessHost {
+			return
+		}
+	}
 	e.fnMu.RLock()
 	store := e.permStore
 	e.fnMu.RUnlock()

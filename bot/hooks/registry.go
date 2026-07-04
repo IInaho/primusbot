@@ -22,12 +22,29 @@ func (c HookCounts) String() string {
 		c.Evaluations, c.Hints, c.Stops, c.BlockTools, c.RequireTools, c.BlockFinals)
 }
 
+type HookAuditEvent struct {
+	Hook   string
+	Point  HookPoint
+	Action string
+	Detail string
+}
+
+func (e HookAuditEvent) String() string {
+	if e.Detail == "" {
+		return fmt.Sprintf("%s@%s:%s", e.Hook, e.Point, e.Action)
+	}
+	return fmt.Sprintf("%s@%s:%s(%s)", e.Hook, e.Point, e.Action, truncateAuditDetail(e.Detail))
+}
+
+const maxHookAuditEvents = 64
+
 type Registry struct {
 	mu      sync.Mutex
 	hooks   []Hook
 	store   map[string]int64
 	strVals map[string]string
 	counts  HookCounts
+	audit   []HookAuditEvent
 }
 
 func NewRegistry() *Registry {
@@ -45,8 +62,8 @@ func (r *Registry) Register(h Hook) {
 
 func (r *Registry) Evaluate(point HookPoint, tool string, toolError bool, toolArgs ...map[string]any) []Result {
 	hooks, snap := r.evaluationSnapshot(tool, toolError, toolArgs...)
-	results, evaluated := evaluateHooks(hooks, point, snap)
-	r.recordEvaluation(results, evaluated)
+	results, evaluated, audit := evaluateHooks(hooks, point, snap)
+	r.recordEvaluation(results, evaluated, audit)
 	r.applyPatch(snap.patch)
 	return results
 }
@@ -74,8 +91,9 @@ func (r *Registry) evaluationSnapshot(tool string, toolError bool, toolArgs ...m
 	return hooks, snap
 }
 
-func evaluateHooks(hooks []Hook, point HookPoint, snap *Snapshot) ([]Result, int64) {
+func evaluateHooks(hooks []Hook, point HookPoint, snap *Snapshot) ([]Result, int64, []HookAuditEvent) {
 	var results []Result
+	var audit []HookAuditEvent
 	var evaluated int64
 
 	for _, h := range hooks {
@@ -89,10 +107,11 @@ func evaluateHooks(hooks []Hook, point HookPoint, snap *Snapshot) ([]Result, int
 		}
 		applyResultPatch(snap, result.StatePatch)
 		results = append(results, *result)
+		audit = append(audit, hookAuditEvent(h, point, result))
 		logHookResult(h, point, result)
 	}
 
-	return results, evaluated
+	return results, evaluated, audit
 }
 
 func applyResultPatch(snap *Snapshot, patch *StatePatch) {
@@ -122,11 +141,42 @@ func logHookResult(h Hook, point HookPoint, result *Result) {
 	}
 }
 
-func (r *Registry) recordEvaluation(results []Result, evaluated int64) {
+func hookAuditEvent(h Hook, point HookPoint, result *Result) HookAuditEvent {
+	event := HookAuditEvent{Hook: h.Name, Point: point}
+	switch {
+	case result.Stop != nil:
+		event.Action = "stop"
+		event.Detail = result.Stop.String()
+	case result.BlockTool != nil:
+		event.Action = "block_tool"
+		event.Detail = result.BlockTool.Reason
+	case result.RequireTool != nil:
+		event.Action = "require_tool"
+		event.Detail = result.RequireTool.Reason
+	case result.BlockFinal != nil:
+		event.Action = "block_final"
+		event.Detail = result.BlockFinal.Reason
+	case result.Hint != nil:
+		event.Action = "hint"
+		event.Detail = result.Hint.Type
+		if result.Hint.Severity != "" {
+			event.Detail += "/" + result.Hint.Severity
+		}
+	default:
+		event.Action = "state_patch"
+	}
+	return event
+}
+
+func (r *Registry) recordEvaluation(results []Result, evaluated int64, audit []HookAuditEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.counts.Evaluations += evaluated
+	r.audit = append(r.audit, audit...)
+	if len(r.audit) > maxHookAuditEvents {
+		r.audit = append([]HookAuditEvent(nil), r.audit[len(r.audit)-maxHookAuditEvents:]...)
+	}
 	for _, res := range results {
 		if res.Hint != nil {
 			r.counts.Hints++
@@ -168,14 +218,19 @@ func (r *Registry) ResetSession() {
 		delete(r.strVals, k)
 	}
 	r.counts = HookCounts{}
+	r.audit = nil
 }
 
 func (r *Registry) GovernanceStats() string {
 	r.mu.Lock()
 	c := r.counts
+	audit := recentHookAudit(r.audit, 3)
 	r.counts = HookCounts{}
 	r.mu.Unlock()
-	return " | " + c.String()
+	if len(audit) == 0 {
+		return " | " + c.String()
+	}
+	return " | " + c.String() + " | recent hooks: " + formatHookAudit(audit)
 }
 
 func (r *Registry) HookCountsSnapshot() HookCounts {
@@ -184,20 +239,63 @@ func (r *Registry) HookCountsSnapshot() HookCounts {
 	return r.counts
 }
 
+func (r *Registry) HookAuditSnapshot() []HookAuditEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]HookAuditEvent, len(r.audit))
+	copy(out, r.audit)
+	return out
+}
+
+func recentHookAudit(events []HookAuditEvent, n int) []HookAuditEvent {
+	if len(events) <= n {
+		out := make([]HookAuditEvent, len(events))
+		copy(out, events)
+		return out
+	}
+	out := make([]HookAuditEvent, n)
+	copy(out, events[len(events)-n:])
+	return out
+}
+
+func formatHookAudit(events []HookAuditEvent) string {
+	parts := make([]string, 0, len(events))
+	for _, event := range events {
+		parts = append(parts, event.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+func truncateAuditDetail(s string) string {
+	const max = 80
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len([]rune(s)) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max]) + "..."
+}
+
 func (r *Registry) ResetTurn() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k := range r.store {
-		if strings.HasPrefix(k, "gauge:") || strings.HasPrefix(k, "value:") || strings.HasPrefix(k, "turn:") ||
-			strings.HasPrefix(k, "flag:") {
+		if isTurnScopedKey(k) {
 			delete(r.store, k)
 		}
 	}
 	for k := range r.strVals {
-		if strings.HasPrefix(k, "value:") || strings.HasPrefix(k, "turn:") {
+		if strings.HasPrefix(k, KeyPrefixValue) || strings.HasPrefix(k, KeyPrefixTurn) {
 			delete(r.strVals, k)
 		}
 	}
+}
+
+func isTurnScopedKey(k string) bool {
+	return strings.HasPrefix(k, KeyPrefixGauge) ||
+		strings.HasPrefix(k, KeyPrefixValue) ||
+		strings.HasPrefix(k, KeyPrefixTurn) ||
+		strings.HasPrefix(k, KeyPrefixFlag)
 }
 
 func (r *Registry) Set(k string, v int64) {

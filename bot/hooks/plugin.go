@@ -18,16 +18,16 @@ func adaptPluginHook(h hookplugin.Hook) Hook {
 	return Hook{
 		Name:  h.Name,
 		Point: HookPoint(h.Point),
-		On: func(s *Snapshot) *Result {
+		On: func(s State) *Result {
 			if h.Once {
-				if s.flag(StoreSessionStarted) {
+				if s.Flag(StoreSessionStarted) {
 					return nil
 				}
-				s.set(StoreSessionStarted, 1)
+				s.Set(StoreSessionStarted, 1)
 			}
 			return adaptPluginResult(h.On(hookplugin.Event{
-				Tool:  s.Tool,
-				Error: s.Error,
+				Tool:  s.ToolName(),
+				Error: s.ToolError(),
 			}))
 		},
 	}

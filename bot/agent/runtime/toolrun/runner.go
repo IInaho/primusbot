@@ -21,7 +21,7 @@ type Host interface {
 	SubSlots() *SlotManager
 	InjectHint(*hooks.Hint)
 	IncStep()
-	StopPostTool(hooks.StopReason)
+	ApplyPostToolHookResult(hooks.Result) (stop bool)
 }
 
 type Runner struct {
@@ -30,13 +30,6 @@ type Runner struct {
 
 func New(host Host) *Runner {
 	return &Runner{host: host}
-}
-
-func policyRequireTool(tool, reason string) string {
-	if tool != "" {
-		return "必须先调用 " + tool + "：" + reason
-	}
-	return reason
 }
 
 func (r *Runner) ExecuteAndFeedback(calls []core.ToolCallItem, textContent string, quota *budget.ToolQuota, callback Callback) bool {
@@ -72,21 +65,9 @@ func (r *Runner) ApplyPostToolHooks() bool {
 		return false
 	}
 	for _, result := range gov.HookReg.Evaluate(hooks.PostTool, "", false) {
-		if result.Stop != nil {
-			r.host.StopPostTool(*result.Stop)
+		if r.host.ApplyPostToolHookResult(result) {
 			return true
 		}
-		if result.RequireTool != nil {
-			r.host.InjectHint(&hooks.Hint{
-				Type:     "require_tool",
-				Severity: "critical",
-				Content:  policyRequireTool(result.RequireTool.Tool, result.RequireTool.Reason),
-			})
-		}
-		if result.BlockFinal != nil {
-			r.host.InjectHint(&hooks.Hint{Type: "block_final", Severity: "critical", Content: result.BlockFinal.Reason})
-		}
-		r.host.InjectHint(result.Hint)
 	}
 	return false
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nekocode/bot/llm/types"
+	"nekocode/common"
 )
 
 type Client struct {
@@ -204,13 +205,18 @@ func (c *Client) buildRequest(messages []types.Message, tools []types.ToolDef, s
 func (c *Client) headers() map[string]string {
 	return map[string]string{
 		"x-api-key":         c.APIKey,
+		"Authorization":     "Bearer " + c.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
 }
 
+func (c *Client) endpoint(path string) string {
+	return common.JoinURLPathWithVersion(c.BaseURL, "v1", path)
+}
+
 // newStreamRequest creates an *http.Request for streaming, reusing pre-marshaled body.
 func (c *Client) newStreamRequest(ctx context.Context, jsonBody []byte) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/messages", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("messages"), bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +229,7 @@ func (c *Client) newStreamRequest(ctx context.Context, jsonBody []byte) (*http.R
 
 func (c *Client) Chat(ctx context.Context, messages []types.Message, tools []types.ToolDef) (*types.Response, error) {
 	body := c.buildRequest(messages, tools, false)
-	data, err := types.DoJSONRequest(ctx, c.BaseURL+"/messages", c.headers(), body)
+	data, err := types.DoJSONRequest(ctx, c.endpoint("messages"), c.headers(), body)
 	if err != nil {
 		return nil, err
 	}

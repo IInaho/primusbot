@@ -60,6 +60,7 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
   const pluginSkillCount = skills.filter((skill) => skill.sourceKind === 'plugin').length
   const localSkillCount = skills.filter((skill) => skill.sourceKind === 'local').length
   const enabledPluginCount = plugins.filter((plugin) => plugin.enabled).length
+  const readyMcpCount = mcpServers.filter((srv) => srv.status === 'ready').length
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -153,17 +154,20 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
         className="flex h-full w-full max-w-[980px] flex-col border-l border-border/70 bg-surface-2 surface-shadow animate-slide-in"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="flex min-h-[56px] items-center gap-3 border-b border-border/60 px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
+        <header className="flex min-h-[62px] items-center gap-3 border-b border-border/60 px-5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
             <SparkIcon />
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-semibold leading-tight text-text">技能管理</h2>
-            <p className="mt-0.5 truncate text-[11px] text-text-3">
-              {skills.length ? `${skills.length} skills · ${plugins.length} plugins · ${mcpServers.length} MCP` : '读取可用资源...'}
-            </p>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+              <HeaderStat label="技能" value={skills.length} />
+              <HeaderStat label="已加载" value={loadedCount} />
+              <HeaderStat label="插件" value={`${enabledPluginCount}/${plugins.length}`} />
+              <HeaderStat label="MCP" value={`${readyMcpCount}/${mcpServers.length}`} />
+            </div>
           </div>
-          <button className="secondary-button gap-1.5" type="button" disabled={refreshing || loading} onClick={refresh}>
+          <button className="secondary-button gap-1.5" type="button" disabled={refreshing || loading} onClick={refresh} title="重新扫描技能、插件和 MCP">
             <RefreshIcon spinning={refreshing} />
             刷新
           </button>
@@ -172,14 +176,14 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
           </button>
         </header>
 
-        <nav className="flex gap-1 border-b border-border/60 px-5 py-2">
+        <nav className="flex gap-1 border-b border-border/60 bg-surface/45 px-5 py-2">
           {tabOptions.map((option) => (
             <button
               key={option.value}
               type="button"
               className={cn(
                 'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-all active:scale-95',
-                tab === option.value ? 'bg-primary text-black' : 'bg-surface-3 text-text-2 hover:text-text',
+                tab === option.value ? 'bg-primary text-black shadow-sm' : 'bg-surface-3/70 text-text-2 hover:bg-surface-3 hover:text-text',
               )}
               onClick={() => setTab(option.value)}
             >
@@ -230,9 +234,9 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
           )}
         </div>
 
-        <footer className="flex min-h-[48px] items-center border-t border-border/60 px-5">
+        <footer className="flex min-h-[48px] items-center border-t border-border/60 bg-surface/35 px-5">
           <div className="min-w-0 flex-1 text-xs">
-            {error ? <span className="text-danger">{error}</span> : <span className="text-text-3">Skill 内容由 agent 按需加载；这里管理可见性和来源状态。</span>}
+            {error ? <span className="text-danger">{error}</span> : <span className="text-text-3">管理技能、插件和 MCP 来源。</span>}
           </div>
         </footer>
       </aside>
@@ -268,6 +272,11 @@ function SkillsView(props: {
   const enabledPlugins = plugins.filter((p) => p.enabled)
   const builtinSkills = filteredSkills.filter((s) => s.sourceKind === 'builtin')
   const localSkills = filteredSkills.filter((s) => s.sourceKind === 'local')
+  const groupCount = [
+    builtinSkills.length,
+    localSkills.length,
+    ...enabledPlugins.map((plugin) => pluginSkillsCount(filteredSkills, plugin.name)),
+  ].filter((count) => count > 0).length
   const pluginSkillsByPlugin = useMemo(() => {
     const map = new Map<string, SkillView[]>()
     for (const s of filteredSkills) {
@@ -316,8 +325,8 @@ function SkillsView(props: {
           </div>
         </div>
 
-        <ResultStrip shown={filteredSkills.length} total={metrics.total} query={query} onClear={() => setQuery('')} />
-        <div className="max-h-[58vh] overflow-y-auto">
+        <ResultStrip shown={filteredSkills.length} total={metrics.total} query={query} extra={groupCount > 0 ? `${groupCount} 组` : ''} onClear={() => setQuery('')} />
+        <div className="max-h-[58vh] overflow-y-auto scrollbar-gutter-stable">
           {builtinSkills.length > 0 && <SkillGroup title="内置" skills={builtinSkills} />}
           {localSkills.length > 0 && <SkillGroup title="本地技能（独立安装）" skills={localSkills} />}
           {enabledPlugins.map((plugin) => {
@@ -332,9 +341,7 @@ function SkillsView(props: {
               />
             )
           })}
-          {filteredSkills.length === 0 && (
-            <div className="px-4 py-10 text-center text-xs text-text-3">没有匹配的 skill</div>
-          )}
+          {filteredSkills.length === 0 && <EmptyRows title="没有匹配的 skill" detail="换个关键词或清除搜索条件。" onClear={() => setQuery('')} />}
         </div>
       </section>
     </div>
@@ -345,7 +352,7 @@ function SkillGroup(props: { title: string; subtitle?: string; skills: SkillView
   const { title, subtitle, skills } = props
   return (
     <div className="border-b border-border/40 last:border-b-0">
-      <div className="sticky top-0 z-10 flex items-center gap-2 bg-surface-2/95 px-3 py-1.5 backdrop-blur">
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/25 bg-surface-2/95 px-3 py-1.5 backdrop-blur">
         <span className="text-[11px] font-semibold text-text-2">{title}</span>
         {subtitle && <span className="text-[10px] text-text-3">{subtitle}</span>}
         <span className="h-px flex-1 bg-border/40" />
@@ -362,10 +369,10 @@ function SkillRow({ skill }: { skill: SkillView }) {
   const [expanded, setExpanded] = useState(false)
   const files = skill.files ?? []
   return (
-    <div className="border-b border-border/30 last:border-b-0">
+    <div className={cn('border-b border-border/30 last:border-b-0', expanded && 'bg-surface-3/30')}>
       <button
         type="button"
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-3/70 active:scale-[0.997]"
+        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-3/60 active:scale-[0.997]"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
@@ -378,28 +385,27 @@ function SkillRow({ skill }: { skill: SkillView }) {
             {skill.loaded && <span className="rounded-sm bg-success/12 px-1.5 py-0.5 text-[10px] text-success">已加载</span>}
           </span>
         </span>
-        <SourcePill skill={skill} />
+        <span className="flex shrink-0 items-center gap-1.5">
+          <SourcePill skill={skill} />
+          {files.length > 0 && <span className="rounded-sm bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-3">{files.length} 个文件</span>}
+        </span>
       </button>
       {expanded && (
-        <div className="space-y-2 bg-surface-3/40 px-3 py-2.5 text-[11px]">
-          <div>
-            <span className="font-medium text-text-3">说明：</span>
-            <span className="break-words text-text-2">{skill.description || '暂无描述'}</span>
+        <div className="ml-8 mr-3 mb-3 grid gap-2 rounded-md border border-border/35 bg-surface/80 px-3 py-2.5 text-[11px] md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="min-w-0 space-y-2">
+            <KeyValue label="说明" value={skill.description || '暂无描述'} />
+            <KeyValue label="路径" value={skill.dir || '内置 skill'} mono />
           </div>
-          <div>
-            <span className="font-medium text-text-3">路径：</span>
-            <span className="break-all font-mono text-text-2">{skill.dir || '内置 skill'}</span>
-          </div>
-          <div>
-            <span className="font-medium text-text-3">附带文件：</span>
+          <div className="min-w-0">
+            <div className="mb-1 font-medium text-text-3">附带文件</div>
             {files.length > 0 ? (
-              <div className="mt-1 max-h-28 overflow-y-auto rounded-md bg-surface-3/70 px-2 py-1.5">
+              <div className="max-h-28 overflow-y-auto rounded-md bg-surface-3/70 px-2 py-1.5">
                 {files.map((file) => (
                   <div key={file} className="truncate font-mono text-text-2">{file}</div>
                 ))}
               </div>
             ) : (
-              <span className="text-text-3">无额外文件</span>
+              <div className="rounded-md bg-surface-3/45 px-2 py-1.5 text-text-3">无额外文件</div>
             )}
           </div>
         </div>
@@ -448,12 +454,12 @@ function PluginsView(props: {
             onChange={(value) => setFilter(value as PluginFilter)}
           />
         </div>
-        <ResultStrip shown={plugins.length} total={totalCount} query={query} onClear={() => setQuery('')} />
+        <ResultStrip shown={plugins.length} total={totalCount} query={query} extra={`${enabledCount} 已启用`} onClear={() => setQuery('')} />
         <div className="divide-y divide-border/40">
           {plugins.map((plugin) => (
             <PluginRow key={plugin.name} plugin={plugin} mutating={mutating} onToggle={onToggle} />
           ))}
-          {plugins.length === 0 && <div className="px-4 py-8 text-center text-xs text-text-3">没有匹配的插件</div>}
+          {plugins.length === 0 && <EmptyRows title="没有匹配的插件" detail="清除搜索或切换启用状态过滤。" onClear={() => setQuery('')} />}
         </div>
       </section>
     </div>
@@ -466,7 +472,7 @@ function PluginRow(props: { plugin: PluginView; mutating: string; onToggle: (plu
   const badges = bundleBadges(p)
   const hasBundle = badges.length > 0
   return (
-    <div className="px-4 py-3">
+    <div className={cn('px-4 py-3 transition-colors hover:bg-surface-3/35', !p.enabled && 'opacity-75')}>
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -486,7 +492,7 @@ function PluginRow(props: { plugin: PluginView; mutating: string; onToggle: (plu
             {p.version && <span className="text-[10px] text-text-3">v{p.version}</span>}
             {!p.enabled && <span className="rounded-sm bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-3">已停用</span>}
           </div>
-          <p className="mt-1 line-clamp-1 text-[11px] text-text-3">{p.description || p.dir || '暂无插件描述'}</p>
+          <p className="mt-1 truncate font-mono text-[10.5px] text-text-3">{p.dir || p.description || '无路径信息'}</p>
           {hasBundle && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {badges.map((b) => (
@@ -498,13 +504,15 @@ function PluginRow(props: { plugin: PluginView; mutating: string; onToggle: (plu
         <button
           type="button"
           className={cn(
-            'inline-flex h-8 w-[86px] items-center justify-center rounded-md text-xs font-semibold transition-all active:scale-95 disabled:opacity-50',
-            p.enabled ? 'bg-success/15 text-success hover:bg-success/20' : 'bg-surface-3 text-text-2 hover:text-text',
+            'inline-flex h-8 w-[92px] items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-all active:scale-95 disabled:opacity-50',
+            p.enabled ? 'border-success/30 bg-success/12 text-success hover:bg-success/18' : 'border-border/60 bg-surface-3 text-text-2 hover:text-text',
           )}
           disabled={mutating === p.name}
           onClick={() => onToggle(p)}
+          aria-pressed={p.enabled}
         >
-          {mutating === p.name ? '处理中' : p.enabled ? '已启用' : '已停用'}
+          <ToggleDot on={p.enabled} busy={mutating === p.name} />
+          {mutating === p.name ? '处理中' : p.enabled ? '启用' : '停用'}
         </button>
       </div>
       {expanded && hasBundle && (
@@ -576,9 +584,10 @@ function McpView(props: {
       <section className="flex flex-col gap-2 rounded-md border border-border/50 bg-surface px-4 py-3 md:flex-row md:items-center">
         <div className="min-w-0 flex-1">
           <h3 className="text-xs font-semibold text-text">运行态 MCP 服务</h3>
-          <p className="mt-1 text-[11px] text-text-3">这里显示当前已发现的插件服务和配置服务；新增、修改命令或环境变量请进入配置。</p>
+          <p className="mt-1 text-[11px] text-text-3">插件服务和配置服务。</p>
         </div>
-        <button type="button" className="primary-button" onClick={onConfigure}>
+        <button type="button" className="primary-button gap-1.5" onClick={onConfigure}>
+          <GearIcon />
           配置 MCP 服务
         </button>
       </section>
@@ -605,12 +614,12 @@ function McpView(props: {
             onChange={(value) => setFilter(value as McpFilter)}
           />
         </div>
-        <ResultStrip shown={servers.length} total={allServers.length} query={query} onClear={() => setQuery('')} />
+        <ResultStrip shown={servers.length} total={allServers.length} query={query} extra={`${readyCount} 可用`} onClear={() => setQuery('')} />
         <div className="divide-y divide-border/40">
           {servers.map((srv) => (
             <McpRow key={`${srv.plugin}/${srv.name}`} server={srv} />
           ))}
-          {servers.length === 0 && <div className="px-4 py-8 text-center text-xs text-text-3">没有匹配的 MCP server</div>}
+          {servers.length === 0 && <EmptyRows title="没有匹配的 MCP server" detail="清除搜索或切换来源过滤。" onClear={() => setQuery('')} />}
         </div>
       </section>
     </div>
@@ -620,7 +629,7 @@ function McpView(props: {
 function McpRow({ server }: { server: MCPServerView }) {
   const cmd = [server.command, ...(server.args ?? [])].join(' ')
   return (
-    <div className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+    <div className="grid gap-2 px-4 py-3 transition-colors hover:bg-surface-3/35 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="truncate text-xs font-semibold text-text">{server.name}</span>
@@ -667,19 +676,23 @@ function Metric({ label, value, tone }: { label: string; value: number | string;
     warning: 'text-warning bg-warning/10',
   }[tone]
   return (
-    <div className="rounded-md border border-border/50 bg-surface px-3 py-2.5">
-      <div className={cn('mb-2 inline-flex rounded-sm px-1.5 py-0.5 text-[10px]', toneClass)}>{label}</div>
-      <div className="text-xl font-semibold leading-none text-text">{value}</div>
+    <div className="rounded-md border border-border/50 bg-surface px-3 py-2.5 transition-colors hover:border-border">
+      <div className="flex items-center justify-between gap-2">
+        <div className={cn('inline-flex rounded-sm px-1.5 py-0.5 text-[10px]', toneClass)}>{label}</div>
+        <span className={cn('h-1.5 w-1.5 rounded-full', toneClass)} />
+      </div>
+      <div className="mt-2 text-xl font-semibold leading-none text-text">{value}</div>
     </div>
   )
 }
 
-function ResultStrip({ shown, total, query, onClear }: { shown: number; total: number; query: string; onClear: () => void }) {
+function ResultStrip({ shown, total, query, extra, onClear }: { shown: number; total: number; query: string; extra?: string; onClear: () => void }) {
   const hasQuery = query.trim().length > 0
   return (
     <div className="flex min-h-8 items-center gap-2 border-b border-border/40 px-3 text-[11px] text-text-3">
       <span className="min-w-0 flex-1 truncate">
         显示 {shown} / {total}
+        {extra ? ` · ${extra}` : ''}
         {hasQuery ? ` · 搜索 "${query.trim()}"` : ''}
       </span>
       {hasQuery && (
@@ -689,6 +702,57 @@ function ResultStrip({ shown, total, query, onClear }: { shown: number; total: n
       )}
     </div>
   )
+}
+
+function HeaderStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <span className="status-pill">
+      <span className="mr-1 text-text-2">{value}</span>
+      {label}
+    </span>
+  )
+}
+
+function EmptyRows({ title, detail, onClear }: { title: string; detail: string; onClear: () => void }) {
+  return (
+    <div className="px-4 py-10 text-center">
+      <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-surface-3 text-text-3">
+        <SearchEmptyIcon />
+      </div>
+      <div className="text-xs font-semibold text-text-2">{title}</div>
+      <div className="mt-1 text-[11px] text-text-3">{detail}</div>
+      <button type="button" className="secondary-button mt-3 h-7 px-2.5" onClick={onClear}>
+        清除搜索
+      </button>
+    </div>
+  )
+}
+
+function KeyValue({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-0.5 font-medium text-text-3">{label}</div>
+      <div className={cn('break-words text-text-2', mono && 'break-all font-mono')}>{value}</div>
+    </div>
+  )
+}
+
+function ToggleDot({ on, busy }: { on: boolean; busy: boolean }) {
+  return (
+    <span className={cn('relative h-3.5 w-6 rounded-full transition-colors', on ? 'bg-success/35' : 'bg-border')}>
+      <span
+        className={cn(
+          'absolute top-0.5 h-2.5 w-2.5 rounded-full bg-current transition-transform',
+          on ? 'translate-x-3 text-success' : 'translate-x-0.5 text-text-3',
+          busy && 'animate-pulse-soft',
+        )}
+      />
+    </span>
+  )
+}
+
+function pluginSkillsCount(skills: SkillView[], pluginName: string): number {
+  return skills.filter((skill) => skill.sourceKind === 'plugin' && skill.plugin === pluginName).length
 }
 
 function SegmentedFilter({
@@ -739,6 +803,26 @@ function SearchIcon() {
     <svg className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-3" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
+    </svg>
+  )
+}
+
+function SearchEmptyIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+      <path d="m8.5 8.5 5 5" />
+      <path d="m13.5 8.5-5 5" />
+    </svg>
+  )
+}
+
+function GearIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1A1.7 1.7 0 0 0 21 10h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z" />
     </svg>
   )
 }

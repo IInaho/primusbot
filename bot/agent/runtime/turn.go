@@ -94,7 +94,7 @@ func (r *turnRunner) handleText(reasoning *ReasoningResult, callback RunCallback
 		if a.run.consecutiveFailures >= maxConsecutiveFailures {
 			a.run.step++
 			a.run.stopReason = hooks.StopCompleted
-			a.run.lastText = ""
+			a.clearFinalState()
 			return true
 		}
 	} else {
@@ -102,8 +102,8 @@ func (r *turnRunner) handleText(reasoning *ReasoningResult, callback RunCallback
 	}
 
 	recordable := isRecordableText(reasoning)
-	if r.applyPostTurnHooks(reasoning, recordable, callback) {
-		return a.run.stopReason == hooks.StopCompleted || a.run.stopReason == hooks.StopInterrupted || a.run.stopReason == hooks.StopFormatError
+	if handled, finished := r.applyPostTurnHooks(reasoning, recordable, callback); handled {
+		return finished
 	}
 
 	r.completeWithText(reasoning, recordable, callback)
@@ -131,43 +131,46 @@ func (r *turnRunner) recordReasoningText(reasoning *ReasoningResult, recordable 
 		a.deps.ctxMgr.AddAssistantResponse(reasoning.ActionInput, a.stream.lastReason)
 		a.run.finalText = reasoning.ActionInput
 		a.run.finalPersisted = true
+	} else {
+		a.run.finalText = ""
+		a.run.finalPersisted = false
 	}
 }
 
-func (r *turnRunner) applyPostTurnHooks(reasoning *ReasoningResult, recordable bool, callback RunCallback) bool {
+func (r *turnRunner) applyPostTurnHooks(reasoning *ReasoningResult, recordable bool, callback RunCallback) (handled, finished bool) {
 	a := r.agent
 	if a.deps.gov == nil || a.deps.gov.HookReg == nil {
-		return false
+		return false, false
 	}
 	if reasoning.GarbledToolCall {
 		a.deps.gov.HookReg.Inc(hooks.StoreRespGarbled)
 	}
-	// Expose the final-answer text to PostTurn hooks (esp. final_check).
+	// Expose the final-answer intent to PostTurn hooks.
 	// Only recordable text (non-error, non-garbled chat) is governed.
 	if recordable {
-		a.deps.gov.HookReg.SetStr(hooks.StoreFinalAnswerText, reasoning.ActionInput)
+		a.deps.gov.HookReg.SetStr(hooks.StoreFinalIntent, hooks.FinalIntentFinal)
 	} else {
-		a.deps.gov.HookReg.SetStr(hooks.StoreFinalAnswerText, "")
+		a.deps.gov.HookReg.SetStr(hooks.StoreFinalIntent, finalIntentForReasoning(reasoning))
 	}
 
 	for _, result := range a.deps.gov.HookReg.Evaluate(hooks.PostTurn, "", false) {
-		if result.Stop != nil {
-			a.run.stopReason = *result.Stop
-			r.recordReasoningText(reasoning, recordable)
-			return true
-		}
-		if result.BlockFinal != nil {
-			return r.applyFinalPolicyBlock(reasoning, result.BlockFinal.Reason)
-		}
-		if result.RequireTool != nil {
-			reason := policyRequireTool(result.RequireTool.Tool, result.RequireTool.Reason)
-			return r.applyFinalPolicyBlock(reasoning, reason)
-		}
-		if result.Hint != nil {
-			return r.applyPostTurnHint(reasoning, result.Hint, recordable, callback)
+		handled, finished := r.applyPostTurnHookResult(result, reasoning, recordable, callback)
+		if handled {
+			return true, finished
 		}
 	}
-	return false
+	return false, false
+}
+
+func finalIntentForReasoning(reasoning *ReasoningResult) string {
+	switch {
+	case reasoning.IsError:
+		return hooks.FinalIntentError
+	case reasoning.GarbledToolCall:
+		return hooks.FinalIntentFormatError
+	default:
+		return hooks.FinalIntentNonFinal
+	}
 }
 
 func (r *turnRunner) applyPostTurnHint(reasoning *ReasoningResult, hint *hooks.Hint, recordable bool, callback RunCallback) bool {
@@ -177,8 +180,7 @@ func (r *turnRunner) applyPostTurnHint(reasoning *ReasoningResult, hint *hooks.H
 		a.run.step++
 		a.run.stopReason = hooks.StopCompleted
 		if reasoning.IsError || reasoning.GarbledToolCall {
-			a.run.lastText = ""
-			a.run.finalText = ""
+			a.clearFinalState()
 		} else {
 			r.recordReasoningText(reasoning, recordable)
 		}
@@ -192,7 +194,7 @@ func (r *turnRunner) applyPostTurnHint(reasoning *ReasoningResult, hint *hooks.H
 	}
 	a.injectHint(hint)
 	a.run.step++
-	return true
+	return false
 }
 
 func (r *turnRunner) applyFinalPolicyBlock(reasoning *ReasoningResult, reason string) bool {
@@ -216,11 +218,4 @@ func (r *turnRunner) applyFinalPolicyBlock(reasoning *ReasoningResult, reason st
 	a.injectHint(&hooks.Hint{Type: "policy_block", Severity: "critical", Content: hint})
 	a.run.step++
 	return true
-}
-
-func policyRequireTool(tool, reason string) string {
-	if tool != "" {
-		return "必须先调用 " + tool + "：" + reason
-	}
-	return reason
 }

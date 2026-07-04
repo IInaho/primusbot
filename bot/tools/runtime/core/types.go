@@ -67,10 +67,18 @@ type PermissionRequest struct {
 }
 
 const (
-	CapCacheWrite   = "cache.write"
-	CapNetPublic    = "net.public"
-	CapProcessHost  = "process.host"
-	CapShellUnknown = "shell.unknown"
+	// Sandbox-granularity capabilities — when authorized, the command still
+	// runs inside the sandbox; only the corresponding restriction is relaxed.
+	CapNetOutbound  = "net.outbound"  // share host network namespace
+	CapFsWriteCache = "fs.write.cache" // bind package manager cache dirs (~/.npm, ~/go/pkg/mod, ~/.cargo, ...)
+	CapFsWritePath  = "fs.write.path"  // bind write_paths argument dirs as read-write
+
+	// CapProcessHost: run entirely on the host without any sandbox isolation.
+	// Special: this capability is NEVER persisted — every invocation prompts
+	// the user regardless of prior grants. It is the escape hatch of last
+	// resort (needs TTY, Docker socket, writes to /etc, ...), not a routine
+	// escalation target.
+	CapProcessHost = "process.host"
 )
 
 type RequiredPermissionError struct {

@@ -6,6 +6,8 @@ import (
 
 	"nekocode/tui/components/block"
 	"nekocode/tui/styles"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestFinishEditRevertIsNotError(t *testing.T) {
@@ -62,5 +64,20 @@ func TestChangesSectionLeavesGapAfterToolBlocks(t *testing.T) {
 	rendered := p.renderChangesSection(100)
 	if !strings.HasSuffix(rendered, "\n") {
 		t.Fatalf("changes section should leave a trailing newline after tool blocks:\n%s", rendered)
+	}
+}
+
+func TestRenderHeaderUsesSingleSpaceAfterSpinner(t *testing.T) {
+	sty := styles.DefaultStyles()
+	p := NewProcessingItem(&sty)
+	p.SetSpinnerView("⠋")
+	p.SetStatusText("Running bash")
+
+	rendered := ansi.Strip(p.renderHeader(80))
+	if !strings.Contains(rendered, "⠋ Running bash") {
+		t.Fatalf("header should use one space between spinner and status: %q", rendered)
+	}
+	if strings.Contains(rendered, "⠋  Running bash") {
+		t.Fatalf("header has extra spaces between spinner and status: %q", rendered)
 	}
 }

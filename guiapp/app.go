@@ -176,7 +176,7 @@ func compactConfirmArgs(req common.ConfirmRequest) map[string]any {
 
 func isPermissionContextKey(k string) bool {
 	switch k {
-	case "workspace", "commandClass", "sandbox", "readPaths", "writePaths", "cachePaths":
+	case "workspace", "sandbox", "writePaths":
 		return true
 	default:
 		return false
@@ -576,7 +576,11 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	}
 	a.confirmMu.Unlock()
 	if found {
-		req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember}
+		req.Response <- common.ConfirmReply{
+			Allowed:             ok,
+			Remember:            ok && remember,
+			AllowWithPermission: ok && req.CanEscalatePermission,
+		}
 	}
 }
 

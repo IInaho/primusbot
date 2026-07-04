@@ -11,12 +11,12 @@ func TestGovResetTurnBetweenPublishesQuotaAndInput(t *testing.T) {
 	g.HookReg.Register(hooks.Hook{
 		Name:  "assert-state",
 		Point: hooks.PreTurn,
-		On: func(s *hooks.Snapshot) *hooks.Result {
-			if s.Store[hooks.StoreQuotaReads] != 5 {
-				t.Fatalf("quota reads = %d, want 5", s.Store[hooks.StoreQuotaReads])
+		On: func(s hooks.State) *hooks.Result {
+			if s.Get(hooks.StoreQuotaReads) != 5 {
+				t.Fatalf("quota reads = %d, want 5", s.Get(hooks.StoreQuotaReads))
 			}
-			if s.Store[hooks.StoreStepInputLen] != 5 {
-				t.Fatalf("input len = %d, want 5", s.Store[hooks.StoreStepInputLen])
+			if s.Get(hooks.StoreStepInputLen) != 5 {
+				t.Fatalf("input len = %d, want 5", s.Get(hooks.StoreStepInputLen))
 			}
 			return nil
 		},
@@ -29,13 +29,10 @@ func TestGovResetTurnBetweenPublishesQuotaAndInput(t *testing.T) {
 
 func TestGovResetClearsTrackingState(t *testing.T) {
 	g := NewManager(hooks.NewRegistry())
-	g.prevReads = 1
-	g.prevModifies = 2
-	g.prevVerifications = 3
 
 	g.Reset()
 
-	if g.prevReads != 0 || g.prevModifies != 0 || g.prevVerifications != 0 {
-		t.Fatalf("tracking state not reset: %+v", g)
+	if g.Exploration == nil || g.Ledger == nil || g.HookReg == nil {
+		t.Fatalf("manager state should be initialized, got %+v", g)
 	}
 }

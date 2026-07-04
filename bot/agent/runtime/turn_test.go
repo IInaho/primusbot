@@ -110,6 +110,7 @@ func TestHandleText_IsError_ConsecutiveFailuresIncrement(t *testing.T) {
 
 func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 	a := newTestAgent()
+	a.Reset()
 
 	a.deps.gov.HookReg.Set(hooks.StoreHasTasks, 1)
 	a.deps.gov.HookReg.Set(hooks.StoreTasksAllDone, 0)
@@ -137,6 +138,48 @@ func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 	msgs := a.deps.ctxMgr.Build()
 	if len(msgs) == 0 || msgs[len(msgs)-1].Role != "system" || !strings.Contains(msgs[len(msgs)-1].Content, `type="policy_block"`) {
 		t.Fatalf("expected pending hook hint in transient system layer, got %+v", msgs)
+	}
+}
+
+func TestPostTurnHooksSetStructuredFinalIntent(t *testing.T) {
+	a := newTestAgent()
+	a.Reset()
+	var intent string
+	a.deps.gov.HookReg.Register(hooks.Hook{
+		Name:  "capture-intent",
+		Point: hooks.PostTurn,
+		On: func(s hooks.State) *hooks.Result {
+			intent = s.GetStr(hooks.StoreFinalIntent)
+			return nil
+		},
+	})
+
+	ok := &ReasoningResult{
+		Action:      ActionChat,
+		ActionInput: "done",
+	}
+	a.turnRunner.applyPostTurnHooks(ok, isRecordableText(ok), nil)
+	if intent != hooks.FinalIntentFinal {
+		t.Fatalf("final intent = %q, want final", intent)
+	}
+
+	errResult := &ReasoningResult{
+		Action:      ActionChat,
+		ActionInput: "LLM call failed",
+		IsError:     true,
+	}
+	a.turnRunner.applyPostTurnHooks(errResult, isRecordableText(errResult), nil)
+	if intent != hooks.FinalIntentError {
+		t.Fatalf("error intent = %q, want error", intent)
+	}
+
+	garbled := &ReasoningResult{
+		Action:          ActionChat,
+		GarbledToolCall: true,
+	}
+	a.turnRunner.applyPostTurnHooks(garbled, isRecordableText(garbled), nil)
+	if intent != hooks.FinalIntentFormatError {
+		t.Fatalf("garbled intent = %q, want format_error", intent)
 	}
 }
 

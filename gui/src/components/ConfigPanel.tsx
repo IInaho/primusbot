@@ -20,6 +20,13 @@ const emptyModel = (name: string): ModelConfig => ({
   protocol: 'openai',
 })
 
+type EditableModelConfig = ModelConfig & { uiKey: string }
+type EditableImageGenConfig = ImageGenConfig & { uiKey: string }
+type EditableConfigView = Omit<ConfigView, 'models' | 'image_gen_models'> & {
+  models: EditableModelConfig[]
+  image_gen_models?: EditableImageGenConfig[]
+}
+
 const emptyImageModel = (name: string): ImageGenConfig => ({
   name,
   provider: 'jimeng',
@@ -44,8 +51,31 @@ const configTabs: Array<{ value: ConfigTab; label: string }> = [
   { value: 'mcp', label: 'MCP 服务' },
 ]
 
+let configRowId = 0
+
+function nextConfigRowKey(prefix: string) {
+  configRowId += 1
+  return `${prefix}-${configRowId}`
+}
+
+function withModelKey(model: ModelConfig): EditableModelConfig {
+  return { ...model, uiKey: nextConfigRowKey('model') }
+}
+
+function withModelKeys(models: ModelConfig[]): EditableModelConfig[] {
+  return models.map(withModelKey)
+}
+
+function withImageModelKey(model: ImageGenConfig): EditableImageGenConfig {
+  return { ...model, uiKey: nextConfigRowKey('image') }
+}
+
+function withImageModelKeys(models: ImageGenConfig[]): EditableImageGenConfig[] {
+  return models.map(withImageModelKey)
+}
+
 export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }: ConfigPanelProps) {
-  const [cfg, setCfg] = useState<ConfigView | null>(null)
+  const [cfg, setCfg] = useState<EditableConfigView | null>(null)
   const [tab, setTab] = useState<ConfigTab>(initialTab)
   const [selectedMcp, setSelectedMcp] = useState('')
   const [loading, setLoading] = useState(false)
@@ -73,8 +103,8 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
         }
         setCfg({
           ...next,
-          models: next.models ?? [],
-          image_gen_models: next.image_gen_models ?? [],
+          models: withModelKeys(next.models ?? []),
+          image_gen_models: withImageModelKeys(next.image_gen_models ?? []),
           mcp_servers: next.mcp_servers ?? {},
         })
         setSelectedMcp(Object.keys(next.mcp_servers ?? {})[0] ?? '')
@@ -90,7 +120,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
 
   if (!open) return null
 
-  const update = (patch: Partial<ConfigView>) => {
+  const update = (patch: Partial<EditableConfigView>) => {
     setSaved(false)
     setCfg((prev) => (prev ? { ...prev, ...patch } : prev))
   }
@@ -100,7 +130,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
     setCfg((prev) => {
       if (!prev) return prev
       const models = prev.models.map((m, i) => (i === idx ? { ...m, ...patch } : m))
-      const next: ConfigView = { ...prev, models }
+      const next: EditableConfigView = { ...prev, models }
       if (!models.some((m) => m.name === next.active)) next.active = models[0]?.name ?? ''
       if (next.flash_model && !models.some((m) => m.name === next.flash_model)) next.flash_model = ''
       return next
@@ -120,7 +150,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
     setCfg((prev) => {
       if (!prev) return prev
       const name = nextName(prev.models.map((m) => m.name), 'model')
-      return { ...prev, models: [...prev.models, emptyModel(name)], active: prev.active || name }
+      return { ...prev, models: [...prev.models, withModelKey(emptyModel(name))], active: prev.active || name }
     })
     setSaved(false)
   }
@@ -144,7 +174,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
     setCfg((prev) => {
       if (!prev) return prev
       const names = (prev.image_gen_models ?? []).map((m) => m.name)
-      return { ...prev, image_gen_models: [...(prev.image_gen_models ?? []), emptyImageModel(nextName(names, 'image'))] }
+      return { ...prev, image_gen_models: [...(prev.image_gen_models ?? []), withImageModelKey(emptyImageModel(nextName(names, 'image')))] }
     })
     setSaved(false)
   }
@@ -223,15 +253,20 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
     try {
       const savedCfg = await safeSaveConfig({
         ...cfg,
-        models: cfg.models.map(trimModel),
-        image_gen_models: (cfg.image_gen_models ?? []).map(trimImageModel),
+        models: cfg.models.map((model) => trimModel(model)),
+        image_gen_models: (cfg.image_gen_models ?? []).map((model) => trimImageModel(model)),
         mcp_servers: trimMcpServers(cfg.mcp_servers ?? {}),
       })
       if (!savedCfg) {
         setError('保存失败：Wails 配置接口没有返回数据')
         return
       }
-      setCfg(savedCfg)
+      setCfg({
+        ...savedCfg,
+        models: withModelKeys(savedCfg.models ?? []),
+        image_gen_models: withImageModelKeys(savedCfg.image_gen_models ?? []),
+        mcp_servers: savedCfg.mcp_servers ?? {},
+      })
       setSaved(true)
       onSaved()
     } catch (err) {
@@ -331,7 +366,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
                 <div className="mt-2 space-y-2">
                   {cfg.models.map((model, idx) => (
                     <ModelCard
-                      key={`${model.name}-${idx}`}
+                      key={model.uiKey}
                       model={model}
                       active={cfg.active === model.name}
                       canRemove={cfg.models.length > 1}
@@ -347,7 +382,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
                 <div className="mt-2 space-y-2">
                   {(cfg.image_gen_models ?? []).map((model, idx) => (
                     <ImageModelCard
-                      key={`${model.name}-${idx}`}
+                      key={model.uiKey}
                       model={model}
                       onChange={(patch) => updateImageModel(idx, patch)}
                       onRemove={() => removeImageModel(idx)}
