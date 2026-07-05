@@ -10,8 +10,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	graphpkg "nekocode/bot/index/graph"
-	indexerpkg "nekocode/bot/index/indexer"
+	graphpkg "nekocode/bot/index/internal/graph"
+	indexerpkg "nekocode/bot/index/internal/indexer"
 )
 
 // Syncer watches for file changes and updates the graph incrementally.

@@ -4,7 +4,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	"nekocode/bot/llm/types"
-	aggov "nekocode/bot/policy"
+	"nekocode/bot/policy/ledger"
 	"nekocode/bot/tools/runtime/core"
 )
 
@@ -74,15 +74,20 @@ func (r *Runner) recordToolCalls(calls []core.ToolCallItem, blocked map[int]stri
 	}
 	for i, tc := range calls {
 		if msg, ok := blocked[i]; ok {
-			gov.RecordToolCall(aggov.ToolCallInfo{Name: tc.Name, Args: tc.Args}, true, msg)
+			gov.RecordToolCall(ledger.ToolEvent{
+				Name:      tc.Name,
+				Args:      tc.Args,
+				Blocked:   true,
+				BlockText: msg,
+			})
 			continue
 		}
-		gov.RecordToolCall(aggov.ToolCallInfo{
+		gov.RecordToolCall(ledger.ToolEvent{
 			Name:   tc.Name,
 			Args:   tc.Args,
 			Output: results[i].Output,
 			Error:  results[i].Error,
-		}, false, "")
+		})
 	}
 }
 

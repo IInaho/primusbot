@@ -12,13 +12,12 @@ import (
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/index/projectctx"
-	"nekocode/bot/index/projecttool"
-	"nekocode/bot/index/service"
+	"nekocode/bot/index"
 	"nekocode/bot/llm"
 	systemprompt "nekocode/bot/prompt/system"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
+	indextool "nekocode/bot/tools/builtin/index"
 	"nekocode/common"
 )
 
@@ -39,7 +38,7 @@ type botCore struct {
 	skillState    *command.SkillState
 	promptBuilder *systemprompt.Builder
 	projCtx       string
-	indexMgr      *service.Manager
+	indexMgr      index.Manager
 	cwd           string
 }
 
@@ -73,7 +72,7 @@ func (b *Bot) initCtxMgr() {
 	memFile, _ := memory.Load(memory.DefaultPath())
 	b.ctxMgr = ctxmgr.New(ctxmgr.Config{SystemPrompt: systemPrompt, Memory: memFile})
 
-	result := projectctx.Apply(b.ctxMgr, projectctx.ApplyOptions{
+	result := index.Apply(b.ctxMgr, index.ApplyOptions{
 		CWD:           b.cwd,
 		ContextWindow: b.cfg.ContextWindow,
 	})
@@ -119,7 +118,7 @@ func (b *Bot) initToolRegistry() {
 	catalog.RegisterAll(b.toolRegistry, b.cfg.ImageGenModels)
 
 	if b.indexMgr != nil {
-		b.toolRegistry.Register(projecttool.NewProjectInfoTool(b.indexMgr))
+		b.toolRegistry.Register(indextool.NewIndexTool(b.indexMgr))
 	}
 }
 

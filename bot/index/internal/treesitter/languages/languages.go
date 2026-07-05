@@ -21,4 +21,3 @@ var Languages = map[string]*sitter.Language{
 	".py":  python.GetLanguage(),
 	".rs":  rust.GetLanguage(),
 }
-

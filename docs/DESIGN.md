@@ -266,7 +266,7 @@ Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
 | **web_search** | Web 搜索 + 强制 Sources 引用 | Safe | Parallel |
 | **web_fetch** | 网页抓取 + HTML→Markdown 转换 | Safe | Parallel |
 | **tree** | 目录树可视化 | Safe | Parallel |
-| **project_info** | 代码索引查询（symbol/deps/file/search/skeleton） | Safe | Parallel |
+| **index** | 代码索引查询（symbol/deps/file/search/skeleton） | Safe | Parallel |
 | **image_gen** | AI 文生图（即梦 Jimeng t2i_v31）· 自动下载保存 | Safe | Sequential |
 | **question** | 向用户提问（单选/多选/自定义输入） | Safe | Sequential |
 | **task** | 子 agent 委派 | Safe | Parallel |

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	graphpkg "nekocode/bot/index/graph"
+	graphpkg "nekocode/bot/index/internal/graph"
 
 	"zombiezen.com/go/sqlite/sqlitex"
 )

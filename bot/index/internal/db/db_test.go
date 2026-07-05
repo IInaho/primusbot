@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	graphpkg "nekocode/bot/index/graph"
+	graphpkg "nekocode/bot/index/internal/graph"
 )
 
 func openTestDB(t *testing.T) *DB {

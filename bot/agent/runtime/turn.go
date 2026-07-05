@@ -3,7 +3,6 @@ package runtime
 import (
 	"nekocode/bot/agent/runtime/toolrun"
 	"nekocode/bot/hooks"
-	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools/runtime/core"
 )
@@ -32,10 +31,7 @@ func (r *turnRunner) applyPreTurnHooks(input string, quota budget.ToolQuota) {
 		a.applyTurnHints(nil)
 		return
 	}
-	a.deps.gov.ResetTurnBetween(input, aggov.QuotaData{
-		MaxSlots: quota.MaxSlots,
-		Used:     quota.Used,
-	})
+	a.deps.gov.ResetTurnBetween(input, quota.MaxSlots-quota.Used)
 	a.deps.gov.HookReg.Flag(hooks.StoreTasksAllDone, a.deps.ctxMgr.AllTasksDone())
 	a.deps.gov.HookReg.Flag(hooks.StoreHasTasks, a.deps.ctxMgr.HasTasks())
 

@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 
-	graphpkg "nekocode/bot/index/graph"
+	graphpkg "nekocode/bot/index/internal/graph"
 
 	"zombiezen.com/go/sqlite/sqlitex"
 )

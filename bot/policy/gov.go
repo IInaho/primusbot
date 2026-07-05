@@ -19,15 +19,3 @@ func NewManager(hookReg *hooks.Registry) *Manager {
 		Exploration: budget.NewExplorationTracker(),
 	}
 }
-
-type QuotaData struct {
-	MaxSlots int
-	Used     int
-}
-
-type ToolCallInfo struct {
-	Name   string
-	Args   map[string]any
-	Output string
-	Error  string
-}

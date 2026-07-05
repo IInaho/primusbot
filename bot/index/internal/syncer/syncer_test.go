@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	graphpkg "nekocode/bot/index/graph"
-	indexerpkg "nekocode/bot/index/indexer"
+	graphpkg "nekocode/bot/index/internal/graph"
+	indexerpkg "nekocode/bot/index/internal/indexer"
 )
 
 func TestSyncerIndexesAndRemovesSupportedFileEvents(t *testing.T) {

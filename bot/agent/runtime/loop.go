@@ -1,6 +1,9 @@
 package runtime
 
-import "nekocode/bot/hooks"
+import (
+	"nekocode/bot/hooks"
+	"nekocode/common/debug"
+)
 
 // maxAgentSteps is the hard ceiling on agent loop iterations. Prevents
 // infinite loops when the LLM keeps producing tool calls or PostTurn hooks
@@ -106,9 +109,16 @@ func (r *loopRunner) applyUserSubmitHooks() {
 
 func (r *loopRunner) logGovernanceSummary() {
 	a := r.agent
-	if a.deps.gov != nil {
-		a.deps.gov.LogSummary(a.run.step)
+	if a.deps.gov == nil || a.deps.gov.Ledger == nil {
+		return
 	}
+	snap := a.deps.gov.Ledger.Snapshot()
+	hookStats := ""
+	if a.deps.gov.HookReg != nil {
+		hookStats = a.deps.gov.HookReg.GovernanceStats()
+	}
+	debug.Log("[GOVERNANCE] task complete: steps=%d, %s%s",
+		a.run.step, snap.Summary(), hookStats)
 }
 
 func (r *loopRunner) stepLimitReached() bool {

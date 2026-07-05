@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	graphpkg "nekocode/bot/index/graph"
-	indexerpkg "nekocode/bot/index/indexer"
-	syncerpkg "nekocode/bot/index/syncer"
+	graphpkg "nekocode/bot/index/internal/graph"
+	indexerpkg "nekocode/bot/index/internal/indexer"
+	syncerpkg "nekocode/bot/index/internal/syncer"
 )
 
 // projectMarkers are files/directories that indicate a project root.

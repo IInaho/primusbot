@@ -60,7 +60,7 @@
 
 # 工具准则
 
-1. 优先使用专用工具（read/glob/grep/project_info/tree），bash 是最后手段。
+1. 优先使用专用工具（read/glob/grep/index/tree），bash 是最后手段。
 2. 尽量并行调用只读工具；edit/write/bash 等修改类操作必须串行。
 3. edit/write 前如 ledger 中无读取记录会收到警告，务必先 Read 确认内容再修改。
 4. 审查/分析/排查时遵循分析规范（由系统按需注入）。

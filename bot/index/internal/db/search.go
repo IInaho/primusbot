@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	graphpkg "nekocode/bot/index/graph"
+	graphpkg "nekocode/bot/index/internal/graph"
 )
 
 // SearchFTS performs a full-text search on node names, signatures, and docs.

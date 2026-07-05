@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
@@ -51,6 +52,65 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 	}
 	output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
 	return output, err == nil
+}
+
+func permissionFailureMessage(tc core.ToolCallItem, execErr error) string {
+	var permErr core.PermissionError
+	if !errors.As(execErr, &permErr) {
+		return execErr.Error()
+	}
+	req := permErr.PermissionRequest()
+	if tc.Name != "bash" && tc.Name != "shell" {
+		return execErr.Error()
+	}
+	caps := strings.Join(req.Capabilities, `", "`)
+	if caps == "" {
+		return execErr.Error()
+	}
+	if callHasCapabilities(tc.Args, req.Capabilities) {
+		return fmt.Sprintf("%s. The bash call already requested capabilities [\"%s\"], but no approval was granted. Wait for and answer the permission prompt; if no prompt appears, this runtime has no confirmation callback for host/sandbox escalation.", execErr.Error(), caps)
+	}
+	return fmt.Sprintf("%s. To request approval, retry the bash call with capabilities [\"%s\"] in the tool arguments instead of asking in chat.", execErr.Error(), caps)
+}
+
+func callHasCapabilities(args map[string]any, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	got := stringSliceArg(args, "capabilities")
+	for _, need := range required {
+		found := false
+		for _, cap := range got {
+			if cap == need {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func stringSliceArg(args map[string]any, key string) []string {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 func (e *Executor) permissionDenied(toolName string, req core.PermissionRequest) bool {

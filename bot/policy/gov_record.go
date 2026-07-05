@@ -6,49 +6,31 @@ import (
 	semanticspkg "nekocode/bot/policy/semantics"
 )
 
-func (g *Manager) RecordToolCall(tc ToolCallInfo, blocked bool, blockText string) {
-	sem := semanticspkg.ClassifyToolCall(tc.Name, tc.Args)
+func (g *Manager) RecordToolCall(ev ledger.ToolEvent) {
+	sem := semanticspkg.ClassifyToolCall(ev.Name, ev.Args)
+	ev.Semantics = sem
 
 	if g.Ledger != nil {
-		g.Ledger.RecordTool(ledger.ToolEvent{
-			Name:      tc.Name,
-			Args:      tc.Args,
-			Output:    tc.Output,
-			Error:     tc.Error,
-			Blocked:   blocked,
-			BlockText: blockText,
-			Semantics: sem,
-		})
+		g.Ledger.RecordTool(ev)
 	}
 
-	g.Exploration.RecordCall(tc.Name, tc.Args)
+	g.Exploration.RecordCall(ev.Name, ev.Args)
 	if g.HookReg == nil {
 		return
 	}
 	if sem.Exploratory {
 		g.HookReg.Inc(hooks.StoreExploreCalls)
 	}
-	g.HookReg.Inc(hooks.StoreToolPrefix + tc.Name)
+	g.HookReg.Inc(hooks.StoreToolPrefix + ev.Name)
 	g.HookReg.Inc(hooks.StoreTurnToolCalls)
-	if sem.Mutating && mutationLikelyApplied(tc, blocked) {
+	mutationApplied := !ev.Blocked && (ev.Name != "write" && ev.Name != "edit" || ev.Error == "")
+	if sem.Mutating && mutationApplied {
 		g.HookReg.Set(hooks.StoreHasEdits, 1)
 		g.HookReg.Set(hooks.PolicyExploreExhausted, 0)
 	}
-	if tc.Name == "task" {
-		if t, _ := tc.Args["type"].(string); t == "researcher" {
+	if ev.Name == "task" {
+		if t, _ := ev.Args["type"].(string); t == "researcher" {
 			g.HookReg.Inc(hooks.StoreToolResearcher)
 		}
-	}
-}
-
-func mutationLikelyApplied(tc ToolCallInfo, blocked bool) bool {
-	if blocked {
-		return false
-	}
-	switch tc.Name {
-	case "write", "edit":
-		return tc.Error == ""
-	default:
-		return true
 	}
 }

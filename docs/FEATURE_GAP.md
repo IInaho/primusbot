@@ -24,7 +24,7 @@
 | `diff` | diff/ | Unified diff between two texts or files (preview changes, compare versions) |
 | `todo_write` | todo/tool_todo.go | 任务列表管理，支持 GUI/TUI 回调 |
 | `task` | tasktool/tool_task.go | 子 Agent 调度（researcher/executor/verify） |
-| `project_info` | index/projecttool/tool.go | 代码索引查询（符号/文件/依赖/全文搜索）— 条件注册 |
+| `index` | tools/builtin/index/tool.go | 代码索引查询（符号/文件/依赖/全文搜索）— 条件注册 |
 | `image_gen` | media/tool_image_gen.go | 图片生成（多模型配置）— 条件注册 |
 | `skill` | extension/skill/tool_skill.go | 技能加载工具 — 动态注册 |
 | MCP 工具 | extension/mcp/tool.go | 动态注册的 MCP 服务器工具 |

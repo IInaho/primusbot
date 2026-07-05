@@ -57,7 +57,7 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 			e.invalidateMutatedPaths(tc.Name, paths)
 			return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Output: formatOutput(tc.Name, output)}
 		}
-		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: execErr.Error()}
+		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: permissionFailureMessage(tc, execErr)}
 	}
 
 	e.invalidateMutatedPaths(tc.Name, paths)

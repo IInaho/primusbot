@@ -1,4 +1,4 @@
-package projecttool
+package indextool
 
 import (
 	"context"
@@ -8,33 +8,32 @@ import (
 	"strings"
 	"sync"
 
-	graphpkg "nekocode/bot/index/graph"
-	"nekocode/bot/index/service"
+	"nekocode/bot/index"
 	"nekocode/bot/tools/runtime/core"
 )
 
-// ProjectInfoTool exposes the code graph to the agent via the tool system.
+// IndexTool exposes the code graph to the agent via the tool system.
 // It holds a reference to the Manager so it always accesses the current graph
 // (even after Manager.Rebuild replaces it).
-type ProjectInfoTool struct {
-	mgr *service.Manager
+type IndexTool struct {
+	mgr index.Manager
 }
 
-// NewProjectInfoTool creates a new project_info tool.
-func NewProjectInfoTool(mgr *service.Manager) *ProjectInfoTool {
-	return &ProjectInfoTool{mgr: mgr}
+// NewIndexTool creates a new index tool.
+func NewIndexTool(mgr index.Manager) *IndexTool {
+	return &IndexTool{mgr: mgr}
 }
 
-func (t *ProjectInfoTool) Name() string { return "project_info" }
-func (t *ProjectInfoTool) ExecutionMode(args map[string]any) core.ExecutionMode {
+func (t *IndexTool) Name() string { return "index" }
+func (t *IndexTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 	return core.ModeParallel
 }
 
-func (t *ProjectInfoTool) Description() string {
+func (t *IndexTool) Description() string {
 	return "Pre-built project index. ALWAYS use this FIRST for: finding symbols (symbol:), finding files (file:), checking dependencies (deps:), full-text search (search:), or getting project overview (skeleton). Faster and more accurate than grep/glob for code structure queries."
 }
 
-func (t *ProjectInfoTool) Parameters() []core.Parameter {
+func (t *IndexTool) Parameters() []core.Parameter {
 	return []core.Parameter{
 		{
 			Name:        "query",
@@ -45,7 +44,7 @@ func (t *ProjectInfoTool) Parameters() []core.Parameter {
 	}
 }
 
-func (t *ProjectInfoTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *IndexTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	query, _ := args["query"].(string)
 	if query == "" {
 		return "Missing required parameter 'query'. Usage: query=\"file:manager.go\" or query=\"symbol:Agent\". Note: 'file' is not a parameter name — use query=\"file:<name>\".", nil
@@ -56,32 +55,30 @@ func (t *ProjectInfoTool) Execute(ctx context.Context, args map[string]any) (str
 		return t.querySearch(value), nil
 	}
 
-	return t.mgr.Query(func(graph *graphpkg.Graph) string {
-		if query == "skeleton" {
-			return graph.FormatSkeleton(t.mgr.CWD())
-		}
+	if query == "skeleton" {
+		return t.mgr.Skeleton(), nil
+	}
 
-		prefix, value, ok := strings.Cut(query, ":")
-		if !ok {
-			return "Invalid query format. Use '<prefix>:<value>' (e.g. \"file:manager.go\", \"symbol:Agent\") or \"skeleton\"."
-		}
-		value = strings.TrimSpace(value)
+	prefix, value, ok := strings.Cut(query, ":")
+	if !ok {
+		return "Invalid query format. Use '<prefix>:<value>' (e.g. \"file:manager.go\", \"symbol:Agent\") or \"skeleton\".", nil
+	}
+	value = strings.TrimSpace(value)
 
-		switch prefix {
-		case "symbol":
-			return querySymbol(graph, value)
-		case "deps":
-			return queryDeps(graph, value)
-		case "file":
-			return queryFile(graph, value)
-		default:
-			return fmt.Sprintf("Unknown query prefix '%s'. Available: symbol, deps, file, search, skeleton", prefix)
-		}
-	}), nil
+	switch prefix {
+	case "symbol":
+		return querySymbol(t.mgr, value), nil
+	case "deps":
+		return queryDeps(t.mgr, value), nil
+	case "file":
+		return queryFile(t.mgr, value), nil
+	default:
+		return fmt.Sprintf("Unknown query prefix '%s'. Available: symbol, deps, file, search, skeleton", prefix), nil
+	}
 }
 
-func querySymbol(graph *graphpkg.Graph, name string) string {
-	symbols := graph.QuerySymbol(name)
+func querySymbol(mgr index.Manager, name string) string {
+	symbols := mgr.QuerySymbol(name)
 	if len(symbols) == 0 {
 		return fmt.Sprintf("No symbols matching '%s' found in project index. Try grep for a broader search.", name)
 	}
@@ -93,8 +90,8 @@ func querySymbol(graph *graphpkg.Graph, name string) string {
 	return b.String()
 }
 
-func queryDeps(graph *graphpkg.Graph, pkgPath string) string {
-	deps := graph.QueryDeps(pkgPath)
+func queryDeps(mgr index.Manager, pkgPath string) string {
+	deps := mgr.QueryDeps(pkgPath)
 	if deps == nil {
 		return fmt.Sprintf("Package '%s' not found in project index or has no internal dependencies.", pkgPath)
 	}
@@ -107,8 +104,8 @@ func queryDeps(graph *graphpkg.Graph, pkgPath string) string {
 	return b.String()
 }
 
-func queryFile(graph *graphpkg.Graph, name string) string {
-	files := graph.QueryFile(name)
+func queryFile(mgr index.Manager, name string) string {
+	files := mgr.QueryFile(name)
 	if len(files) == 0 {
 		return fmt.Sprintf("No files matching '%s' found in project index. The file may have been deleted or renamed — try glob to search the filesystem directly.", name)
 	}
@@ -120,13 +117,13 @@ func queryFile(graph *graphpkg.Graph, name string) string {
 	return b.String()
 }
 
-func (t *ProjectInfoTool) querySearch(term string) string {
-	if t.mgr.Indexer() == nil {
-		return "Full-text search is not available (database not initialized)."
-	}
-	nodes, err := t.mgr.Indexer().SearchFTS(term, 50)
+func (t *IndexTool) querySearch(term string) string {
+	nodes, err := t.mgr.Search(term, 50)
 	if err != nil {
 		return fmt.Sprintf("Search error: %v", err)
+	}
+	if nodes == nil {
+		return "Full-text search is not available (database not initialized)."
 	}
 	if len(nodes) == 0 {
 		return fmt.Sprintf("No results for '%s' in project index.", term)

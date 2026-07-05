@@ -22,7 +22,7 @@ func TestGovResetTurnBetweenPublishesQuotaAndInput(t *testing.T) {
 		},
 	})
 
-	g.ResetTurnBetween("hello", QuotaData{MaxSlots: 8, Used: 3})
+	g.ResetTurnBetween("hello", 5)
 
 	g.HookReg.Evaluate(hooks.PreTurn, "", false)
 }

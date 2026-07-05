@@ -16,12 +16,12 @@ type ListTool struct {
 
 func (t *ListTool) Name() string { return "list" }
 func (t *ListTool) Description() string {
-	return "List directory contents. ALWAYS use List — NEVER invoke ls as Bash. Returns files and subdirectories sorted by name."
+	return "List directory contents, including hidden dotfiles. ALWAYS use List — NEVER invoke ls or ls -al as Bash. Returns files and subdirectories sorted by name."
 }
 
 func (t *ListTool) Parameters() []core.Parameter {
 	return []core.Parameter{
-		{Name: "path", Type: "string", Required: true, Description: "Directory path to list"},
+		{Name: "path", Type: "string", Required: true, Description: "Directory path to list; hidden dotfiles are included"},
 	}
 }
 

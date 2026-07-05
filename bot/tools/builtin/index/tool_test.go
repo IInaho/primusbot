@@ -1,4 +1,4 @@
-package projecttool
+package indextool
 
 import (
 	"context"
@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/bot/index/service"
+	"nekocode/bot/index"
 )
 
-func setupTestManager(t *testing.T) *service.Manager {
+func setupTestManager(t *testing.T) index.Manager {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -33,7 +33,7 @@ func Hello(name string) {
 }
 `)
 
-	mgr, err := service.NewManager(dir)
+	mgr, err := index.NewManager(dir)
 	if err != nil {
 		t.Skipf("NewManager failed (FTS5 may be unavailable): %v", err)
 		return nil
@@ -53,9 +53,9 @@ func writeFile(t *testing.T, dir, name, content string) {
 	os.WriteFile(filepath.Join(dir, name), []byte(content), 0644)
 }
 
-func TestProjectInfoToolSkeleton(t *testing.T) {
+func TestIndexToolSkeleton(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "skeleton"})
 	if err != nil {
@@ -69,9 +69,9 @@ func TestProjectInfoToolSkeleton(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolSymbol(t *testing.T) {
+func TestIndexToolSymbol(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "symbol:Hello"})
 	if err != nil {
@@ -82,9 +82,9 @@ func TestProjectInfoToolSymbol(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolFile(t *testing.T) {
+func TestIndexToolFile(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "file:main.go"})
 	if err != nil {
@@ -95,9 +95,9 @@ func TestProjectInfoToolFile(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolDeps(t *testing.T) {
+func TestIndexToolDeps(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "deps:main"})
 	if err != nil {
@@ -109,12 +109,12 @@ func TestProjectInfoToolDeps(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolSearch(t *testing.T) {
+func TestIndexToolSearch(t *testing.T) {
 	mgr := setupTestManager(t)
 	if mgr == nil {
 		t.Skip("manager not available")
 	}
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "search:Hello"})
 	if err != nil {
@@ -129,9 +129,9 @@ func TestProjectInfoToolSearch(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolEmptyQuery(t *testing.T) {
+func TestIndexToolEmptyQuery(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": ""})
 	if err != nil {
@@ -142,9 +142,9 @@ func TestProjectInfoToolEmptyQuery(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolInvalidFormat(t *testing.T) {
+func TestIndexToolInvalidFormat(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "invalid"})
 	if err != nil {
@@ -155,9 +155,9 @@ func TestProjectInfoToolInvalidFormat(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolUnknownPrefix(t *testing.T) {
+func TestIndexToolUnknownPrefix(t *testing.T) {
 	mgr := setupTestManager(t)
-	tool := NewProjectInfoTool(mgr)
+	tool := NewIndexTool(mgr)
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "unknown:value"})
 	if err != nil {
@@ -168,9 +168,8 @@ func TestProjectInfoToolUnknownPrefix(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolNilGraph(t *testing.T) {
-	mgr := &service.Manager{} // no Init, graph is nil
-	tool := NewProjectInfoTool(mgr)
+func TestIndexToolNilGraph(t *testing.T) {
+	tool := NewIndexTool(emptyManager{})
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "skeleton"})
 	if err != nil {
@@ -198,12 +197,11 @@ func TestShortenPath(t *testing.T) {
 	}
 }
 
-func TestProjectInfoToolNameAndDescription(t *testing.T) {
-	mgr := &service.Manager{}
-	tool := NewProjectInfoTool(mgr)
+func TestIndexToolNameAndDescription(t *testing.T) {
+	tool := NewIndexTool(emptyManager{})
 
-	if tool.Name() != "project_info" {
-		t.Errorf("Name() = %q, want project_info", tool.Name())
+	if tool.Name() != "index" {
+		t.Errorf("Name() = %q, want index", tool.Name())
 	}
 	if tool.Description() == "" {
 		t.Error("Description() should not be empty")
@@ -212,3 +210,14 @@ func TestProjectInfoToolNameAndDescription(t *testing.T) {
 		t.Error("Parameters() should not be empty")
 	}
 }
+
+type emptyManager struct{}
+
+func (emptyManager) Init() error                                      { return nil }
+func (emptyManager) Close() error                                     { return nil }
+func (emptyManager) Rebuild() error                                   { return nil }
+func (emptyManager) Skeleton() string                                 { return "Project index not available for this workspace." }
+func (emptyManager) QuerySymbol(string) []index.Symbol                { return nil }
+func (emptyManager) QueryDeps(string) []string                        { return nil }
+func (emptyManager) QueryFile(string) []index.File                    { return nil }
+func (emptyManager) Search(string, int) ([]index.SearchResult, error) { return nil, nil }

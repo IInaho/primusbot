@@ -3,6 +3,7 @@ package ledger
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -31,18 +32,20 @@ type Verification struct {
 type Ledger struct {
 	mu sync.RWMutex
 
-	readFiles      map[string]bool
-	modifiedFiles  map[string]bool
+	readFiles      pathSet
+	modifiedFiles  pathSet
 	blockedTools   []ToolEvent
 	toolErrors     []ToolEvent
 	verifications  []Verification
 	toolEventCount int
 }
 
+type pathSet map[string]struct{}
+
 func New() *Ledger {
 	return &Ledger{
-		readFiles:     make(map[string]bool),
-		modifiedFiles: make(map[string]bool),
+		readFiles:     newPathSet(),
+		modifiedFiles: newPathSet(),
 	}
 }
 
@@ -52,7 +55,7 @@ func (l *Ledger) Reset() {
 	// readFiles is intentionally preserved across turns: once the LLM has read a
 	// file in this session, we trust it to edit that file without re-reading.
 	// Only turn-scoped bookkeeping is cleared here.
-	l.modifiedFiles = make(map[string]bool)
+	l.modifiedFiles = newPathSet()
 	l.blockedTools = nil
 	l.toolErrors = nil
 	l.verifications = nil
@@ -70,20 +73,14 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 	if ev.Error != "" {
 		l.toolErrors = append(l.toolErrors, ev)
 	}
-	if ev.Semantics.SourceProducing {
-		for _, p := range extractReadPaths(ev.Name, ev.Args) {
-			l.readFiles[p] = true
-		}
+	if ev.Error == "" && ev.Semantics.SourceProducing {
+		l.readFiles.addAll(extractReadPaths(ev.Name, ev.Args))
 	}
 	if ev.Semantics.Mutating {
 		modified := extractModifiedPaths(ev)
-		for _, p := range modified {
-			l.modifiedFiles[p] = true
-		}
+		l.modifiedFiles.addAll(modified)
 		if ev.Name == "write" {
-			for _, p := range modified {
-				l.readFiles[p] = true
-			}
+			l.readFiles.addAll(modified)
 		}
 	}
 	if ev.Semantics.Verifying {
@@ -100,12 +97,9 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 func (l *Ledger) Snapshot() Snapshot {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	s := Snapshot{}
-	for p := range l.readFiles {
-		s.ReadFiles = append(s.ReadFiles, p)
-	}
-	for p := range l.modifiedFiles {
-		s.ModifiedFiles = append(s.ModifiedFiles, p)
+	s := Snapshot{
+		ReadFiles:     l.readFiles.sorted(),
+		ModifiedFiles: l.modifiedFiles.sorted(),
 	}
 	s.BlockedTools = append(s.BlockedTools, l.blockedTools...)
 	s.ToolErrors = append(s.ToolErrors, l.toolErrors...)
@@ -117,18 +111,8 @@ func (l *Ledger) Snapshot() Snapshot {
 func (l *Ledger) Restore(s Snapshot) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.readFiles = make(map[string]bool, len(s.ReadFiles))
-	for _, p := range s.ReadFiles {
-		if p != "" {
-			l.readFiles[filepath.Clean(p)] = true
-		}
-	}
-	l.modifiedFiles = make(map[string]bool, len(s.ModifiedFiles))
-	for _, p := range s.ModifiedFiles {
-		if p != "" {
-			l.modifiedFiles[filepath.Clean(p)] = true
-		}
-	}
+	l.readFiles = newPathSetFrom(s.ReadFiles)
+	l.modifiedFiles = newPathSetFrom(s.ModifiedFiles)
 	l.blockedTools = append([]ToolEvent(nil), s.BlockedTools...)
 	l.toolErrors = append([]ToolEvent(nil), s.ToolErrors...)
 	l.verifications = append([]Verification(nil), s.Verifications...)
@@ -152,8 +136,7 @@ type Snapshot struct {
 func (l *Ledger) WasRead(path string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	cleaned := filepath.Clean(path)
-	return l.readFiles[cleaned]
+	return l.readFiles.has(path)
 }
 
 func (s Snapshot) HasModifications() bool {
@@ -197,11 +180,11 @@ func extractReadPaths(name string, args map[string]any) []string {
 }
 
 func extractModifiedPaths(ev ToolEvent) []string {
+	if ev.Error != "" {
+		return nil
+	}
 	switch ev.Name {
 	case "write", "edit":
-		if ev.Error != "" {
-			return nil
-		}
 		if p, _ := ev.Args["path"].(string); p != "" {
 			return []string{filepath.Clean(p)}
 		}
@@ -210,6 +193,46 @@ func extractModifiedPaths(ev ToolEvent) []string {
 		return cleanPaths(extractBashWritePaths(cmd))
 	}
 	return nil
+}
+
+func newPathSet() pathSet {
+	return make(pathSet)
+}
+
+func newPathSetFrom(paths []string) pathSet {
+	s := make(pathSet, len(paths))
+	s.addAll(paths)
+	return s
+}
+
+func (s pathSet) add(path string) {
+	if path == "" {
+		return
+	}
+	s[filepath.Clean(path)] = struct{}{}
+}
+
+func (s pathSet) addAll(paths []string) {
+	for _, p := range paths {
+		s.add(p)
+	}
+}
+
+func (s pathSet) has(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, ok := s[filepath.Clean(path)]
+	return ok
+}
+
+func (s pathSet) sorted() []string {
+	out := make([]string, 0, len(s))
+	for p := range s {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func cleanPaths(paths []string) []string {

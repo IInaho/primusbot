@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"reflect"
 	"testing"
 
 	"nekocode/bot/policy/semantics"
@@ -147,6 +148,20 @@ func TestFailedWriteDoesNotMarkFileAsKnownContent(t *testing.T) {
 	}
 }
 
+func TestFailedReadDoesNotMarkFileAsKnownContent(t *testing.T) {
+	l := New()
+	l.RecordTool(ToolEvent{
+		Name:      "read",
+		Args:      map[string]any{"path": "/tmp/missing.go"},
+		Error:     "not found",
+		Semantics: semantics.ClassifyToolCall("read", nil),
+	})
+
+	if l.WasRead("/tmp/missing.go") {
+		t.Fatal("failed read should not mark file as known content")
+	}
+}
+
 func TestLedgerRecordsBashReadPaths(t *testing.T) {
 	l := New()
 	l.RecordTool(ToolEvent{
@@ -227,6 +242,20 @@ func TestLedgerDoesNotRecordFailedEditAsModified(t *testing.T) {
 	}
 }
 
+func TestLedgerDoesNotRecordFailedBashAsModified(t *testing.T) {
+	l := New()
+	cmd := "touch marker.txt"
+	l.RecordTool(ToolEvent{
+		Name:      "bash",
+		Args:      map[string]any{"command": cmd},
+		Error:     "permission denied",
+		Semantics: semantics.ClassifyToolCall("bash", map[string]any{"command": cmd}),
+	})
+	if snap := l.Snapshot(); len(snap.ModifiedFiles) != 0 {
+		t.Fatalf("failed bash modified files = %+v, want none", snap.ModifiedFiles)
+	}
+}
+
 func TestLedgerIgnoresDeviceWritePaths(t *testing.T) {
 	l := New()
 	cmd := "go test ./... > /dev/null"
@@ -265,5 +294,20 @@ func TestLedgerSkipsChmodModeOperand(t *testing.T) {
 	snap := l.Snapshot()
 	if len(snap.ModifiedFiles) != 1 || snap.ModifiedFiles[0] != "main.go" {
 		t.Fatalf("modified files = %+v, want only main.go", snap.ModifiedFiles)
+	}
+}
+
+func TestSnapshotSortsPathSets(t *testing.T) {
+	l := New()
+	l.Restore(Snapshot{
+		ReadFiles:     []string{"z.go", "a.go"},
+		ModifiedFiles: []string{"b.go", "a.go"},
+	})
+	snap := l.Snapshot()
+	if !reflect.DeepEqual(snap.ReadFiles, []string{"a.go", "z.go"}) {
+		t.Fatalf("ReadFiles = %+v, want sorted", snap.ReadFiles)
+	}
+	if !reflect.DeepEqual(snap.ModifiedFiles, []string{"a.go", "b.go"}) {
+		t.Fatalf("ModifiedFiles = %+v, want sorted", snap.ModifiedFiles)
 	}
 }

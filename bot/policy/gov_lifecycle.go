@@ -4,12 +4,12 @@ import (
 	"nekocode/bot/hooks"
 )
 
-func (g *Manager) ResetTurnBetween(input string, quota QuotaData) {
+func (g *Manager) ResetTurnBetween(input string, quotaReads int) {
 	if g.HookReg == nil {
 		return
 	}
 	g.HookReg.ResetTurn()
-	g.HookReg.Set(hooks.StoreQuotaReads, int64(max(0, quota.MaxSlots-quota.Used)))
+	g.HookReg.Set(hooks.StoreQuotaReads, int64(max(0, quotaReads)))
 	g.HookReg.Set(hooks.StoreExploreScore, int64(g.Exploration.Score))
 	g.HookReg.SetStr(hooks.StoreStepInput, input)
 	g.HookReg.Set(hooks.StoreStepInputLen, int64(len([]rune(input))))

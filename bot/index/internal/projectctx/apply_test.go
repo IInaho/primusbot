@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	graphpkg "nekocode/bot/index/graph"
-	"nekocode/bot/index/service"
+	graphpkg "nekocode/bot/index/internal/graph"
+	"nekocode/bot/index/internal/service"
 )
 
 type fakeTarget struct {

@@ -7,8 +7,8 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
-	graphpkg "nekocode/bot/index/graph"
-	"nekocode/bot/index/treesitter"
+	graphpkg "nekocode/bot/index/internal/graph"
+	"nekocode/bot/index/internal/treesitter"
 )
 
 type Node = graphpkg.Node

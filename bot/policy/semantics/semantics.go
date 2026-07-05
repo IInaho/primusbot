@@ -1,6 +1,7 @@
 package semantics
 
 import (
+	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -20,7 +21,7 @@ type Semantics struct {
 
 func ClassifyToolCall(name string, args map[string]any) Semantics {
 	switch name {
-	case "read", "grep", "glob", "list", "tree", "project_info":
+	case "read", "grep", "glob", "list", "tree", "index":
 		return Semantics{Exploratory: true, SourceProducing: true}
 	case "web_search", "web_fetch":
 		return Semantics{Exploratory: true, SourceProducing: true, Network: true}
@@ -71,24 +72,16 @@ func classifyBash(args map[string]any) Semantics {
 func BashLooksExploratory(cmd string) bool {
 	scan := parseShell(cmd)
 	if scan.OK {
-		for _, call := range scan.Calls {
-			if callLooksExploratory(call) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(scan.Calls, callLooksExploratory)
 	}
 	cmd = strings.TrimSpace(strings.ToLower(cmd))
-	for _, p := range []string{
+	return slices.ContainsFunc([]string{
 		"ls", "cat ", "head ", "tail ", "less ", "more ", "wc ",
 		"find ", "fd ", "rg ", "grep ", "du ", "df ", "file ", "stat ",
 		"pwd", "git status", "git log", "git diff", "git show", "git blame",
-	} {
-		if cmd == p || strings.HasPrefix(cmd, p) {
-			return true
-		}
-	}
-	return false
+	}, func(p string) bool {
+		return cmd == p || strings.HasPrefix(cmd, p)
+	})
 }
 
 func bashVerificationTrust(calls []shellCall, parsed bool, fallback string) (trusted, projectRule bool) {
@@ -103,10 +96,12 @@ func bashVerificationTrust(calls []shellCall, parsed bool, fallback string) (tru
 		}
 		return trusted, projectRule
 	}
-	for _, p := range fallbackVerificationPrefixes {
-		if fallback == p || strings.HasPrefix(fallback, p+" ") || strings.HasPrefix(fallback, p+" ./") {
-			return !fallbackVerificationProjectRules[p], fallbackVerificationProjectRules[p]
-		}
+	i := slices.IndexFunc(fallbackVerificationPrefixes, func(p string) bool {
+		return fallback == p || strings.HasPrefix(fallback, p+" ") || strings.HasPrefix(fallback, p+" ./")
+	})
+	if i >= 0 {
+		p := fallbackVerificationPrefixes[i]
+		return !fallbackVerificationProjectRules[p], fallbackVerificationProjectRules[p]
 	}
 	return false, false
 }
@@ -116,26 +111,17 @@ func bashLooksMutating(scan shellScan, fallback string) bool {
 		if scan.HasWriteRedirect {
 			return true
 		}
-		for _, call := range scan.Calls {
-			if callLooksVerifying(call) {
-				continue
-			}
-			if callLooksMutating(call) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(scan.Calls, func(call shellCall) bool {
+			return !callLooksVerifying(call) && callLooksMutating(call)
+		})
 	}
 	trusted, projectRule := bashVerificationTrust(nil, false, fallback)
 	if trusted || projectRule {
 		return false
 	}
-	for _, p := range fallbackMutatingPrefixes {
-		if fallback == p || strings.HasPrefix(fallback, p) {
-			return true
-		}
-	}
-	return strings.Contains(fallback, " > ") || strings.Contains(fallback, " >> ")
+	return slices.ContainsFunc(fallbackMutatingPrefixes, func(p string) bool {
+		return fallback == p || strings.HasPrefix(fallback, p)
+	}) || strings.Contains(fallback, " > ") || strings.Contains(fallback, " >> ")
 }
 
 type shellCall struct {
@@ -236,9 +222,15 @@ func callVerificationTrust(call shellCall) (trusted, projectRule bool) {
 	case "mvn":
 		return false, hasFirstArg(call, "test", "verify", "check")
 	case "gradle", "./gradlew", "gradlew":
-		return false, hasAnyArg(call.Args, "test", "check", "build")
+		return false, slices.ContainsFunc(call.Args, func(arg string) bool {
+			return slices.Contains([]string{"test", "check", "build"}, arg)
+		})
 	case "timeout", "time", "env":
-		return wrappedCallVerificationTrust(call)
+		inner := unwrapShellCall(call)
+		if inner.Name == "" {
+			return false, false
+		}
+		return callVerificationTrust(inner)
 	default:
 		return false, false
 	}
@@ -251,18 +243,10 @@ func packageRunnerLooksVerifying(args []string, extraRunAliases ...string) bool 
 	if isVerificationScript(args[0]) {
 		return true
 	}
-	if args[0] == "run" || args[0] == "exec" || stringIn(args[0], extraRunAliases...) {
+	if args[0] == "run" || args[0] == "exec" || slices.Contains(extraRunAliases, args[0]) {
 		return len(args) > 1 && isVerificationScript(args[1])
 	}
 	return false
-}
-
-func wrappedCallVerificationTrust(call shellCall) (trusted, projectRule bool) {
-	inner := unwrapShellCall(call)
-	if inner.Name == "" {
-		return false, false
-	}
-	return callVerificationTrust(inner)
 }
 
 func unwrapShellCall(call shellCall) shellCall {
@@ -328,9 +312,13 @@ func callLooksMutating(call shellCall) bool {
 	case "mkdir", "touch", "cp", "mv", "rm", "rmdir", "chmod", "chown":
 		return true
 	case "tee":
-		return hasNonOptionArg(call.Args)
+		return slices.ContainsFunc(call.Args, func(arg string) bool {
+			return arg != "" && !strings.HasPrefix(arg, "-")
+		})
 	case "sed":
-		return hasAnyArgPrefix(call.Args, "-i")
+		return slices.ContainsFunc(call.Args, func(arg string) bool {
+			return strings.HasPrefix(arg, "-i")
+		})
 	case "perl":
 		return perlLooksInPlace(call.Args)
 	case "git":
@@ -356,48 +344,16 @@ func hasFirstArg(call shellCall, values ...string) bool {
 	if len(call.Args) == 0 {
 		return false
 	}
-	return stringIn(call.Args[0], values...)
-}
-
-func hasAnyArg(args []string, values ...string) bool {
-	for _, arg := range args {
-		if stringIn(arg, values...) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasAnyArgPrefix(args []string, prefixes ...string) bool {
-	for _, arg := range args {
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(arg, prefix) {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.Contains(values, call.Args[0])
 }
 
 func perlLooksInPlace(args []string) bool {
-	for _, arg := range args {
+	return slices.ContainsFunc(args, func(arg string) bool {
 		if arg == "-i" || strings.HasPrefix(arg, "-i") {
 			return true
 		}
-		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(arg[1:], "i") {
-			return true
-		}
-	}
-	return false
-}
-
-func hasNonOptionArg(args []string) bool {
-	for _, arg := range args {
-		if arg != "" && !strings.HasPrefix(arg, "-") {
-			return true
-		}
-	}
-	return false
+		return strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(arg[1:], "i")
+	})
 }
 
 func hasArgSequence(args []string, seq ...string) bool {
@@ -420,21 +376,9 @@ func hasArgSequence(args []string, seq ...string) bool {
 }
 
 func isVerificationScript(s string) bool {
-	for _, prefix := range []string{"test", "tests", "lint", "check", "verify", "typecheck"} {
-		if s == prefix || strings.HasPrefix(s, prefix+":") || strings.HasPrefix(s, prefix+"-") {
-			return true
-		}
-	}
-	return stringIn(s, "build", "ci", "tsc", "vitest", "jest", "mocha", "eslint")
-}
-
-func stringIn(s string, values ...string) bool {
-	for _, v := range values {
-		if s == v {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{"test", "tests", "lint", "check", "verify", "typecheck"}, func(prefix string) bool {
+		return s == prefix || strings.HasPrefix(s, prefix+":") || strings.HasPrefix(s, prefix+"-")
+	}) || slices.Contains([]string{"build", "ci", "tsc", "vitest", "jest", "mocha", "eslint"}, s)
 }
 
 var fallbackVerificationPrefixes = []string{

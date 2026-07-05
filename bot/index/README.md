@@ -122,15 +122,15 @@ bot.go New()
 │   └── ctxMgr.Add("system", skeleton)        ← 注入项目概览到系统提示
 │
 └── initToolRegistry()
-    └── toolRegistry.Register(ProjectInfoTool) ← 注册 project_info tool
+    └── toolRegistry.Register(IndexTool) ← 注册 index tool
 ```
 
 ### 查询流程
 
 ```
-Agent 调用 project_info tool
+Agent 调用 index tool
 │
-└── ProjectInfoTool.Execute(query)
+└── IndexTool.Execute(query)
     ├── "skeleton"      → graph.FormatSkeleton(cwd)
     │                     输出: <project><language>go</language>...
     │
@@ -174,26 +174,30 @@ Agent 调用 project_info tool
 
 ```
 bot/index/
-├── graph/          # 图模型、变更、查询、骨架格式化
-├── db/             # SQLite schema、持久化、图加载、FTS5 搜索
-├── parser/         # Tree-sitter 解析引擎，提取符号和关系
-├── indexer/        # 索引编排：扫描、缓存判定、增量更新、引用解析
-├── service/        # 入口管理器，协调各组件，项目根目录探测
-├── syncer/         # 增量同步（fsnotify 监听 + 防抖）
-├── projecttool/    # project_info tool 接口层
-└── projectctx/     # NEKOCODE.md 项目上下文发现与 include 展开
+├── index.go        # 公开接口：Manager、Apply、查询 DTO
+└── internal/       # 内部实现，不对 index 外部包暴露
+    ├── graph/      # 图模型、变更、查询、骨架格式化
+    ├── db/         # SQLite schema、持久化、图加载、FTS5 搜索
+    ├── parser/     # Tree-sitter 解析引擎，提取符号和关系
+    ├── indexer/    # 索引编排：扫描、缓存判定、增量更新、引用解析
+    ├── service/    # 入口管理器，协调各组件，项目根目录探测
+    ├── syncer/     # 增量同步（fsnotify 监听 + 防抖）
+    └── projectctx/ # NEKOCODE.md 项目上下文发现与 include 展开
+
+bot/tools/builtin/index/
+└── tool.go         # index tool，依赖 bot/index 公开接口
 ```
 
 ## 使用
 
 ```go
 import (
-    "nekocode/bot/index/projecttool"
-    "nekocode/bot/index/service"
+    "nekocode/bot/index"
+    indextool "nekocode/bot/tools/builtin/index"
 )
 
 // 创建并初始化
-mgr, err := service.NewManager(cwd)
+mgr, err := index.NewManager(cwd)
 if err != nil {
     log.Fatal(err)
 }
@@ -202,29 +206,26 @@ if err := mgr.Init(); err != nil {
 }
 defer mgr.Close()
 
-// 获取图
-graph := mgr.Graph()
-
 // 查询符号
-symbols := graph.QuerySymbol("HandleRequest")
+symbols := mgr.QuerySymbol("HandleRequest")
 
 // 查询依赖
-deps := graph.QueryDeps("myproject/handler")
+deps := mgr.QueryDeps("myproject/handler")
 
 // 全文搜索（需要 FTS5）
-nodes, _ := mgr.Indexer().SearchFTS("http", 10)
+nodes, _ := mgr.Search("http", 10)
 
 // 格式化项目概览
-skeleton := graph.FormatSkeleton(cwd)
+skeleton := mgr.Skeleton()
 
 // 注册为 tool
-tool := projecttool.NewProjectInfoTool(mgr)
+tool := indextool.NewIndexTool(mgr)
 registry.Register(tool)
 ```
 
 ## Tool 查询语法
 
-`project_info` tool 支持以下查询：
+`index` tool 支持以下查询：
 
 | 查询 | 示例 | 说明 |
 |------|------|------|

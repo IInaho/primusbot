@@ -12,6 +12,7 @@ import (
 	"nekocode/bot/hooks/builtin"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
+	"nekocode/bot/policy/ledger"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
@@ -99,10 +100,10 @@ func TestFilterToolCallsReadBeforeWriteBlockComesFromHook(t *testing.T) {
 func TestFilterToolCallsAllowsEditAfterSuccessfulWrite(t *testing.T) {
 	host := newFakeHost()
 	path := filepath.Join(t.TempDir(), "main.go")
-	host.gov.RecordToolCall(aggov.ToolCallInfo{
+	host.gov.RecordToolCall(ledger.ToolEvent{
 		Name: "write",
 		Args: map[string]any{"path": path},
-	}, false, "")
+	})
 
 	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
 		{Name: "edit", Args: map[string]any{"path": path, "oldString": "package main\n", "newString": "package main\n\nfunc main() {}\n"}},

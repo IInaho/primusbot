@@ -54,7 +54,7 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 - **Agent 治理层**：Ledger 全记录 + 语义分类器 + 探索预算追踪
 
 ### 🔧 工具系统
-- 16 内置 + 条件/动态注册（read / write / edit / list / tree / glob / grep / diff / bash / web_search / web_fetch / task / todo_write / question / project_info / image_gen）
+- 16 内置 + 条件/动态注册（read / write / edit / list / tree / glob / grep / diff / bash / web_search / web_fetch / task / todo_write / question / index / image_gen）
 - 统一权限引擎（内置规则 + 用户声明 + 记住授权）
 - oldString/newString 内容锚定编辑 + gofmt 自动检查
 - Web 搜索/抓取、图片生成、代码索引

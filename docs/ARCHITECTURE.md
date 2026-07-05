@@ -23,7 +23,7 @@ bot/
 ├── hooks/               # Hook 事件系统：内置策略与插件声明式 hooks
 ├── extension/           # plugin、skill、mcp 扩展实现与管理
 ├── agent/subagent/      # 子 Agent 执行引擎
-├── index/               # 代码索引服务和 project_info tool
+├── index/               # 代码索引公开接口和内部实现
 ├── command/             # slash command 注册和生命周期命令
 ├── session/             # 会话持久化
 ├── prompt/              # system/plan prompt 构建
@@ -237,40 +237,16 @@ nekocode/
 │   │       ├── tool_skill.go       #       技能工具注册
 │   │       └── bundled/            #       内置技能（go:embed）
 │   ├── index/                      #   代码索引
-│   │   ├── db/                     #     SQLite 持久化
-│   │   │   ├── db.go               #       DB 连接
-│   │   │   ├── schema.go           #       Schema
-│   │   │   ├── nodes.go            #       节点操作
-│   │   │   ├── files.go            #       文件操作
-│   │   │   ├── graph_load.go       #       图加载
-│   │   │   └── search.go           #       FTS5 搜索
-│   │   ├── graph/                  #     图数据结构
-│   │   │   ├── graph.go            #       Node / Edge / Graph
-│   │   │   ├── types.go            #       类型定义
-│   │   │   ├── lookup.go           #       查询接口
-│   │   │   ├── mutate.go           #       变更操作
-│   │   │   ├── language.go         #       语言支持
-│   │   │   └── format.go           #       格式化
-│   │   ├── indexer/                #     索引编排
-│   │   │   ├── indexer.go          #       全量扫描
-│   │   │   ├── walk.go             #       目录遍历
-│   │   │   ├── references.go       #       跨文件引用解析
-│   │   │   ├── search.go           #       搜索
-│   │   │   ├── file_update.go      #       文件更新
-│   │   │   ├── policy.go           #       策略
-│   │   │   └── stale.go            #       过期检测
-│   │   ├── parser/                 #     Tree-sitter 解析
-│   │   │   └── parser.go           #       解析引擎
-│   │   ├── projectctx/             #     项目上下文
-│   │   │   └── project.go          #       NEKOCODE.md 发现
-│   │   ├── projecttool/            #     project_info 工具
-│   │   │   └── tool.go             #       NewProjectInfoTool
-│   │   ├── service/                #     服务层
-│   │   │   └── manager.go          #       Manager
-│   │   └── syncer/                 #     增量同步
-│   │       └── syncer.go           #       fsnotify 监听 + 防抖
-│   ├── treesitter/                 #   Tree-sitter 语言支持
-│   │   └── langs.go                #     语言注册 + 查询定义
+│   │   ├── index.go                #     Manager interface + Apply
+│   │   └── internal/               #     索引内部实现
+│   │       ├── db/                 #       SQLite 持久化 + FTS5 搜索
+│   │       ├── graph/              #       图数据结构、查询、格式化
+│   │       ├── indexer/            #       扫描、缓存判定、增量更新
+│   │       ├── parser/             #       Tree-sitter 解析
+│   │       ├── projectctx/         #       NEKOCODE.md 发现
+│   │       ├── service/            #       服务层
+│   │       ├── syncer/             #       fsnotify 监听 + 防抖
+│   │       └── treesitter/         #       语言注册 + 查询定义
 │   ├── prompt/                     #   System Prompt 构建
 │   │   ├── system/                 #     System Prompt 子模块
 │   │   │   ├── builder.go          #       构建器
@@ -296,7 +272,6 @@ nekocode/
 │   ├── policy/                    #   策略系统
 │   │   ├── gov.go                 #     Manager（HookReg + Ledger + Exploration）
 │   │   ├── gov_lifecycle.go       #     生命周期（Reset/ResetTurn/ResetSession）
-│   │   ├── gov_observability.go   #     可观测性
 │   │   ├── gov_record.go          #     事件记录
 │   │   ├── ledger/                #     工具执行账本
 │   │   ├── budget/                #     探索预算与工具配额
@@ -452,10 +427,10 @@ type UI interface {
 ```
 New()
   ├── initConfig()        → config.Load() + prompt/system.NewBuilder()
-  ├── initCtxMgr()        → contextmgr.New() + projectctx.Apply()
+  ├── initCtxMgr()        → contextmgr.New() + index.Apply()
   ├── initSession()       → session.Manager facade
   └── reinit()
-      ├── initToolRegistry()     → catalog.RegisterAll() + projecttool（条件注册）
+      ├── initToolRegistry()     → catalog.RegisterAll() + index tool（条件注册）
       ├── initHooks()            → builtin.Register()
       ├── extension.InitPlugins()
       ├── extension.InitConfigMCPServers()
@@ -582,7 +557,7 @@ type Tool interface {
 
 ### 工具注册
 
-`bot/tools/catalog/register.go` 中的 `RegisterAll()` 注册所有内置工具（bash/read/write/list/tree/glob/edit/grep/web_search/web_fetch/todo_write/task）。`image_gen` 在 `RegisterAll` 中条件注册（需要 imageGenModels 非空），`project_info` 在 `bot/app/init_tools.go` 中条件注册（需要 indexMgr 可用），`skill` 在 `bot/app/plugin.go` 中动态注册。
+`bot/tools/catalog/register.go` 中的 `RegisterAll()` 注册所有内置工具（bash/read/write/list/tree/glob/edit/grep/web_search/web_fetch/todo_write/task）。`image_gen` 在 `RegisterAll` 中条件注册（需要 imageGenModels 非空），`index` 在 `bot/app/init_tools.go` 中条件注册（需要 indexMgr 可用），`skill` 在 `bot/app/plugin.go` 中动态注册。
 
 ### 内置工具
 
@@ -602,7 +577,7 @@ type Tool interface {
 | task | Parallel | Safe | `tools/tasktool/` |
 | todo_write | Sequential | Safe | `tools/todo/` |
 | tree | Parallel | Safe | `tools/filesystem/tree/` |
-| project_info | Parallel | Safe（条件注册） | `bot/index/projecttool/` |
+| index | Parallel | Safe（条件注册） | `bot/tools/builtin/index/` |
 | image_gen | Sequential | Safe（条件注册） | `tools/media/` |
 | skill | Parallel | Safe（动态注册） | `bot/extension/skill/` |
 
@@ -835,7 +810,7 @@ Model
 | Hook 系统 | `bot/hooks/` | 事件驱动（5 种触发点）+ 声明式（plugin/） |
 | 内置 Hook | `bot/hooks/builtin/` | 10 个内置 Hook 实现 |
 | 声明式 Hook | `bot/hooks/plugin/` | JSON 配置驱动 Hook |
-| Tree-sitter | `bot/index/treesitter/` | 多语言解析器注册 + AST 查询 |
+| Tree-sitter | `bot/index/internal/treesitter/` | 多语言解析器注册 + AST 查询 |
 | 代码索引 | `bot/index/` | SQLite + FTS5 + Tree-sitter 代码索引 |
 | 命令系统 | `bot/command/` | 斜杠命令解析 |
 | 调试日志 | `bot/debug/` | 全局 debug.Log（时间戳 + subagent 标签） |

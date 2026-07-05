@@ -33,6 +33,7 @@ func (t *BashTool) Description() string {
 		"\"fs.write.cache\" (package manager caches like ~/.npm, ~/go/pkg/mod, ~/.cargo), " +
 		"\"fs.write.path\" (workspace-external writable directories, use with `write_paths`), " +
 		"\"process.host\" (completely unsandboxed host execution — use ONLY when the sandbox cannot satisfy the command, e.g. needs TTY or Docker socket; prompts every time). " +
+		"Do not ask the user in chat before requesting a capability; set capabilities on the bash tool call and let the permission UI handle approval. " +
 		"If a command fails inside the sandbox, read the error (e.g. 'Network is unreachable' → declare net.outbound; 'Read-only file system' → declare fs.write.path with write_paths) and retry with the appropriate capabilities."
 }
 
@@ -43,6 +44,7 @@ func (t *BashTool) Parameters() []core.Parameter {
 			Description: "Capabilities to authorize for this command. Each opens a specific sandbox boundary: " +
 				"net.outbound (outbound network), fs.write.cache (package manager caches), " +
 				"fs.write.path (extra writable dirs, use with write_paths), process.host (unsandboxed host execution). " +
+				"Use this parameter directly when a command needs approval; do not ask in chat first. " +
 				"Omit for default sandbox (no network, workspace-only writes)."},
 		{Name: "write_paths", Type: "array", Required: false,
 			Description: "Extra writable directories outside the workspace (absolute paths or ~/-prefixed). " +

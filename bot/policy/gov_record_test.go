@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"nekocode/bot/hooks"
+	"nekocode/bot/policy/ledger"
 )
 
 func TestGovRecordToolCallUpdatesResearcherAndMutationHooks(t *testing.T) {
@@ -25,14 +26,14 @@ func TestGovRecordToolCallUpdatesResearcherAndMutationHooks(t *testing.T) {
 		},
 	})
 
-	g.RecordToolCall(ToolCallInfo{
+	g.RecordToolCall(ledger.ToolEvent{
 		Name: "task",
 		Args: map[string]any{"type": "researcher"},
-	}, false, "")
-	g.RecordToolCall(ToolCallInfo{
+	})
+	g.RecordToolCall(ledger.ToolEvent{
 		Name: "write",
 		Args: map[string]any{"path": "x.go"},
-	}, false, "")
+	})
 
 	g.HookReg.Evaluate(hooks.PreTurn, "", false)
 }
@@ -49,13 +50,13 @@ func TestGovRecordToolCallDoesNotMarkFailedOrBlockedEditAsEditProgress(t *testin
 		},
 	})
 
-	g.RecordToolCall(ToolCallInfo{Name: "edit", Args: map[string]any{"path": "x.go"}, Error: "anchor not found"}, false, "")
+	g.RecordToolCall(ledger.ToolEvent{Name: "edit", Args: map[string]any{"path": "x.go"}, Error: "anchor not found"})
 	g.HookReg.Evaluate(hooks.PreTurn, "", false)
 	if hasEdits != 0 {
 		t.Fatalf("failed edit has_edits=%d, want 0", hasEdits)
 	}
 
-	g.RecordToolCall(ToolCallInfo{Name: "write", Args: map[string]any{"path": "x.go"}}, true, "blocked")
+	g.RecordToolCall(ledger.ToolEvent{Name: "write", Args: map[string]any{"path": "x.go"}, Blocked: true, BlockText: "blocked"})
 	g.HookReg.Evaluate(hooks.PreTurn, "", false)
 	if hasEdits != 0 {
 		t.Fatalf("blocked write has_edits=%d, want 0", hasEdits)
@@ -65,6 +66,6 @@ func TestGovRecordToolCallDoesNotMarkFailedOrBlockedEditAsEditProgress(t *testin
 func TestGovRecordToolCallMarksCurrentTurnProgressForSuccessfulEvidence(t *testing.T) {
 	g := NewManager(hooks.NewRegistry())
 
-	g.RecordToolCall(ToolCallInfo{Name: "read", Args: map[string]any{"path": "x.go"}, Output: "content"}, false, "")
+	g.RecordToolCall(ledger.ToolEvent{Name: "read", Args: map[string]any{"path": "x.go"}, Output: "content"})
 	g.HookReg.Evaluate(hooks.PreTurn, "", false)
 }

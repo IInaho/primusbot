@@ -3,7 +3,7 @@
 package treesitter
 
 import (
-	"nekocode/bot/index/treesitter/languages"
+	"nekocode/bot/index/internal/treesitter/languages"
 )
 
 // Languages maps file extensions to their tree-sitter language objects.

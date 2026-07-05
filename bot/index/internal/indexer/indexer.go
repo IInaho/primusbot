@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	dbpkg "nekocode/bot/index/db"
-	graphpkg "nekocode/bot/index/graph"
-	parserpkg "nekocode/bot/index/parser"
+	dbpkg "nekocode/bot/index/internal/db"
+	graphpkg "nekocode/bot/index/internal/graph"
+	parserpkg "nekocode/bot/index/internal/parser"
 )
 
 type DB = dbpkg.DB

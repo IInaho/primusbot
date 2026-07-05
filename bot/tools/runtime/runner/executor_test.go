@@ -131,16 +131,21 @@ type permissionTool struct {
 	fakeTool
 	privilegedCalls int
 	wrapError       bool
+	req             core.PermissionRequest
 }
 
 func (t *permissionTool) Execute(context.Context, map[string]any) (string, error) {
-	err := testPermissionError{req: core.PermissionRequest{
-		Reason:       "needs network",
-		Capabilities: []string{core.CapNetOutbound},
-		Details: map[string]any{
-			"workspace": "/repo",
-		},
-	}}
+	req := t.req
+	if len(req.Capabilities) == 0 {
+		req = core.PermissionRequest{
+			Reason:       "needs network",
+			Capabilities: []string{core.CapNetOutbound},
+			Details: map[string]any{
+				"workspace": "/repo",
+			},
+		}
+	}
+	err := testPermissionError{req: req}
 	if t.wrapError {
 		return "", fmt.Errorf("sandbox rejected command: %w", err)
 	}
@@ -312,5 +317,48 @@ func TestExecutorPermissionRememberPersistsGrant(t *testing.T) {
 	}
 	if _, ok := store.Match("bash", req); !ok {
 		t.Fatal("remembered permission should persist grant")
+	}
+}
+
+func TestExecutorPermissionErrorTellsBashToDeclareCapabilities(t *testing.T) {
+	tool := &permissionTool{
+		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		req: core.PermissionRequest{
+			Reason:       "needs host",
+			Capabilities: []string{core.CapProcessHost},
+		},
+	}
+	e := NewExecutor(fakeRegistry{"bash": tool})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash", Args: map[string]any{"command": "npm run dev"}}})[0]
+
+	if !strings.Contains(got.Error, `retry the bash call with capabilities ["process.host"]`) {
+		t.Fatalf("error = %q", got.Error)
+	}
+}
+
+func TestExecutorPermissionErrorExplainsMissingApprovalForDeclaredCapabilities(t *testing.T) {
+	tool := &permissionTool{
+		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		req: core.PermissionRequest{
+			Reason:       "needs host",
+			Capabilities: []string{core.CapProcessHost},
+		},
+	}
+	e := NewExecutor(fakeRegistry{"bash": tool})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID:   "1",
+		Name: "bash",
+		Args: map[string]any{
+			"command":      "npm run dev",
+			"capabilities": []any{core.CapProcessHost},
+		},
+	}})[0]
+
+	if !strings.Contains(got.Error, "already requested capabilities") || !strings.Contains(got.Error, "no approval was granted") {
+		t.Fatalf("error = %q", got.Error)
 	}
 }

@@ -2,6 +2,9 @@ package list
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"nekocode/bot/tools/builtin/filesystem/testutil"
@@ -9,6 +12,9 @@ import (
 
 func TestListTool(t *testing.T) {
 	td := testutil.SetupTemp(t)
+	if err := os.WriteFile(filepath.Join(td, ".env"), []byte("TOKEN=x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	l := &ListTool{}
 
 	out, err := l.Execute(context.Background(), map[string]any{"path": td})
@@ -17,6 +23,9 @@ func TestListTool(t *testing.T) {
 	}
 	if out == "" {
 		t.Error("expected directory listing")
+	}
+	if !strings.Contains(out, ".env") {
+		t.Fatalf("expected hidden file in listing, got:\n%s", out)
 	}
 
 	_, err = l.Execute(context.Background(), nil)
