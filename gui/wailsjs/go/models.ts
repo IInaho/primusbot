@@ -356,10 +356,27 @@ export namespace config {
 	        this.protocol = source["protocol"];
 	    }
 	}
+	export class SandboxConfig {
+	    sandbox_mode?: string;
+	    network?: boolean;
+	    writable_roots?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sandbox_mode = source["sandbox_mode"];
+	        this.network = source["network"];
+	        this.writable_roots = source["writable_roots"];
+	    }
+	}
 	export class PermissionsConfig {
 	    allow?: string[];
 	    ask?: string[];
 	    deny?: string[];
+	    sandbox?: Record<string, SandboxConfig>;
 	
 	    static createFrom(source: any = {}) {
 	        return new PermissionsConfig(source);
@@ -370,8 +387,43 @@ export namespace config {
 	        this.allow = source["allow"];
 	        this.ask = source["ask"];
 	        this.deny = source["deny"];
+	        this.sandbox = this.convertValues(source["sandbox"], SandboxConfig, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class WorkspaceConfig {
+	    path: string;
+	    access?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.access = source["access"];
 	    }
 	}
+	
 	export class View {
 	    path: string;
 	    exists: boolean;
@@ -382,6 +434,7 @@ export namespace config {
 	    image_gen_models?: ImageGenConfig[];
 	    mcp_servers?: Record<string, MCPServerConfig>;
 	    permissions?: PermissionsConfig;
+	    workspaces?: WorkspaceConfig[];
 	
 	    static createFrom(source: any = {}) {
 	        return new View(source);
@@ -398,6 +451,7 @@ export namespace config {
 	        this.image_gen_models = this.convertValues(source["image_gen_models"], ImageGenConfig);
 	        this.mcp_servers = this.convertValues(source["mcp_servers"], MCPServerConfig, true);
 	        this.permissions = this.convertValues(source["permissions"], PermissionsConfig);
+	        this.workspaces = this.convertValues(source["workspaces"], WorkspaceConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -445,4 +499,3 @@ export namespace session {
 	}
 
 }
-

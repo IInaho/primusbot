@@ -189,8 +189,6 @@ func hookTrigger(name string, snap *Snapshot) string {
 	case "tool_result_guardrail":
 		return fmt.Sprintf("tool_results=%d last_warned=%d threshold=40 interval=10",
 			snap.get(StoreToolResultCount), snap.get(CounterToolResultWarned))
-	case "bash_ls_guardrail":
-		return "command=" + quoteArg(snap.Args["command"])
 	case "quota":
 		return fmt.Sprintf("reads_left=%d last_warned=%d", snap.get(StoreQuotaReads), snap.get(CounterQuotaWarned))
 	case "read_only_spiral":

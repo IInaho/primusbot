@@ -26,10 +26,16 @@ function ConfirmDialog({
 
   const allowWithPermission = entry.can_escalate === true
   const options: { label: string; ok: boolean; remember: boolean; allowWithPermission?: boolean }[] = [
-    { label: allowWithPermission ? '仅本次允许并授权' : '仅本次允许', ok: true, remember: false, allowWithPermission },
+    { label: '仅本次允许', ok: true, remember: false },
   ]
   if (canRemember) {
-    options.push({ label: allowWithPermission ? '始终允许并授权' : '始终允许', ok: true, remember: true, allowWithPermission })
+    options.push({ label: '始终允许', ok: true, remember: true })
+  }
+  if (allowWithPermission) {
+    options.push({ label: '仅本次允许并授权', ok: true, remember: false, allowWithPermission: true })
+    if (canRemember) {
+      options.push({ label: '始终允许并授权', ok: true, remember: true, allowWithPermission: true })
+    }
   }
   options.push({ label: '拒绝', ok: false, remember: false })
 
@@ -58,8 +64,8 @@ function ConfirmDialog({
     return () => window.removeEventListener('keydown', handler)
   }, [selected, options.length])
 
-  const handle = (ok: boolean, remember = false) => {
-    safeReplyConfirm(entry.id, ok, remember, ok && allowWithPermission)
+  const handle = (ok: boolean, remember = false, withPermission = false) => {
+    safeReplyConfirm(entry.id, ok, remember, ok && withPermission)
     onDone()
   }
 
@@ -152,7 +158,7 @@ function ConfirmDialog({
               <button
                 key={opt.label}
                 type="button"
-                onClick={() => handle(opt.ok, opt.remember)}
+                onClick={() => handle(opt.ok, opt.remember, opt.allowWithPermission === true)}
                 className={`h-9 w-full justify-center text-[13px] ${i === selected ? 'ring-2 ring-primary/60' : ''} ${
                   !opt.ok
                     ? 'secondary-button'

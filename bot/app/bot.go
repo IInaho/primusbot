@@ -18,6 +18,9 @@ import (
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
 	indextool "nekocode/bot/tools/builtin/index"
+	"nekocode/bot/tools/builtin/shell"
+	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/tools/runtime/workspace"
 	"nekocode/common"
 )
 
@@ -45,6 +48,7 @@ type botCore struct {
 type botRuntime struct {
 	ag           *runtime.Agent
 	toolRegistry *tools.Registry
+	bgTool       *shell.BgTool
 	hookReg      *hooks.Registry
 }
 
@@ -99,6 +103,7 @@ func (b *Bot) reinit() {
 	// against the session workspace rather than the process cwd (which differs
 	// in tests and may differ after /cd).
 	os.Setenv("NEKOCODE_WORKSPACE", b.cwd)
+	workspace.Configure(b.cwd, b.configuredWorkspaceRoots())
 	b.ext = newExtensionFacade(b.ctxMgr, b.toolRegistry, b.hookReg, b.cfg.ContextWindow)
 	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.projCtx, b.cfg.ContextWindow)
 	b.ext.InitPlugins()
@@ -109,13 +114,39 @@ func (b *Bot) reinit() {
 	b.initCommands()
 }
 
+func (b *Bot) configuredWorkspaceRoots() []workspace.Root {
+	var roots []workspace.Root
+	if b.cfg != nil {
+		for _, r := range b.cfg.Workspaces {
+			access := workspace.Access(r.Access)
+			if access == "" {
+				access = workspace.AccessReadOnly
+			}
+			roots = append(roots, workspace.Root{Path: r.Path, Access: access})
+		}
+	}
+	for _, r := range permission.NewStore(b.cwd).WorkspaceRoots() {
+		roots = append(roots, workspace.Root{Path: r.Path, Access: workspace.Access(r.Access)})
+	}
+	return roots
+}
+
 func (b *Bot) initSummarizer() {
 	b.ctxMgr.CM.Summarizer = ctxmgr.MakeSummarizer(b.ctxMgr.CM.CancelCtx, b.ctxMgr.MergeClient)
 }
 
 func (b *Bot) initToolRegistry() {
+	if b.bgTool != nil {
+		b.bgTool.Shutdown()
+		b.bgTool = nil
+	}
 	b.toolRegistry = tools.NewRegistry()
 	catalog.RegisterAll(b.toolRegistry, b.cfg.ImageGenModels)
+	if t, err := b.toolRegistry.Get("bg"); err == nil {
+		if bg, ok := t.(*shell.BgTool); ok {
+			b.bgTool = bg
+		}
+	}
 
 	if b.indexMgr != nil {
 		b.toolRegistry.Register(indextool.NewIndexTool(b.indexMgr))

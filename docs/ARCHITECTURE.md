@@ -196,7 +196,7 @@ nekocode/
 │   │   ├── plugin.go               #     LoadPluginHooks（声明式 hooks）
 │   │   ├── builtin/                #     内置 Hook 实现
 │   │   │   ├── all.go              #       All() 列表
-│   │   │   ├── register.go         #       Register（10 个内置 Hook）
+│   │   │   ├── register.go         #       Register（9 个内置 Hook）
 │   │   │   ├── quota_rules.go      #       QuotaHook
 │   │   │   ├── tool_rules.go       #       工具安全与工具结果 guardrail
 │   │   │   ├── exploration_rules.go#       探索预算与探索防护
@@ -660,7 +660,7 @@ CounterStallTurns    = "counter:stall_turns"
 PolicyExploreExhausted="policy:explore_exhausted"
 ```
 
-### 内置 Hook（10 个）
+### 内置 Hook（9 个）
 
 | Hook | Point | 功能 |
 |------|-------|------|
@@ -673,7 +673,6 @@ PolicyExploreExhausted="policy:explore_exhausted"
 | explore_cascade | PostTool | 本轮启动 ≥4 个 researcher 时提醒综合信息 |
 | progress_stall | PostTool | 连续多轮无进展后提醒推进或报告阻塞 |
 | garbled_circuit_breaker | PostTurn | 累计 5 次 garbled 工具调用则强制停止 |
-| final_check | PostTurn | 最终回答前检查验证、错误披露和测试声明 |
 
 ## Plugin 系统
 
@@ -808,7 +807,7 @@ Model
 | MCP 客户端 | `bot/extension/mcp/` | JSON-RPC 2.0 |
 | Skill 系统 | `bot/extension/skill/` | manager + 管理快照 + YAML 技能加载 |
 | Hook 系统 | `bot/hooks/` | 事件驱动（5 种触发点）+ 声明式（plugin/） |
-| 内置 Hook | `bot/hooks/builtin/` | 10 个内置 Hook 实现 |
+| 内置 Hook | `bot/hooks/builtin/` | 9 个内置 Hook 实现 |
 | 声明式 Hook | `bot/hooks/plugin/` | JSON 配置驱动 Hook |
 | Tree-sitter | `bot/index/internal/treesitter/` | 多语言解析器注册 + AST 查询 |
 | 代码索引 | `bot/index/` | SQLite + FTS5 + Tree-sitter 代码索引 |

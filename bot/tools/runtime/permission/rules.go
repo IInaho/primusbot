@@ -63,8 +63,9 @@ type SpecifierMatcher interface {
 
 // Engine evaluates permission rules for tool calls.
 type Engine struct {
-	matchers map[string]SpecifierMatcher
-	rules    []Rule // ordered; evaluation is deny→ask→allow within the matched tool
+	matchers     map[string]SpecifierMatcher
+	rules        []Rule // ordered; evaluation is deny→ask→allow within the matched tool
+	sandboxRules []SandboxRule
 }
 
 // NewEngine creates an engine with the given matchers (tool name → matcher).
@@ -76,6 +77,37 @@ func NewEngine(matchers map[string]SpecifierMatcher) *Engine {
 // Evaluate applies the deny→ask→allow precedence across them.
 func (e *Engine) SetRules(rules []Rule) {
 	e.rules = rules
+}
+
+// SetSandboxRules replaces the sandbox profile rule set. Sandbox rules never
+// decide allow/ask/deny; callers use them only to attach an explicit sandbox
+// request to a matching shell command before normal permission evaluation.
+func (e *Engine) SetSandboxRules(rules []SandboxRule) {
+	e.sandboxRules = rules
+}
+
+// SandboxFor returns the most specific sandbox profile matching a tool call.
+func (e *Engine) SandboxFor(toolName string, callInfo map[string]any) (SandboxProfile, bool) {
+	var best SandboxRule
+	bestScore := -1
+	for _, sr := range e.sandboxRules {
+		if !e.ruleApplies(sr.Rule, toolName, callInfo) {
+			continue
+		}
+		score := sandboxRuleSpecificity(sr.Rule)
+		if score > bestScore {
+			best = sr
+			bestScore = score
+		}
+	}
+	if bestScore >= 0 {
+		return best.Profile, true
+	}
+	return SandboxProfile{}, false
+}
+
+func sandboxRuleSpecificity(r Rule) int {
+	return len(strings.TrimSpace(r.Specifier))*2 + len(strings.TrimSpace(r.Tool))
 }
 
 // Decision is the outcome of evaluating a call.
@@ -146,15 +178,32 @@ func (e *Engine) evaluateBashAllowCoverage(toolName string, callInfo map[string]
 	if len(subcmds) <= 1 {
 		return Decision{}, false
 	}
+	// Bare "allow Bash" rules (empty specifier) match every command. Such a
+	// rule — user-declared or builtin — covers all subcommands; without this
+	// branch a declared "Bash" allow silently failed to cover compound
+	// commands, leaving the engine to fall through to builtin ask rules and
+	// re-prompting the user for a call the user had already allowed as a
+	// whole.
+	var bareAllow *Rule
 	var allowRules []Rule
 	for _, r := range e.rules {
-		if r.Effect != EffectAllow || !toolNameMatches(r.Tool, toolName) || r.Specifier == "" {
+		if r.Effect != EffectAllow || !toolNameMatches(r.Tool, toolName) {
 			continue
 		}
 		if builtinOnly != r.isBuiltin() {
 			continue
 		}
+		if r.Specifier == "" {
+			if bareAllow == nil {
+				rr := r
+				bareAllow = &rr
+			}
+			continue
+		}
 		allowRules = append(allowRules, r)
+	}
+	if bareAllow != nil {
+		return Decision{Effect: EffectAllow, Rule: *bareAllow}, true
 	}
 	if !builtinOnly {
 		for _, r := range e.rules {

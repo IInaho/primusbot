@@ -7,6 +7,7 @@ import (
 
 	"nekocode/bot/tools/builtin/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type ReadTool struct {
@@ -33,12 +34,16 @@ func (t *ReadTool) Execute(ctx context.Context, args map[string]any) (string, er
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToLower(filepath.Ext(path)) {
+	safePath, err := toolutil.ValidatePathReadable(path)
+	if err != nil {
+		return "", err
+	}
+	switch strings.ToLower(filepath.Ext(safePath)) {
 	case ".png", ".jpg", ".jpeg", ".gif":
-		return t.readImage(path)
+		return t.readImage(safePath)
 	case ".pdf":
-		return t.readPDF(path)
+		return t.readPDF(safePath)
 	default:
-		return t.readTextCached(ctx, path, args)
+		return t.readTextCached(ctx, safePath, args)
 	}
 }

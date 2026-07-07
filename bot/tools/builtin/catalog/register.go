@@ -20,6 +20,7 @@ import (
 
 func RegisterAll(r *tools.Registry, imageGenModels []config.ImageGenConfig) {
 	r.Register(&shell.BashTool{})
+	r.Register(&shell.BgTool{})
 	r.Register(&readtool.ReadTool{})
 	r.Register(&writetool.WriteTool{})
 	r.Register(&listtool.ListTool{})

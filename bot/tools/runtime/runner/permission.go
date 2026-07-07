@@ -11,86 +11,161 @@ import (
 	"nekocode/common"
 )
 
-func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn common.ConfirmFunc, preApproved escalationApproval, hasPreApproval bool) (string, bool) {
+// escalationFailReason explains why tryPermissionEscalation could not satisfy
+// the request. It drives the message shown back to the model so the model
+// gets actionable, non-leaky feedback — never "go ask the user in chat".
+type escalationFailReason int
+
+const (
+	failNotPermissionError escalationFailReason = iota // execErr was not a PermissionError
+	failNotPrivileged                                  // tool does not implement PrivilegedTool
+	failDeniedByRule                                   // an explicit deny rule blocks this capability
+	failNoConfirmFn                                    // no UI callback wired (subagent / headless)
+	failUserDenied                                     // user dismissed the confirm dialog
+	failRetryError                                     // ExecuteWithPermission ran but returned an error
+)
+
+// tryPermissionEscalation tries to satisfy a RequiredPermissionError raised
+// by a privileged tool. Returns:
+//   - output: the tool's output on success
+//   - ok: true if the call was satisfied
+//   - reason: which failure branch was taken (only meaningful when ok=false)
+//   - causeErr: the error whose .Error() should be shown to the model
+//     (the raw PermissionError for non-retry failures; the actual
+//     ExecuteWithPermission error for failRetryError so the model isn't told
+//     "permission required" after it already got approval)
+func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn common.ConfirmFunc, preApproved escalationApproval, hasPreApproval bool) (output string, ok bool, reason escalationFailReason, causeErr error) {
+	causeErr = execErr
 	var permErr core.PermissionError
 	if !errors.As(execErr, &permErr) {
-		return "", false
+		return "", false, failNotPermissionError, execErr
 	}
 	privileged, ok := tool.(core.PrivilegedTool)
 	if !ok {
-		return "", false
+		return "", false, failNotPrivileged, execErr
 	}
 
 	req := permErr.PermissionRequest()
 	if e.permissionDenied(tc.Name, req) {
-		return "", false
+		return "", false, failDeniedByRule, execErr
 	}
 	if e.permissionAllowed(tc.Name, req) {
-		output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+		out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
 		if err == nil {
-			return output, true
+			return out, true, 0, nil
 		}
-		return "", false
+		return "", false, failRetryError, err
 	}
 	if confirmFn == nil {
-		return "", false
+		return "", false, failNoConfirmFn, execErr
 	}
 	if hasPreApproval {
-		if preApproved.remember {
-			e.rememberPermission(tc.Name, req)
+		// The user pre-approved escalation in the merged confirm dialog
+		// ("仅本次允许并授权" / "始终允许并授权"). Either way we must make
+		// the grant visible to the retry path (permissionAllowed =
+		// sessionGrants + store.Match); the difference is whether it also
+		// persists to disk:
+		//   - remember=true  → session + disk (store.Allow)
+		//   - remember=false → session only (one-time, lives for this
+		//     process; never written to permissions.json)
+		// Previously both branches went through rememberPermission, which
+		// silently persisted one-time grants to disk — polluting the project
+		// file with capability openings the user explicitly chose NOT to
+		// remember. CapProcessHost is filtered out by rememberPermission /
+		// addSessionGrant / store.Allow, so it still prompts every time.
+		e.rememberPermission(tc.Name, req, preApproved.remember)
+		if !preApproved.remember {
+			e.addSessionGrant(tc.Name, req)
 		}
-		output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
-		return output, err == nil
+		out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+		if err == nil {
+			return out, true, 0, nil
+		}
+		return "", false, failRetryError, err
 	}
 	confirmReq := common.NewConfirmRequest(tc.Name, permissionConfirmArgs(tc.Args, req), common.ConfirmKindPermission)
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
-		return "", false
+		return "", false, failUserDenied, execErr
 	}
 	if reply.Remember {
-		e.rememberPermission(tc.Name, req)
+		e.rememberPermission(tc.Name, req, true)
+	} else {
+		e.addSessionGrant(tc.Name, req)
 	}
-	output, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
-	return output, err == nil
+	out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+	if err == nil {
+		return out, true, 0, nil
+	}
+	return "", false, failRetryError, err
 }
 
-func permissionFailureMessage(tc core.ToolCallItem, execErr error) string {
+// permissionFailureMessage renders the error string shown to the model when
+// a privileged bash/shell call could not be satisfied.
+//
+// Design rule: the confirm dialog is transparent to the model. The model
+// never sees "wait for the prompt", "ask the user in chat", or any hint that
+// a UI dialog exists — those instructions used to leak the dialog's existence
+// and made the model reply in chat asking the user to click confirm, even
+// though the dialog was already being handled by the UI. The model only ever
+// sees one of:
+//
+//   - "permission denied by user"        — the user dismissed the dialog.
+//   - "no approval available in this runtime" — headless / subagent runs
+//     that have no UI; the model can stop retrying capabilities here.
+//   - "denied by permission rule: ..."   — an explicit deny rule blocked it.
+//   - "sandbox/privileged execution failed: <real error>" — the privileged
+//     retry actually ran (sandbox opened up / host shell invoked) and that
+//     *runtime* error is what the model should react to. Never the original
+//     PermissionError "permission required: ..." text, which used to make
+//     the model misread "permission required" as a prompt to ask the user
+//     to authorize in chat — even though escalation had already been
+//     attempted.
+func permissionFailureMessage(tc core.ToolCallItem, execErr error, reason escalationFailReason, causeErr error) string {
 	var permErr core.PermissionError
 	if !errors.As(execErr, &permErr) {
 		return execErr.Error()
 	}
 	req := permErr.PermissionRequest()
-	if tc.Name != "bash" && tc.Name != "shell" {
-		return execErr.Error()
-	}
 	caps := strings.Join(req.Capabilities, `", "`)
-	if caps == "" {
-		return execErr.Error()
-	}
-	if callHasCapabilities(tc.Args, req.Capabilities) {
-		return fmt.Sprintf("%s. The bash call already requested capabilities [\"%s\"], but no approval was granted. Wait for and answer the permission prompt; if no prompt appears, this runtime has no confirmation callback for host/sandbox escalation.", execErr.Error(), caps)
-	}
-	return fmt.Sprintf("%s. To request approval, retry the bash call with capabilities [\"%s\"] in the tool arguments instead of asking in chat.", execErr.Error(), caps)
-}
 
-func callHasCapabilities(args map[string]any, required []string) bool {
-	if len(required) == 0 {
-		return true
-	}
-	got := stringSliceArg(args, "capabilities")
-	for _, need := range required {
-		found := false
-		for _, cap := range got {
-			if cap == need {
-				found = true
-				break
-			}
+	// The escalation path ran and could not satisfy the request. Give the
+	// model situation-appropriate, non-leaky feedback — never "retry with
+	// capabilities", "wait for the prompt", or "ask the user in chat".
+	switch reason {
+	case failUserDenied:
+		if caps != "" {
+			return fmt.Sprintf("permission denied by user (capabilities: %s); do not retry the same capability request without a change in approach.", caps)
 		}
-		if !found {
-			return false
+		return "permission denied by user"
+	case failNoConfirmFn:
+		if caps != "" {
+			return fmt.Sprintf("no approval available in this runtime for capabilities [%s]; retry without those capabilities or skip the action.", caps)
 		}
+		return "no approval available in this runtime"
+	case failDeniedByRule:
+		return fmt.Sprintf("denied by permission rule for capabilities [%s]", caps)
+	case failRetryError:
+		// ExecuteWithPermission actually ran (sandbox was opened up, host
+		// was hit, ...) and returned a real runtime error. Surface THAT
+		// error to the model — never the original "permission required: ..."
+		// text. The original PermissionError reason contains the words
+		// "permission required", which the model misreads as "ask the user
+		// to authorize" and replies in chat asking the user to click the
+		// confirm button — even though escalation already happened (and
+		// the dialog, if any, was already handled). Wrap the real error
+		// with a model-readable lead-in so the model reacts to the runtime
+		// failure itself rather than to a phantom permission prompt.
+		realErr := causeErr
+		if realErr == nil {
+			realErr = execErr
+		}
+		return fmt.Sprintf("sandbox/privileged execution failed: %s. Pick a different approach (e.g. drop the capability, run a read-only alternative, or skip).", realErr.Error())
 	}
-	return true
+
+	// Default (failNotPermissionError / failNotPrivileged / zero value):
+	// surface the raw error.
+	return execErr.Error()
 }
 
 func stringSliceArg(args map[string]any, key string) []string {
@@ -125,6 +200,11 @@ func (e *Executor) permissionDenied(toolName string, req core.PermissionRequest)
 }
 
 func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest) bool {
+	// Session-scope grants first (one-time approvals live here without ever
+	// being written to disk). Then the disk-backed project store.
+	if e.matchSessionGrant(toolName, req) {
+		return true
+	}
 	e.fnMu.RLock()
 	store := e.permStore
 	e.fnMu.RUnlock()
@@ -135,7 +215,12 @@ func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest
 	return ok
 }
 
-func (e *Executor) rememberPermission(toolName string, req core.PermissionRequest) {
+// rememberPermission persists a capability grant so the retry path's
+// permissionAllowed (= sessionGrants + store.Match) finds it. persistStore
+// controls whether the grant is also written to the project's
+// permissions.json file (remembered approval) or kept in-memory only
+// (one-time approval: see addSessionGrant).
+func (e *Executor) rememberPermission(toolName string, req core.PermissionRequest, persistStore bool) {
 	// CapProcessHost must never be persisted — every unsandboxed host
 	// execution requires an explicit user prompt, regardless of prior
 	// grants. The store layer also enforces this, but we short-circuit
@@ -148,7 +233,7 @@ func (e *Executor) rememberPermission(toolName string, req core.PermissionReques
 	e.fnMu.RLock()
 	store := e.permStore
 	e.fnMu.RUnlock()
-	if store == nil {
+	if store == nil || !persistStore {
 		return
 	}
 	_ = store.Allow(toolName, req)

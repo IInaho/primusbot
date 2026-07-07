@@ -10,7 +10,14 @@ import (
 	"nekocode/bot/tools/runtime/core"
 )
 
-const defaultBashTimeout = 10 * time.Second
+// defaultBashTimeout is the default timeout for a bash call. Keep it in
+// sync with the timeout_ms parameter description below (also 120000ms) —
+// 10s was too short for legitimate one-shot commands (medium npm builds,
+// curl of a slow mirror, `go test` on a large pkg) and inconsistent with
+// the documented default. Long-running foreground processes (dev servers,
+// watch tasks, REPLs) MUST NOT be run via this tool — there is no background
+// mode; the call blocks until completion or the timeout kills it.
+const defaultBashTimeout = 120 * time.Second
 
 type BashTool struct{}
 
@@ -27,29 +34,27 @@ func (t *BashTool) Description() string {
 		"Confirm OS compatibility before running distro-specific commands. " +
 		"Exploratory bash (ls, cat, grep, find, git diff/log/status) consumes read quota and may be blocked when budget exhausted. " +
 		"Never git push --force or skip hooks. " +
-		"\n\nSandbox isolation: by default the command runs with NO outbound network and only the workspace directory is writable; " +
-		"system directories are read-only and /tmp is isolated. If the command needs more, declare it via the `capabilities` parameter: " +
-		"\"net.outbound\" (curl, git clone, npm install, etc.), " +
-		"\"fs.write.cache\" (package manager caches like ~/.npm, ~/go/pkg/mod, ~/.cargo), " +
-		"\"fs.write.path\" (workspace-external writable directories, use with `write_paths`), " +
-		"\"process.host\" (completely unsandboxed host execution — use ONLY when the sandbox cannot satisfy the command, e.g. needs TTY or Docker socket; prompts every time). " +
-		"Do not ask the user in chat before requesting a capability; set capabilities on the bash tool call and let the permission UI handle approval. " +
-		"If a command fails inside the sandbox, read the error (e.g. 'Network is unreachable' → declare net.outbound; 'Read-only file system' → declare fs.write.path with write_paths) and retry with the appropriate capabilities."
+		"\n\nDo NOT use bash to run long-running foreground processes. " +
+		"Commands that keep running until killed (dev servers like `npm run dev`/`vite`/`webpack serve`/`next dev`, watch tasks like `tsc -w`/`npm run watch`, REPLs like `node`/`python`/`irb`, `tail -f`, `npm start --host`, etc.) will block this tool until the timeout kills them, then return a truncated 'command timed out' error — the server is NOT kept alive in the background. " +
+		"For such commands use the bg tool instead (e.g. `bg(action=\"start\", command=\"npm run dev\")`), or tell the user to run it in their own terminal. " +
+		"You CAN run one-shot variants (build, test, lint, generate) that exit on their own — those are fine. " +
+		"\n\nSandbox isolation: by default the command runs in sandbox_mode=\"workspace-write\" with NO outbound network and only the workspace directory writable; " +
+		"system directories are read-only and /tmp is isolated. Use sandbox_mode=\"read-only\" for commands that should not write the workspace. " +
+		"Extra access is explicit: network=true requests outbound network, writable_roots requests specific workspace-external writable directories, and sandbox_mode=\"host\" requests completely unsandboxed host execution. " +
+		"These requests go through the permission UI; the runtime never infers them from command names or output text and never automatically retries with broader access. " +
+		"If a 'command timed out' error occurs, the command was a long-running process; do not retry it with a longer timeout — instead tell the user to run it in their terminal."
 }
 
 func (t *BashTool) Parameters() []core.Parameter {
 	return []core.Parameter{
 		{Name: "command", Type: "string", Required: true, Description: "The command to execute"},
-		{Name: "capabilities", Type: "array", Required: false,
-			Description: "Capabilities to authorize for this command. Each opens a specific sandbox boundary: " +
-				"net.outbound (outbound network), fs.write.cache (package manager caches), " +
-				"fs.write.path (extra writable dirs, use with write_paths), process.host (unsandboxed host execution). " +
-				"Use this parameter directly when a command needs approval; do not ask in chat first. " +
-				"Omit for default sandbox (no network, workspace-only writes)."},
-		{Name: "write_paths", Type: "array", Required: false,
-			Description: "Extra writable directories outside the workspace (absolute paths or ~/-prefixed). " +
-				"Only effective when capabilities includes fs.write.path."},
-		{Name: "timeout_ms", Type: "number", Required: false, Description: "Timeout in milliseconds (default 120000, max 600000)"},
+		{Name: "sandbox_mode", Type: "string", Required: false,
+			Description: "Sandbox mode: read-only, workspace-write (default), or host. host is unsandboxed and prompts every time."},
+		{Name: "network", Type: "boolean", Required: false,
+			Description: "Request outbound network access. This is explicit and requires permission; it is never inferred from command output."},
+		{Name: "writable_roots", Type: "array", Required: false,
+			Description: "Extra writable directories outside the workspace (absolute paths or ~/-prefixed). Requires permission."},
+		{Name: "timeout_ms", Type: "number", Required: false, Description: "Timeout in milliseconds (default 120000, max 600000). Do not raise this to keep dev servers / watch tasks alive — those are long-running foreground processes that should be run by the user in their terminal, not via this tool."},
 	}
 }
 
@@ -58,9 +63,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	if err != nil {
 		return "", err
 	}
-	caps := optStringSliceArg(args, "capabilities")
-	writePaths := optStringSliceArg(args, "write_paths")
-	return runCommand(ctx, strings.TrimSpace(cmdStr), caps, writePaths, bashTimeout(args))
+	return runCommand(ctx, strings.TrimSpace(cmdStr), sandboxRequestFromArgs(args), bashTimeout(args))
 }
 
 func (t *BashTool) ExecuteWithPermission(ctx context.Context, args map[string]any, grant core.PermissionRequest) (string, error) {
@@ -68,8 +71,17 @@ func (t *BashTool) ExecuteWithPermission(ctx context.Context, args map[string]an
 	if err != nil {
 		return "", err
 	}
-	writePaths := optStringSliceArg(args, "write_paths")
-	return runCommandWithPermission(ctx, strings.TrimSpace(cmdStr), writePaths, bashTimeout(args), grant)
+	return runCommandWithPermission(ctx, strings.TrimSpace(cmdStr), sandboxRequestFromArgs(args), bashTimeout(args), grant)
+}
+
+func sandboxRequestFromArgs(args map[string]any) sandboxRequest {
+	writableRoots := optStringSliceArg(args, "writable_roots")
+	req := sandboxRequest{
+		Mode:          optStringArg(args, "sandbox_mode"),
+		Network:       optBoolArg(args, "network"),
+		WritableRoots: writableRoots,
+	}
+	return req
 }
 
 func bashTimeout(args map[string]any) time.Duration {
@@ -103,4 +115,27 @@ func optStringSliceArg(args map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+func optStringArg(args map[string]any, key string) string {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	s, _ := raw.(string)
+	return strings.TrimSpace(s)
+}
+
+func optBoolArg(args map[string]any, key string) bool {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return false
 }

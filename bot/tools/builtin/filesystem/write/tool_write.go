@@ -39,7 +39,7 @@ func (t *WriteTool) Preview(args map[string]any) string {
 		return ""
 	}
 
-	safePath, err := toolutil.ValidatePathInWorkspace(path)
+	safePath, err := toolutil.ValidatePathWritable(path)
 	if err != nil {
 		return ""
 	}
@@ -57,7 +57,7 @@ func (t *WriteTool) Execute(ctx context.Context, args map[string]any) (string, e
 		return "", err
 	}
 
-	safePath, err := toolutil.ValidatePathInWorkspace(path)
+	safePath, err := toolutil.ValidatePathWritable(path)
 	if err != nil {
 		return "", err
 	}

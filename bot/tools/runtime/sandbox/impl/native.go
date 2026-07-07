@@ -133,6 +133,81 @@ func runNativeBash(ctx context.Context, command string, profile Profile, timeout
 	return runChild(ctx, self, args, nil, profile.Workspace, timeout, sysproc, unavail, "namespace creation failed")
 }
 
+func startNativeBash(ctx context.Context, command string, profile Profile) (*Process, error) {
+	if profile.Workspace == "" {
+		return nil, fmt.Errorf("sandbox workspace is required")
+	}
+
+	ws, err := filepath.Abs(profile.Workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	profile.Workspace = ws
+
+	writePaths, err := resolveWritePaths(profile.WritePaths)
+	if err != nil {
+		return nil, err
+	}
+	profile.WritePaths = writePaths
+
+	createdStaging := false
+	if profile.StagingRoot == "" {
+		if staging, err := os.MkdirTemp("/tmp", "nekocode-sb-"); err == nil {
+			profile.StagingRoot = staging
+			createdStaging = true
+		} else {
+			profile.StagingRoot = defaultStagingRoot
+		}
+	}
+	if err := os.MkdirAll(profile.StagingRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("create staging root: %w", err)
+	}
+	cleanup := func() {}
+	if createdStaging {
+		staging := profile.StagingRoot
+		cleanup = func() { _ = os.RemoveAll(staging) }
+	}
+
+	profileJSON, err := json.Marshal(profile)
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("marshal profile: %w", err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("get executable path: %w", err)
+	}
+
+	var cloneFlags uintptr = syscall.CLONE_NEWUSER |
+		syscall.CLONE_NEWNS |
+		syscall.CLONE_NEWIPC |
+		syscall.CLONE_NEWUTS |
+		syscall.CLONE_NEWPID |
+		syscall.CLONE_NEWNET
+	if profile.Network {
+		cloneFlags &^= syscall.CLONE_NEWNET
+	}
+	sysproc := &syscall.SysProcAttr{
+		Cloneflags: cloneFlags,
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		},
+		GidMappingsEnableSetgroups: false,
+		Setpgid:                    true,
+	}
+
+	args := []string{childFlag, string(profileJSON), command}
+	p, err := startCommand(ctx, self, args, nil, profile.Workspace, sysproc, cleanup)
+	if err != nil {
+		return nil, UnavailableError{Reason: fmt.Sprintf("namespace creation failed: %v", err)}
+	}
+	return p, nil
+}
+
 // handleSandboxChild is invoked from init() when the process has been
 // re-exec'd by runNativeBash. It sets up the filesystem view and execs
 // the target command, never returning.
@@ -238,8 +313,10 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 	}
 
 	// Workspace: bind at its host-absolute path so absolute paths in commands
-	// resolve to the real project directory.
-	if err := bindHostPath(root, profile.Workspace, false); err != nil {
+	// resolve to the real project directory. read-only mode keeps the
+	// workspace visible but prevents writes unless the caller separately
+	// authorized a specific WritePath.
+	if err := bindHostPathStrict(root, profile.Workspace, profile.Mode == ModeReadOnly); err != nil {
 		return err
 	}
 
@@ -333,6 +410,14 @@ func setupDev(root string) error {
 // NixOS) are owned by the host's user namespace and refuse flag changes with
 // EPERM, but they are already read-only on the host so the bind inherits ro.
 func bindHostPath(root, src string, readOnly bool) error {
+	return bindHostPathWithRemountPolicy(root, src, readOnly, true)
+}
+
+func bindHostPathStrict(root, src string, readOnly bool) error {
+	return bindHostPathWithRemountPolicy(root, src, readOnly, false)
+}
+
+func bindHostPathWithRemountPolicy(root, src string, readOnly bool, ignoreReadOnlyEPERM bool) error {
 	if src == "" {
 		return nil
 	}
@@ -345,7 +430,7 @@ func bindHostPath(root, src string, readOnly bool) error {
 	}
 	if readOnly {
 		if err := unix.Mount("", dst, "", unix.MS_REMOUNT|unix.MS_BIND|unix.MS_RDONLY, ""); err != nil {
-			if err != unix.EPERM {
+			if err != unix.EPERM || !ignoreReadOnlyEPERM {
 				return fmt.Errorf("remount read-only %s: %w", src, err)
 			}
 		}

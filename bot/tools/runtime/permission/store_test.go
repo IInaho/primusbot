@@ -13,7 +13,7 @@ func TestStorePersistsProjectGrant(t *testing.T) {
 	store := NewStore(t.TempDir())
 	req := core.PermissionRequest{
 		Reason:       "needs network",
-		Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
+		Capabilities: []string{core.CapNetOutbound, core.CapFsWritePath},
 	}
 
 	if err := store.Allow("bash", req); err != nil {
@@ -21,6 +21,39 @@ func TestStorePersistsProjectGrant(t *testing.T) {
 	}
 	if _, ok := store.Match("bash", req); !ok {
 		t.Fatal("expected persisted grant to match")
+	}
+}
+
+func TestStoreScopesFsWriteGrantToWritePaths(t *testing.T) {
+	dir := t.TempDir()
+	allowed := filepath.Join(dir, "cache")
+	other := filepath.Join(dir, "other")
+	store := NewStore(dir)
+
+	req := core.PermissionRequest{
+		Reason:       "needs writable cache",
+		Capabilities: []string{core.CapFsWritePath},
+		Details:      map[string]any{"writePaths": []string{allowed}},
+	}
+	if err := store.Allow("bash", req); err != nil {
+		t.Fatalf("Allow: %v", err)
+	}
+	if _, ok := store.Match("bash", req); !ok {
+		t.Fatal("expected grant to match the same write path")
+	}
+	childReq := core.PermissionRequest{
+		Capabilities: []string{core.CapFsWritePath},
+		Details:      map[string]any{"writePaths": []string{filepath.Join(allowed, "nested")}},
+	}
+	if _, ok := store.Match("bash", childReq); !ok {
+		t.Fatal("expected grant to cover descendants of the authorized write path")
+	}
+	otherReq := core.PermissionRequest{
+		Capabilities: []string{core.CapFsWritePath},
+		Details:      map[string]any{"writePaths": []string{other}},
+	}
+	if _, ok := store.Match("bash", otherReq); ok {
+		t.Fatal("fs.write.path grant must not match a different write path")
 	}
 }
 
@@ -57,7 +90,7 @@ func TestStoreDenyTakesPrecedence(t *testing.T) {
 					{
 						Effect:       "allow",
 						Tool:         "bash",
-						Capabilities: []string{core.CapNetOutbound, core.CapFsWriteCache},
+						Capabilities: []string{core.CapNetOutbound, core.CapFsWritePath},
 						Workspace:    dir,
 					},
 				},

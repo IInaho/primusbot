@@ -10,6 +10,7 @@ import (
 
 	"nekocode/bot/tools/builtin/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type TreeTool struct {
@@ -34,14 +35,18 @@ func (t *TreeTool) Execute(ctx context.Context, args map[string]any) (string, er
 	if err != nil {
 		return "", err
 	}
+	safePath, err := toolutil.ValidatePathReadable(path)
+	if err != nil {
+		return "", err
+	}
 
 	depth := toolhelpers.ClampIntArg(args, "depth", 3, 1, 6)
 	limit := toolhelpers.ClampIntArg(args, "limit", 400, 1, 800)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s/\n", filepath.Base(path))
+	fmt.Fprintf(&b, "%s/\n", filepath.Base(safePath))
 
-	count, err := walkTree(path, "", depth, limit, &b)
+	count, err := walkTree(safePath, "", depth, limit, &b)
 	if err != nil {
 		return "", err
 	}

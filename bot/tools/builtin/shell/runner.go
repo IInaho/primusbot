@@ -2,25 +2,16 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/sandbox"
 )
-
-// cacheRoots are the package manager cache directories that fs.write.cache
-// binds into the sandbox as read-write.
-var cacheRoots = []string{
-	"~/.npm",
-	"~/.pnpm-store",
-	"~/.cache/yarn",
-	"~/.cache/go-build",
-	"~/go/pkg/mod",
-	"~/.cargo",
-}
 
 // backend is the sandbox executor used by the shell tool. It defaults to
 // sandbox.DefaultBackend and may be overridden (e.g. in tests) via setBackend.
@@ -30,8 +21,30 @@ var backend sandbox.Backend = sandbox.DefaultBackend{}
 // that need to inject a fake backend without touching the real OS sandbox.
 func setBackend(b sandbox.Backend) { backend = b }
 
-func runCommand(ctx context.Context, cmdStr string, caps []string, writePaths []string, timeout time.Duration) (string, error) {
+type sandboxRequest struct {
+	Mode          string
+	Network       bool
+	WritableRoots []string
+}
+
+func (r sandboxRequest) permissionCapabilities() []string {
+	switch r.Mode {
+	case "host":
+		return []string{core.CapProcessHost}
+	}
+	var caps []string
+	if r.Network {
+		caps = append(caps, core.CapNetOutbound)
+	}
+	if len(r.WritableRoots) > 0 {
+		caps = append(caps, core.CapFsWritePath)
+	}
+	return uniqueStrings(caps)
+}
+
+func runCommand(ctx context.Context, cmdStr string, req sandboxRequest, timeout time.Duration) (string, error) {
 	workspace, _ := os.Getwd()
+	caps := req.permissionCapabilities()
 
 	// process.host: the escape hatch of last resort. Never enters the sandbox.
 	// scope=once ensures it is never persisted — every invocation prompts.
@@ -41,32 +54,33 @@ func runCommand(ctx context.Context, cmdStr string, caps []string, writePaths []
 			[]string{core.CapProcessHost},
 			"once",
 			workspace,
-			writePaths,
+			req.WritableRoots,
 		)
 	}
 
-	// Declared capabilities (net.outbound / fs.write.cache / fs.write.path)
-	// require authorization before entering the sandbox. Throw a
-	// RequiredPermissionError; execute_one.go catches it, prompts the user
-	// (or matches an existing grant), and calls ExecuteWithPermission with
-	// the authorized capabilities to re-run inside an enhanced sandbox.
+	// Explicit sandbox openings require authorization before entering the
+	// sandbox. Throw a RequiredPermissionError; execute_one.go catches it,
+	// prompts the user (or matches an existing grant), and calls
+	// ExecuteWithPermission with the authorized capabilities to re-run inside
+	// an enhanced sandbox.
 	if len(caps) > 0 {
 		return "", permissionRequired(
-			fmt.Sprintf("command declares capabilities: %s", strings.Join(caps, ", ")),
+			fmt.Sprintf("command requests sandbox profile: %s", strings.Join(caps, ", ")),
 			caps,
 			"project",
 			workspace,
-			writePaths,
+			req.WritableRoots,
 		)
 	}
 
-	// No capabilities declared — run in the default sandbox (strictest
-	// isolation: no network, only workspace writable, system dirs read-only).
-	out, err := backend.Run(ctx, cmdStr, sandbox.Profile{Workspace: workspace}, timeout)
+	profile, err := buildProfileFromRequest(workspace, req, nil)
 	if err != nil {
-		if _, ok := err.(sandbox.UnavailableError); ok {
-			return "", hostPermission(err.Error(), workspace, writePaths)
-		}
+		return "", err
+	}
+	out, err := backend.Run(ctx, cmdStr, profile, timeout)
+	var unavailable sandbox.UnavailableError
+	if errors.As(err, &unavailable) {
+		return "", hostPermission(err.Error(), workspace, req.WritableRoots)
 	}
 	return out, err
 }
@@ -75,8 +89,24 @@ func runCommand(ctx context.Context, cmdStr string, caps []string, writePaths []
 // (or a persisted grant) authorized the capability request. It re-runs the
 // command — inside the sandbox, with the authorized openings applied — rather
 // than escaping to the host. Only CapProcessHost escapes the sandbox entirely.
-func runCommandWithPermission(ctx context.Context, cmdStr string, writePaths []string, timeout time.Duration, grant core.PermissionRequest) (string, error) {
+func runCommandWithPermission(ctx context.Context, cmdStr string, req sandboxRequest, timeout time.Duration, grant core.PermissionRequest) (string, error) {
 	workspace, _ := os.Getwd()
+	requestedCaps := req.permissionCapabilities()
+	if len(requestedCaps) > 0 && !containsAllCapabilities(grant.Capabilities, requestedCaps) {
+		scope := "project"
+		reason := fmt.Sprintf("command requests sandbox profile: %s", strings.Join(requestedCaps, ", "))
+		if hasCapability(requestedCaps, core.CapProcessHost) {
+			scope = "once"
+			reason = "command requests unsandboxed host execution"
+		}
+		return "", permissionRequired(
+			reason,
+			requestedCaps,
+			scope,
+			workspace,
+			req.WritableRoots,
+		)
+	}
 
 	// process.host is the only capability that runs on the host without
 	// any sandbox isolation.
@@ -86,45 +116,54 @@ func runCommandWithPermission(ctx context.Context, cmdStr string, writePaths []s
 
 	// All other capabilities: rebuild an enhanced profile from the authorized
 	// capabilities and re-run inside the sandbox with those openings applied.
-	profile := buildProfile(workspace, grant.Capabilities, writePaths)
-	out, err := backend.Run(ctx, cmdStr, profile, timeout)
+	profile, err := buildProfileFromRequest(workspace, req, grant.Capabilities)
 	if err != nil {
-		if _, ok := err.(sandbox.UnavailableError); ok {
-			return "", hostPermission(err.Error(), workspace, writePaths)
-		}
+		return "", err
+	}
+	out, err := backend.Run(ctx, cmdStr, profile, timeout)
+	var unavailable sandbox.UnavailableError
+	if errors.As(err, &unavailable) {
+		return "", hostPermission(err.Error(), workspace, req.WritableRoots)
 	}
 	return out, err
 }
 
-// buildProfile constructs a sandbox.Profile from declared/authorized
-// capabilities. Each capability opens a specific isolation boundary without
-// leaving the sandbox:
-//
-//   - net.outbound     → share host network namespace (Network=true)
-//   - fs.write.cache   → bind package manager cache dirs as read-write
-//   - fs.write.path    → bind write_paths argument dirs as read-write
-func buildProfile(workspace string, caps []string, writePaths []string) sandbox.Profile {
-	profile := sandbox.Profile{Workspace: workspace}
-	for _, cap := range caps {
-		switch cap {
-		case core.CapNetOutbound:
-			profile.Network = true
-		case core.CapFsWriteCache:
-			profile.WritePaths = append(profile.WritePaths, cacheRoots...)
-		case core.CapFsWritePath:
-			profile.WritePaths = append(profile.WritePaths, writePaths...)
-		}
+func buildProfileFromRequest(workspace string, req sandboxRequest, authorizedCaps []string) (sandbox.Profile, error) {
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		mode = "workspace-write"
 	}
-	return profile
+	profile := sandbox.Profile{Workspace: workspace}
+	switch mode {
+	case "workspace-write":
+		// Default mode.
+	case "read-only":
+		profile.Mode = sandbox.ModeReadOnly
+	case "host":
+		return profile, fmt.Errorf("host execution must use RunHost")
+	default:
+		return profile, fmt.Errorf("unsupported sandbox_mode %q (want read-only, workspace-write, or host)", mode)
+	}
+	if req.Network && hasCapability(authorizedCaps, core.CapNetOutbound) {
+		profile.Network = true
+	}
+	if len(req.WritableRoots) > 0 && hasCapability(authorizedCaps, core.CapFsWritePath) {
+		profile.WritePaths = append(profile.WritePaths, req.WritableRoots...)
+	}
+	return profile, nil
 }
 
 func hasCapability(caps []string, target string) bool {
-	for _, c := range caps {
-		if c == target {
-			return true
+	return slices.Contains(caps, target)
+}
+
+func containsAllCapabilities(have, need []string) bool {
+	for _, n := range need {
+		if !hasCapability(have, n) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func permissionRequired(reason string, caps []string, scope string, workspace string, writePaths []string) core.RequiredPermissionError {

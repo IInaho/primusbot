@@ -16,6 +16,7 @@ import {
   RefreshSkillManagement,
   ReplyConfirm,
   ReplyConfirmDecision,
+  ReplyConfirmWithPermission,
   ReplyQuestion,
   SaveConfig,
   SendMessage,
@@ -195,7 +196,7 @@ export function safeReadImageBase64(path: string): Promise<string | null> {
 export function safeReplyConfirm(id: string, ok: boolean, remember = false, allowWithPermission = false): void {
   try {
     if (allowWithPermission) {
-      ReplyConfirmDecision(id, ok, remember)
+      ReplyConfirmWithPermission(id, ok, remember, true)
       return
     }
     if (remember) {

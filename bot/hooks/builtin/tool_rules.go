@@ -2,7 +2,6 @@ package builtin
 
 import (
 	"fmt"
-	"strings"
 
 	"nekocode/bot/hooks"
 )
@@ -52,30 +51,6 @@ func ReadBeforeWriteHook() hooks.Hook {
 			}}
 		},
 	}
-}
-
-func BashLsGuardrailHook() hooks.Hook {
-	return hooks.Hook{
-		Name: "bash_ls_guardrail", Point: hooks.PreToolUse,
-		On: func(s hooks.State) *hooks.Result {
-			if s.ToolName() != "bash" {
-				return nil
-			}
-			cmd, _ := s.ToolArgs()["command"].(string)
-			if !isLsCommand(cmd) {
-				return nil
-			}
-			return &hooks.Result{BlockTool: &hooks.BlockTool{
-				Tool:   "bash",
-				Reason: "不要用 bash 执行 ls 探索目录。请改用 list 工具读取目标目录；如果目标不是目录，先按文件处理。",
-			}}
-		},
-	}
-}
-
-func isLsCommand(cmd string) bool {
-	fields := strings.Fields(strings.TrimSpace(cmd))
-	return len(fields) > 0 && fields[0] == "ls"
 }
 
 func ReadOnlySpiralHook() hooks.Hook {

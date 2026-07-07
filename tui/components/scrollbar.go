@@ -67,3 +67,33 @@ func (s *Scrollbar) View() string {
 	return s.cachedView
 }
 
+// ViewHorizontal renders a single-line horizontal scroll indicator across the
+// given width. A thumb segment sized proportionally to viewport/total sits at
+// a position proportional to scrollPercent; the rest is track. Returns "" when
+// content fits the viewport (no scrolling needed).
+func (s *Scrollbar) ViewHorizontal(width int) string {
+	if s.totalHeight <= s.viewportHeight || s.viewportHeight <= 0 || width <= 0 {
+		return ""
+	}
+	thumbSize := max(1, width*s.viewportHeight/s.totalHeight)
+	if thumbSize > width {
+		thumbSize = width
+	}
+	trackSpace := width - thumbSize
+	thumbPos := 0
+	if trackSpace > 0 {
+		thumbPos = min(trackSpace, int(float64(trackSpace)*s.scrollPercent))
+	}
+
+	// Slim thumb on a thin rule. Track color matches the header bottom border
+	// (#333333) so the bar reads as an extension of the header line; thumb
+	// uses the teal accent from the "深夜书房" palette.
+	trackStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#333333"))
+	thumbStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4ec9b0"))
+
+	left := trackStyle.Render(strings.Repeat("─", thumbPos))
+	thumb := thumbStyle.Render(strings.Repeat("─", thumbSize))
+	right := trackStyle.Render(strings.Repeat("─", trackSpace-thumbPos))
+	return left + thumb + right
+}
+

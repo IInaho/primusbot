@@ -26,7 +26,7 @@ func snapshotUndoPath(safePath string) string {
 }
 
 func (t *EditTool) revertSnapshot(path string) (string, error) {
-	safePath, err := toolutil.ValidatePathInWorkspace(path)
+	safePath, err := toolutil.ValidatePathWritable(path)
 	if err != nil {
 		return "", fmt.Errorf("revert: invalid path: %w", err)
 	}

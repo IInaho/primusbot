@@ -58,16 +58,31 @@ func runChild(
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		errStr := stderr.String()
-		if unavailableMatch != nil && unavailableMatch(errStr, err) {
+		outStr := truncateCapturedOutput(toolutil.StripAnsi(stdout.String()))
+		errStr := truncateCapturedOutput(toolutil.StripAnsi(stderr.String()))
+		if unavailableMatch != nil && unavailableMatch(stderr.String(), err) {
 			return "", UnavailableError{Reason: fmt.Sprintf("%s: %v", unavailReason, err)}
 		}
 		if cmdCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("command timed out after %v: %v\nstderr: %s", timeout, err, errStr)
+			return "", fmt.Errorf("command timed out after %v: %v%s", timeout, err, formatOutputSections(outStr, errStr))
 		}
-		return "", fmt.Errorf("sandbox execution failed: %v\nstderr: %s", err, errStr)
+		return "", fmt.Errorf("sandbox execution failed: %v%s", err, formatOutputSections(outStr, errStr))
 	}
 
 	out := toolutil.StripAnsi(stdout.String())
 	return truncateCapturedOutput(out), nil
+}
+
+// formatOutputSections builds the "stdout: ... stderr: ..." tail for error
+// messages, omitting sections whose content is empty so the error stays
+// compact and the relevant output is obvious.
+func formatOutputSections(stdout, stderr string) string {
+	var b strings.Builder
+	if stdout != "" {
+		fmt.Fprintf(&b, "\nstdout: %s", stdout)
+	}
+	if stderr != "" {
+		fmt.Fprintf(&b, "\nstderr: %s", stderr)
+	}
+	return b.String()
 }

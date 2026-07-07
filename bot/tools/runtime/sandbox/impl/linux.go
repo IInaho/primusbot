@@ -53,6 +53,31 @@ func Run(ctx context.Context, command string, profile Profile, timeout time.Dura
 	return out, err
 }
 
+// Start launches a long-running command in the best available sandbox.
+func Start(ctx context.Context, command string, profile Profile) (*Process, error) {
+	if profile.Workspace == "" {
+		return nil, fmt.Errorf("sandbox workspace is required")
+	}
+	if !isNativeAvailable() {
+		if landlockAvailable() {
+			if p, err := startLandlockBash(ctx, command, profile); err == nil {
+				return p, nil
+			}
+		}
+		return nil, UnavailableError{Reason: "native sandbox unavailable and landlock failed or unavailable"}
+	}
+	p, err := startNativeBash(ctx, command, profile)
+	if err == nil {
+		return p, nil
+	}
+	if _, ok := err.(UnavailableError); ok && landlockAvailable() {
+		if lbp, lbErr := startLandlockBash(ctx, command, profile); lbErr == nil {
+			return lbp, nil
+		}
+	}
+	return nil, err
+}
+
 // IsAvailable reports whether the current system has at least one usable
 // sandbox backend.
 func IsAvailable() bool {

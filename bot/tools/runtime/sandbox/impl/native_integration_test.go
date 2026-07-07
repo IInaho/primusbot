@@ -46,6 +46,21 @@ func TestRunNativeBash_WorkspaceWrite(t *testing.T) {
 	}
 }
 
+func TestRunNativeBash_ReadOnlyWorkspace(t *testing.T) {
+	if !isNativeAvailable() {
+		t.Skip("native sandbox not available")
+	}
+
+	ws := t.TempDir()
+	_, err := runNativeBash(t.Context(), "echo test > wsfile.txt", Profile{Workspace: ws, Mode: ModeReadOnly}, 10*time.Second)
+	if err == nil {
+		t.Fatal("expected workspace write to fail in read-only mode")
+	}
+	if _, statErr := os.Stat(filepath.Join(ws, "wsfile.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("read-only workspace leaked write, stat err = %v", statErr)
+	}
+}
+
 func TestRunNativeBash_TmpIsIsolated(t *testing.T) {
 	if !isNativeAvailable() {
 		t.Skip("native sandbox not available")

@@ -117,7 +117,10 @@ func runLandlockBash(ctx context.Context, command string, profile Profile, timeo
 		return "", fmt.Errorf("resolve workspace: %w", err)
 	}
 
-	writable := []string{ws}
+	var writable []string
+	if profile.Mode != ModeReadOnly {
+		writable = append(writable, ws)
+	}
 	writePaths, err := resolveWritePaths(profile.WritePaths)
 	if err != nil {
 		return "", err
@@ -156,4 +159,42 @@ func runLandlockBash(ctx context.Context, command string, profile Profile, timeo
 	}
 
 	return runChild(ctx, self, args, env, ws, timeout, sysproc, unavail, "landlock restrict failed")
+}
+
+func startLandlockBash(ctx context.Context, command string, profile Profile) (*Process, error) {
+	if profile.Workspace == "" {
+		return nil, fmt.Errorf("sandbox workspace is required")
+	}
+	ws, err := filepath.Abs(profile.Workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	var writable []string
+	if profile.Mode != ModeReadOnly {
+		writable = append(writable, ws)
+	}
+	writePaths, err := resolveWritePaths(profile.WritePaths)
+	if err != nil {
+		return nil, err
+	}
+	writable = append(writable, writePaths...)
+
+	cfg := struct {
+		WritableDirs []string `json:"w"`
+	}{WritableDirs: writable}
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal sandbox config: %w", err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("get executable path: %w", err)
+	}
+	ensureNoNewPrivs()
+	args := []string{"__sandbox__", "--", "bash", "-c", command}
+	env := append(os.Environ(),
+		"__SANDBOX_HELPER=1",
+		"__SANDBOX_CONFIG="+string(cfgJSON),
+	)
+	return startCommand(ctx, self, args, env, ws, &syscall.SysProcAttr{Setpgid: true}, nil)
 }

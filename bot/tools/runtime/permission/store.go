@@ -33,8 +33,9 @@ type permissionFile struct {
 }
 
 type permissionProject struct {
-	Grants []Grant `json:"grants"`
-	Rules  []Rule  `json:"rules,omitempty"`
+	Grants     []Grant         `json:"grants"`
+	Rules      []Rule          `json:"rules,omitempty"`
+	Workspaces []WorkspaceRoot `json:"workspaces,omitempty"`
 }
 
 // Grant records a user-authorized capability opening for a tool. The JSON is
@@ -44,22 +45,28 @@ type Grant struct {
 	Effect       string   `json:"effect"`
 	Tool         string   `json:"tool"`
 	Capabilities []string `json:"capabilities"`
+	WritePaths   []string `json:"writePaths,omitempty"`
 	Workspace    string   `json:"workspace,omitempty"`
 	Reason       string   `json:"reason,omitempty"`
+}
+
+type WorkspaceRoot struct {
+	Path   string `json:"path"`
+	Access string `json:"access"`
 }
 
 func (s *Store) Match(tool string, req core.PermissionRequest) (Grant, bool) {
 	if g, denied := s.Denied(tool, req); denied {
 		return g, false
 	}
-	return s.find(tool, req, "allow", containsAllCapabilities)
+	return s.find(tool, req, "allow", grantAllowsRequest)
 }
 
 func (s *Store) Denied(tool string, req core.PermissionRequest) (Grant, bool) {
-	return s.find(tool, req, "deny", intersectsCapability)
+	return s.find(tool, req, "deny", grantDeniesRequest)
 }
 
-func (s *Store) find(tool string, req core.PermissionRequest, effect string, capabilityMatch func([]string, []string) bool) (Grant, bool) {
+func (s *Store) find(tool string, req core.PermissionRequest, effect string, match func(Grant, core.PermissionRequest) bool) (Grant, bool) {
 	f, err := s.load()
 	if err != nil {
 		return Grant{}, false
@@ -75,7 +82,7 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, cap
 		if g.Workspace != "" && g.Workspace != s.root {
 			continue
 		}
-		if capabilityMatch(g.Capabilities, req.Capabilities) {
+		if match(g, req) {
 			return g, true
 		}
 	}
@@ -101,19 +108,60 @@ func (s *Store) Allow(tool string, req core.PermissionRequest) error {
 		Effect:       "allow",
 		Tool:         tool,
 		Capabilities: append([]string(nil), req.Capabilities...),
+		WritePaths:   WritePathsFromRequest(req),
 		Workspace:    s.root,
 		Reason:       req.Reason,
 	}
 	for _, existing := range p.Grants {
 		if existing.Effect == g.Effect && existing.Tool == g.Tool &&
 			existing.Workspace == g.Workspace &&
-			slices.Equal(existing.Capabilities, g.Capabilities) {
+			slices.Equal(existing.Capabilities, g.Capabilities) &&
+			slices.Equal(normalizeWritePaths(existing.WritePaths), g.WritePaths) {
 			return nil
 		}
 	}
 	p.Grants = append(p.Grants, g)
 	f.Projects[s.root] = p
 	return s.save(f)
+}
+
+func (s *Store) RememberWorkspaceRoot(root WorkspaceRoot) error {
+	f, err := s.load()
+	if err != nil {
+		return err
+	}
+	if f.Version == 0 {
+		f.Version = permissionStoreVersion
+	}
+	if f.Projects == nil {
+		f.Projects = map[string]permissionProject{}
+	}
+	p := f.Projects[s.root]
+	for i, existing := range p.Workspaces {
+		if existing.Path != root.Path {
+			continue
+		}
+		if root.Access == "read-write" || existing.Access != "read-write" {
+			p.Workspaces[i] = root
+		}
+		f.Projects[s.root] = p
+		return s.save(f)
+	}
+	p.Workspaces = append(p.Workspaces, root)
+	f.Projects[s.root] = p
+	return s.save(f)
+}
+
+func (s *Store) WorkspaceRoots() []WorkspaceRoot {
+	f, err := s.load()
+	if err != nil {
+		return nil
+	}
+	p, ok := f.Projects[s.root]
+	if !ok {
+		return nil
+	}
+	return append([]WorkspaceRoot(nil), p.Workspaces...)
 }
 
 func (s *Store) load() (permissionFile, error) {
@@ -146,31 +194,4 @@ func (s *Store) save(f permissionFile) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(path, data, 0o600)
-}
-
-func containsAllCapabilities(have, need []string) bool {
-	for _, n := range need {
-		if !hasCapability(have, n) {
-			return false
-		}
-	}
-	return true
-}
-
-func intersectsCapability(left, right []string) bool {
-	for _, l := range left {
-		if hasCapability(right, l) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasCapability(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
 }

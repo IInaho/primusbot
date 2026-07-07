@@ -111,10 +111,12 @@ func (m *Model) resizeMessages() {
 	if msgHeight < 0 {
 		msgHeight = 0
 	}
-	width := m.Width
-	if m.Messages.TotalContentHeight() > msgHeight {
-		width = max(m.Width-1, 1)
+	// Horizontal scrollbar occupies 1 row above the header when content
+	// overflows the viewport; reserve it so the message area shrinks.
+	if m.Messages.TotalContentHeight() > msgHeight && msgHeight > 0 {
+		msgHeight--
 	}
+	width := m.Width
 	m.Messages.SetSize(width, msgHeight)
 }
 

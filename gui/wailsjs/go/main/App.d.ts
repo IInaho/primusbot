@@ -36,6 +36,8 @@ export function ReplyConfirm(arg1:string,arg2:boolean):Promise<void>;
 
 export function ReplyConfirmDecision(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
+export function ReplyConfirmWithPermission(arg1:string,arg2:boolean,arg3:boolean,arg4:boolean):Promise<void>;
+
 export function ReplyQuestion(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SaveConfig(arg1:config.View):Promise<config.View>;

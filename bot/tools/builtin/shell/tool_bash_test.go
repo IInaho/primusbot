@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/sandbox"
 )
 
 func TestBashTool(t *testing.T) {
@@ -72,17 +74,14 @@ func TestBashToolHostExecutionWritesOutsideWorkspace(t *testing.T) {
 	}
 }
 
-func TestBashToolDeclaresNetworkCapability(t *testing.T) {
+func TestBashToolExplicitNetworkRequiresPermission(t *testing.T) {
 	b := &BashTool{}
-
-	// Declaring net.outbound without prior authorization should produce a
-	// RequiredPermissionError (not run in sandbox, not run on host).
 	_, err := b.Execute(context.Background(), map[string]any{
-		"command":      "curl https://example.com",
-		"capabilities": []any{"net.outbound"},
+		"command": "curl https://example.com",
+		"network": true,
 	})
 	if err == nil {
-		t.Fatal("expected RequiredPermissionError for declared capability")
+		t.Fatal("expected RequiredPermissionError for explicit network")
 	}
 	permErr, ok := err.(core.PermissionError)
 	if !ok {
@@ -92,20 +91,17 @@ func TestBashToolDeclaresNetworkCapability(t *testing.T) {
 	if !containsCapability(req.Capabilities, core.CapNetOutbound) {
 		t.Fatalf("expected CapNetOutbound in request, got %v", req.Capabilities)
 	}
-	if req.Scope != "project" {
-		t.Fatalf("expected project scope for capability grant, got %q", req.Scope)
-	}
 }
 
-func TestBashToolProcessHostAlwaysOnceScope(t *testing.T) {
+func TestBashToolExplicitHostAlwaysOnceScope(t *testing.T) {
 	b := &BashTool{}
-
 	_, err := b.Execute(context.Background(), map[string]any{
 		"command":      "echo hi",
-		"capabilities": []any{"process.host"},
+		"sandbox_mode": "host",
+		"network":      true,
 	})
 	if err == nil {
-		t.Fatal("expected RequiredPermissionError for process.host")
+		t.Fatal("expected RequiredPermissionError for host sandbox mode")
 	}
 	permErr, ok := err.(core.PermissionError)
 	if !ok {
@@ -113,17 +109,26 @@ func TestBashToolProcessHostAlwaysOnceScope(t *testing.T) {
 	}
 	req := permErr.PermissionRequest()
 	if req.Scope != "once" {
-		t.Fatalf("process.host must be scope=once (never persisted), got %q", req.Scope)
+		t.Fatalf("host sandbox mode must be scope=once, got %q", req.Scope)
 	}
 	if !containsCapability(req.Capabilities, core.CapProcessHost) {
 		t.Fatalf("expected CapProcessHost in request, got %v", req.Capabilities)
 	}
+	if len(req.Capabilities) != 1 {
+		t.Fatalf("host request should ignore other sandbox openings, got %v", req.Capabilities)
+	}
 }
 
-func TestFsWriteCacheIncludesGoBuildCache(t *testing.T) {
-	profile := buildProfile("/workspace", []string{core.CapFsWriteCache}, nil)
-	if !containsString(profile.WritePaths, "~/.cache/go-build") {
-		t.Fatalf("fs.write.cache write paths = %v, want ~/.cache/go-build", profile.WritePaths)
+func TestBuildProfileFromRequestReadOnly(t *testing.T) {
+	profile, err := buildProfileFromRequest("/workspace", sandboxRequest{Mode: "read-only"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Mode != sandbox.ModeReadOnly {
+		t.Fatalf("Mode = %q, want read-only", profile.Mode)
+	}
+	if profile.Network {
+		t.Fatal("read-only profile must not enable network by default")
 	}
 }
 
@@ -136,15 +141,18 @@ func containsCapability(caps []string, target string) bool {
 	return false
 }
 
-func containsString(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
-}
-
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// TestDefaultBashTimeoutIs120s guards against accidental regression of the
+// 120s default. The previous 10s was too short for legitimate one-shot
+// commands (medium npm builds, curl of a slow mirror, `go test` on a large
+// pkg) and inconsistent with the documented default ("default 120000"). If
+// you bump this, also update the timeout_ms parameter description in
+// tool_bash.go so docs and reality stay in sync.
+func TestDefaultBashTimeoutIs120s(t *testing.T) {
+	if defaultBashTimeout != 120*time.Second {
+		t.Fatalf("defaultBashTimeout = %v, want 120s", defaultBashTimeout)
+	}
 }

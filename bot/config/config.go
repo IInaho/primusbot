@@ -53,6 +53,12 @@ type Config struct {
 	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models
 	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
 	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
+	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
+}
+
+type WorkspaceConfig struct {
+	Path   string `json:"path"`
+	Access string `json:"access,omitempty"`
 }
 
 var Default = Config{
@@ -231,6 +237,22 @@ func Validate(cfg *Config) error {
 			normalized[name] = srv
 		}
 		cfg.MCPServers = normalized
+	}
+
+	for i := range cfg.Workspaces {
+		cfg.Workspaces[i].Path = strings.TrimSpace(cfg.Workspaces[i].Path)
+		cfg.Workspaces[i].Access = strings.TrimSpace(cfg.Workspaces[i].Access)
+		if cfg.Workspaces[i].Path == "" {
+			return fmt.Errorf("workspace #%d path is required", i+1)
+		}
+		switch cfg.Workspaces[i].Access {
+		case "", "read-only", "read-write":
+			if cfg.Workspaces[i].Access == "" {
+				cfg.Workspaces[i].Access = "read-only"
+			}
+		default:
+			return fmt.Errorf("workspace %q access must be read-only or read-write", cfg.Workspaces[i].Path)
+		}
 	}
 
 	return nil

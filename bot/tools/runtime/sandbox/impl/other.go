@@ -32,7 +32,10 @@ func Run(ctx context.Context, command string, profile Profile, timeout time.Dura
 		return "", UnavailableError{Reason: tbsb.ReasonUnavailable()}
 	}
 
-	writable := []string{ws}
+	var writable []string
+	if profile.Mode != ModeReadOnly {
+		writable = append(writable, ws)
+	}
 	writePaths, err := resolveWritePaths(profile.WritePaths)
 	if err != nil {
 		return "", err
@@ -61,6 +64,10 @@ func Run(ctx context.Context, command string, profile Profile, timeout time.Dura
 		return "", fmt.Errorf("command failed: %v\nOutput: %s", err, cleaned)
 	}
 	return cleaned, nil
+}
+
+func Start(ctx context.Context, command string, profile Profile) (*Process, error) {
+	return nil, UnavailableError{Reason: "async sandbox start is unavailable on this platform"}
 }
 
 // IsAvailable reports whether the current system has a usable sandbox backend.

@@ -13,6 +13,16 @@ import (
 func (b *Bot) Steer(msg string) { b.getAgent().Steer(msg) }
 func (b *Bot) Abort()           { b.getAgent().Abort() }
 
+func (b *Bot) Close() {
+	b.mu.Lock()
+	bg := b.bgTool
+	b.bgTool = nil
+	b.mu.Unlock()
+	if bg != nil {
+		bg.Shutdown()
+	}
+}
+
 func (b *Bot) ProviderModel() (string, string) {
 	am := b.cfg.ActiveModelConfig()
 	return am.Provider, am.Model

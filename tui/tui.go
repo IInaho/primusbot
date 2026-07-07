@@ -1,5 +1,6 @@
 // tui.go — package tui 入口。
 package tui
+
 import (
 	"fmt"
 
@@ -12,6 +13,7 @@ import (
 func Run() {
 	message.Warmup()
 	b := bot.New()
+	defer b.Close()
 	p := tea.NewProgram(NewModel(b))
 	if _, err := p.Run(); err != nil {
 		fmt.Println(err)

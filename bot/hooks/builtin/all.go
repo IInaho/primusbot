@@ -6,7 +6,6 @@ func All() []hooks.Hook {
 	return []hooks.Hook{
 		QuotaHook(),
 		ToolResultGuardrailHook(),
-		BashLsGuardrailHook(),
 		ReadBeforeWriteHook(),
 		ReadOnlySpiralHook(),
 		VerificationHook(),

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 func TestStripAnsi(t *testing.T) {
@@ -36,6 +38,21 @@ func TestValidatePath(t *testing.T) {
 	_, err = ValidatePath(filepath.Join(td, "nonexistent"))
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePathWritableUsesWorkspaceGuard(t *testing.T) {
+	ws := t.TempDir()
+	workspace.Configure(ws, nil)
+
+	inside := filepath.Join(ws, "a.txt")
+	if _, err := ValidatePathWritable(inside); err != nil {
+		t.Fatalf("inside workspace should be writable: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "evil.txt")
+	if _, err := ValidatePathWritable(outside); err == nil {
+		t.Fatal("outside workspace should be rejected")
 	}
 }
 

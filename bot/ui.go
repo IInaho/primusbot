@@ -15,6 +15,7 @@ type UI interface {
 	Configure(confirmFn common.ConfirmFunc, phaseFn common.PhaseFunc, todoFn common.TodoFunc, notifyFn func(string), confirmCh chan common.ConfirmRequest, questionFn common.QuestionFunc)
 	Steer(msg string)
 	Abort()
+	Close()
 	ProviderModel() (provider, model string)
 	SwitchModel(name string) (model, provider string, err error)
 	ContextStatus() string

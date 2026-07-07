@@ -38,31 +38,41 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 	}
 }
 
-func TestPermissionConfirmCanPreApproveEscalationOnce(t *testing.T) {
+func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
 	ch := make(chan common.ConfirmReply, 1)
 	cb.SetRequest(&common.ConfirmRequest{
 		ToolName:              "bash",
-		Args:                  map[string]any{"command": "go get example.com/pkg"},
+		Args:                  map[string]any{"command": "go get example.com/pkg", "permission_scope": "once"},
 		Kind:                  common.ConfirmKindPermission,
 		Response:              ch,
 		CanEscalatePermission: true,
 	})
 
 	view := cb.View(100, 40)
-	if !strings.Contains(view, "仅本次允许并授权") {
-		t.Fatalf("confirm view should expose one-time pre-approval:\n%s", view)
+	// Capability escalation MUST NOT be merged into the approval button. The
+	// first dialog only approves running the call as-is; the escalation flow
+	// (tryPermissionEscalation) issues a second dialog that names the actual
+	// capabilities. Verify no "并授权" surface leaks here.
+	if strings.Contains(view, "并授权") {
+		t.Fatalf("confirm view must not expose merged allow+escalate button:\n%s", view)
+	}
+	if !strings.Contains(view, "仅本次允许") {
+		t.Fatalf("confirm view should expose plain one-time approval:\n%s", view)
 	}
 
 	cb.Submit()
 	reply := <-ch
-	if !reply.Allowed || reply.Remember || !reply.AllowWithPermission {
+	if !reply.Allowed || reply.Remember {
 		t.Fatalf("unexpected reply: %+v", reply)
+	}
+	if reply.AllowWithPermission {
+		t.Fatalf("first dialog must not pre-approve escalation, got AllowWithPermission=true")
 	}
 }
 
-func TestPermissionConfirmCanPreApproveEscalationRemembered(t *testing.T) {
+func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
 	ch := make(chan common.ConfirmReply, 1)
@@ -78,14 +88,21 @@ func TestPermissionConfirmCanPreApproveEscalationRemembered(t *testing.T) {
 	})
 
 	view := cb.View(100, 40)
-	if !strings.Contains(view, "始终允许并授权") {
-		t.Fatalf("confirm view should expose remembered pre-approval:\n%s", view)
+	if strings.Contains(view, "并授权") {
+		t.Fatalf("confirm view must not expose merged allow+escalate button:\n%s", view)
+	}
+	if !strings.Contains(view, "始终允许") {
+		t.Fatalf("confirm view should expose remember option for project scope:\n%s", view)
 	}
 
+	// Option order: 0=仅本次允许, 1=始终允许, 2=拒绝.
 	cb.Move(1)
 	cb.Submit()
 	reply := <-ch
-	if !reply.Allowed || !reply.Remember || !reply.AllowWithPermission {
+	if !reply.Allowed || !reply.Remember {
 		t.Fatalf("unexpected reply: %+v", reply)
+	}
+	if reply.AllowWithPermission {
+		t.Fatalf("remember must not pre-approve escalation, got AllowWithPermission=true")
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"nekocode/bot/tools/builtin/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type GlobTool struct {
@@ -35,17 +36,21 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	basePath := toolhelpers.OptStringArg(args, "path", ".")
+	safeBasePath, err := toolutil.ValidatePathReadable(basePath)
+	if err != nil {
+		return "", err
+	}
 
 	var matches []string
 	if strings.Contains(pattern, "**") {
 		var err error
-		matches, err = globRecursive(basePath, pattern)
+		matches, err = globRecursive(safeBasePath, pattern)
 		if err != nil {
 			return "", fmt.Errorf("glob failed: %w", err)
 		}
 	} else {
 		var err error
-		matches, err = filepath.Glob(filepath.Join(basePath, pattern))
+		matches, err = filepath.Glob(filepath.Join(safeBasePath, pattern))
 		if err != nil {
 			return "", fmt.Errorf("glob failed: %w", err)
 		}

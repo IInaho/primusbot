@@ -151,3 +151,80 @@ func TestEvaluateDifferentToolsDontInterfere(t *testing.T) {
 		t.Fatalf("edit allow should match /src, got %v", d.Effect)
 	}
 }
+
+func TestSandboxRulesMatchBashProfiles(t *testing.T) {
+	rules, err := LoadSandboxRules(PermissionsDecl{Sandbox: map[string]SandboxProfile{
+		"Bash(git status *)": {
+			SandboxMode:   "read-only",
+			Network:       true,
+			WritableRoots: []string{"/cache"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("LoadSandboxRules: %v", err)
+	}
+	e := NewEngine(DefaultMatchers())
+	e.SetSandboxRules(rules)
+
+	profile, ok := e.SandboxFor("bash", BuildCallInfo("bash", map[string]any{
+		"command": "git status --short",
+	}, "/repo", "/home/user"))
+	if !ok {
+		t.Fatal("expected sandbox profile match")
+	}
+	if profile.SandboxMode != "read-only" || !profile.Network || len(profile.WritableRoots) != 1 || profile.WritableRoots[0] != "/cache" {
+		t.Fatalf("unexpected profile: %+v", profile)
+	}
+}
+
+func TestSandboxRulesPreferMostSpecificMatch(t *testing.T) {
+	rules, err := LoadSandboxRules(PermissionsDecl{Sandbox: map[string]SandboxProfile{
+		"Bash(*)":            {SandboxMode: "read-only"},
+		"Bash(npm install*)": {SandboxMode: "workspace-write", Network: true},
+	}})
+	if err != nil {
+		t.Fatalf("LoadSandboxRules: %v", err)
+	}
+	e := NewEngine(DefaultMatchers())
+	e.SetSandboxRules(rules)
+
+	profile, ok := e.SandboxFor("bash", BuildCallInfo("bash", map[string]any{
+		"command": "npm install",
+	}, "/repo", "/home/user"))
+	if !ok {
+		t.Fatal("expected sandbox profile match")
+	}
+	if profile.SandboxMode != "workspace-write" || !profile.Network {
+		t.Fatalf("specific sandbox profile should win, got %+v", profile)
+	}
+}
+
+func TestSandboxRulesRejectNonShellTools(t *testing.T) {
+	_, err := LoadSandboxRules(PermissionsDecl{Sandbox: map[string]SandboxProfile{
+		"Read(./foo)": {SandboxMode: "read-only"},
+	}})
+	if err == nil {
+		t.Fatal("expected non-shell sandbox rule to be rejected")
+	}
+}
+
+func TestSandboxRulesRejectInvalidMode(t *testing.T) {
+	_, err := LoadSandboxRules(PermissionsDecl{Sandbox: map[string]SandboxProfile{
+		"Bash(*)": {SandboxMode: "danger-full-access"},
+	}})
+	if err == nil {
+		t.Fatal("expected invalid sandbox mode to be rejected")
+	}
+}
+
+func TestSandboxRulesTrimMode(t *testing.T) {
+	rules, err := LoadSandboxRules(PermissionsDecl{Sandbox: map[string]SandboxProfile{
+		"Bash(*)": {SandboxMode: " read-only "},
+	}})
+	if err != nil {
+		t.Fatalf("LoadSandboxRules: %v", err)
+	}
+	if len(rules) != 1 || rules[0].Profile.SandboxMode != "read-only" {
+		t.Fatalf("sandbox mode should be normalized, got %+v", rules)
+	}
+}

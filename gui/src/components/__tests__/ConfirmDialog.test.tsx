@@ -129,4 +129,25 @@ describe('ConfirmDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '始终允许并授权' }))
     expect(replyConfirm).toHaveBeenCalledWith('confirm-bash', true, true, true)
   })
+
+  it('does not pre-approve permission escalation from the plain allow button', () => {
+    render(
+      <ConfirmDialog
+        entry={{
+          id: 'confirm-bash-plain',
+          toolName: 'bash',
+          args: {
+            command: 'go get github.com/hajimehoshi/ebiten/v2',
+            permission_scope: 'project',
+          },
+          kind: 'permission',
+          can_escalate: true,
+        }}
+        onDone={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '仅本次允许' }))
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash-plain', true, false, false)
+  })
 })

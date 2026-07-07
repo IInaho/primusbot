@@ -115,8 +115,8 @@ func renderConfirmPermission() string {
 		ToolName: "bash",
 		Args: map[string]any{
 			"command":                 "go test ./...",
-			"permission_reason":       "command declares capabilities: net.outbound, fs.write.cache",
-			"permission_capabilities": "net.outbound, fs.write.cache",
+			"permission_reason":       "command requests sandbox profile: net.outbound, fs.write.path",
+			"permission_capabilities": "net.outbound, fs.write.path",
 			"permission_scope":        "project",
 			"workspace":               "/home/user/project",
 			"sandbox":                 "native",

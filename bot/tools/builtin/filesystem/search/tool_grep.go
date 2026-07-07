@@ -38,6 +38,10 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	basePath := toolhelpers.OptStringArg(args, "path", ".")
+	safeBasePath, err := toolutil.ValidatePathReadable(basePath)
+	if err != nil {
+		return "", err
+	}
 
 	bin := "rg"
 	grepArgs := []string{"-n"}
@@ -65,7 +69,7 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, er
 		}
 	}
 
-	grepArgs = append(grepArgs, "--", pattern, basePath)
+	grepArgs = append(grepArgs, "--", pattern, safeBasePath)
 
 	cmd := exec.CommandContext(ctx, bin, grepArgs...)
 	cmd.Dir, _ = os.Getwd()

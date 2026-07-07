@@ -16,29 +16,23 @@ func (m *Model) View() tea.View {
 	if m.Messages.Len() == 0 {
 		parts = append(parts, m.Splash.View())
 	} else {
-		parts = append(parts, m.Header.View())
-
-		msgWidth := m.Width
-		if m.Messages.TotalContentHeight() > m.Messages.Height() {
-			msgWidth = max(m.Width-1, 1)
-		}
-		if m.Messages.Width() != msgWidth {
-			m.Messages.SetSize(msgWidth, m.Messages.Height())
-		}
-
+		// Horizontal scrollbar sits on top of the header when content overflows.
 		m.Scrollbar.Update(
 			m.Messages.TotalContentHeight(),
 			m.Messages.Height(),
 			m.Messages.ScrollPercent(),
 		)
-
-		msgView := lipgloss.NewStyle().Width(msgWidth).Render(m.Messages.Render())
-		barView := m.Scrollbar.View()
-		row := msgView
-		if barView != "" {
-			row = lipgloss.JoinHorizontal(lipgloss.Top, msgView, barView)
+		if hbar := m.Scrollbar.ViewHorizontal(m.Width); hbar != "" {
+			parts = append(parts, hbar)
 		}
-		parts = append(parts, row)
+		parts = append(parts, m.Header.View())
+
+		msgWidth := m.Width
+		if m.Messages.Width() != msgWidth {
+			m.Messages.SetSize(msgWidth, m.Messages.Height())
+		}
+
+		parts = append(parts, lipgloss.NewStyle().Width(msgWidth).Render(m.Messages.Render()))
 	}
 
 	if m.state == stateConfirming {

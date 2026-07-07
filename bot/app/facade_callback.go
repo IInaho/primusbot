@@ -55,10 +55,26 @@ func toPermDecl(p *config.PermissionsConfig) permission.PermissionsDecl {
 		return permission.PermissionsDecl{}
 	}
 	return permission.PermissionsDecl{
-		Allow: p.Allow,
-		Ask:   p.Ask,
-		Deny:  p.Deny,
+		Allow:   p.Allow,
+		Ask:     p.Ask,
+		Deny:    p.Deny,
+		Sandbox: toSandboxDecl(p.Sandbox),
 	}
+}
+
+func toSandboxDecl(in map[string]config.SandboxConfig) map[string]permission.SandboxProfile {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]permission.SandboxProfile, len(in))
+	for rule, profile := range in {
+		out[rule] = permission.SandboxProfile{
+			SandboxMode:   profile.SandboxMode,
+			Network:       profile.Network,
+			WritableRoots: append([]string(nil), profile.WritableRoots...),
+		}
+	}
+	return out
 }
 
 func (c *callbackBus) todoWriter() func([]common.TodoItem) {

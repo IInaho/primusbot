@@ -63,11 +63,6 @@ func (c *ConfirmBar) Respond(ok bool, remember bool) {
 	c.req = nil
 }
 
-func (c *ConfirmBar) RespondWithPermission(ok bool, remember bool) {
-	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember, AllowWithPermission: ok}
-	c.req = nil
-}
-
 // CanRemember reports whether the user can persist the decision. The legacy
 // capability model only persists "project"-scope grants; the new rule engine
 // persists an allow Rule for any ask except CapProcessHost, which is
@@ -80,26 +75,24 @@ func (c *ConfirmBar) CanRemember() bool {
 	return scope != "once"
 }
 
+// options builds the vertical option list for the confirm bar.
+//
+// Capability escalation (host execution, outbound network, writing outside the
+// workspace, ...) is deliberately NOT merged into these options: a "允许并
+// 授权" button tells the user nothing about what they're authorizing. The
+// first dialog here only approves running the call as-is; if the call then
+// raises a PermissionError, tryPermissionEscalation issues a SECOND dialog
+// that names the actual capabilities and scope. That progressive disclosure
+// keeps the user in control of exactly which capability they grant.
 func (c *ConfirmBar) options() []confirmOption {
 	if c.req == nil {
 		return nil
 	}
-	allowWithPermission := c.req.CanEscalatePermission
-	allowOnceLabel := "仅本次允许"
-	allowRememberLabel := "始终允许"
-	allowOnceAction := func(c *ConfirmBar) { c.Respond(true, false) }
-	allowRememberAction := func(c *ConfirmBar) { c.Respond(true, true) }
-	if allowWithPermission {
-		allowOnceLabel = "仅本次允许并授权"
-		allowRememberLabel = "始终允许并授权"
-		allowOnceAction = func(c *ConfirmBar) { c.RespondWithPermission(true, false) }
-		allowRememberAction = func(c *ConfirmBar) { c.RespondWithPermission(true, true) }
-	}
 	opts := []confirmOption{
-		{Label: allowOnceLabel, Action: allowOnceAction},
+		{Label: "仅本次允许", Action: func(c *ConfirmBar) { c.Respond(true, false) }},
 	}
 	if c.CanRemember() {
-		opts = append(opts, confirmOption{Label: allowRememberLabel, Action: allowRememberAction})
+		opts = append(opts, confirmOption{Label: "始终允许", Action: func(c *ConfirmBar) { c.Respond(true, true) }})
 	}
 	opts = append(opts, confirmOption{Label: "拒绝", Action: func(c *ConfirmBar) { c.Respond(false, false) }})
 	return opts

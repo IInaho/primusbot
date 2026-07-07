@@ -6,6 +6,7 @@ package sandbox
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"nekocode/bot/tools/runtime/sandbox/impl"
@@ -31,9 +32,18 @@ type Backend interface {
 	//                      lets the LLM decide which capability to request.
 	Run(ctx context.Context, command string, profile Profile, timeout time.Duration) (string, error)
 
+	// Start launches command inside the sandbox described by profile and
+	// returns immediately with process handles and stdout/stderr pipes.
+	// Callers are responsible for draining pipes and eventually calling Wait.
+	Start(ctx context.Context, command string, profile Profile) (*Process, error)
+
 	// RunHost executes command on the host with NO sandbox isolation.
 	// Use only when the caller has an explicit process.host grant.
 	RunHost(ctx context.Context, command string, timeout time.Duration) (string, error)
+
+	// StartHost launches command on the host with NO sandbox isolation.
+	// Use only when the caller has an explicit process.host grant.
+	StartHost(ctx context.Context, command string) (*Process, error)
 
 	// IsAvailable reports whether at least one sandbox backend is usable.
 	// When false, Run will return UnavailableError without executing.
@@ -60,6 +70,26 @@ type Backend interface {
 // the public sandbox package exposes the same struct callers use, while the
 // canonical definition lives with the implementations.
 type Profile = impl.Profile
+
+type SandboxMode = impl.SandboxMode
+
+const (
+	ModeWorkspaceWrite = impl.ModeWorkspaceWrite
+	ModeReadOnly       = impl.ModeReadOnly
+)
+
+// Process is a started sandbox or host process.
+type Process = impl.Process
+
+// ProcessLike is the subset of Process used by callers that need to inject
+// fakes in tests.
+type ProcessLike interface {
+	PID() int
+	Stdout() io.ReadCloser
+	Stderr() io.ReadCloser
+	Wait() error
+	Terminate(grace time.Duration) error
+}
 
 // UnavailableError is returned when no sandbox backend could be used.
 // Callers should treat it as a signal to request host-execution permission.

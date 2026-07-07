@@ -74,7 +74,7 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	if err != nil {
 		return "", err
 	}
-	safePath, err := toolutil.ValidatePathInWorkspace(req.Path)
+	safePath, err := toolutil.ValidatePathWritable(req.Path)
 	if err != nil {
 		return "", err
 	}
@@ -121,7 +121,7 @@ func buildEditPlan(args map[string]any) (editPlan, error) {
 	if err != nil {
 		return editPlan{}, err
 	}
-	safePath, err := toolutil.ValidatePath(req.Path)
+	safePath, err := toolutil.ValidatePathReadable(req.Path)
 	if err != nil {
 		return editPlan{}, err
 	}

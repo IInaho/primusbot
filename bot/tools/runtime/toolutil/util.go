@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/editcore"
 	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/workspace"
 	"nekocode/common"
 )
 
@@ -23,70 +22,29 @@ func StripAnsi(s string) string {
 }
 
 func ValidatePath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("path resolution failed: %w", err)
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		parent := filepath.Dir(abs)
-		realParent, pErr := filepath.EvalSymlinks(parent)
-		if pErr != nil {
-			return abs, nil
-		}
-		return filepath.Join(realParent, filepath.Base(abs)), nil
-	}
-	return real, nil
+	return workspace.Resolve(path)
 }
 
-// ValidatePathInWorkspace resolves path and enforces that it lives inside the
-// workspace (process cwd) or one of the extra allowed roots
-// (NEKOCODE_EXTRA_DIRS, colon-separated). Writes via the write/edit tools are
-// confined to these roots; paths outside are rejected so the LLM cannot
-// touch /etc, ~/.ssh, etc. without going through bash (which has its own
-// OS sandbox). Read-only tools (read/glob/grep) use ValidatePath instead and
-// stay allowed everywhere, gated by permission deny rules for sensitive files.
-func ValidatePathInWorkspace(path string) (string, error) {
-	abs, err := ValidatePath(path)
+func ValidatePathReadable(path string) (string, error) {
+	safePath, _, ok, err := workspace.CheckRead(path)
 	if err != nil {
 		return "", err
 	}
-	if isInsideAnyRoot(abs, allowedWriteRoots()) {
-		return abs, nil
+	if ok {
+		return safePath, nil
 	}
-	return "", fmt.Errorf("path %s is outside the workspace (allowed roots: %v); use bash for writes outside the workspace", abs, allowedWriteRoots())
+	return "", fmt.Errorf("path %s is outside readable workspaces (roots: %v)", safePath, workspace.Snapshot())
 }
 
-func allowedWriteRoots() []string {
-	// Workspace is injected via env (set by the Bot at startup so write/edit
-	// tools resolve against the session workspace, not the package build dir).
-	// Falls back to the process cwd for ad-hoc usage / tests that chdir.
-	cwd := os.Getenv("NEKOCODE_WORKSPACE")
-	if cwd == "" {
-		if d, err := os.Getwd(); err == nil && d != "" {
-			cwd = d
-		} else {
-			cwd = "."
-		}
+func ValidatePathWritable(path string) (string, error) {
+	safePath, _, ok, err := workspace.CheckWrite(path)
+	if err != nil {
+		return "", err
 	}
-	roots := []string{filepath.Clean(cwd)}
-	if extra := os.Getenv("NEKOCODE_EXTRA_DIRS"); extra != "" {
-		for _, r := range filepath.SplitList(extra) {
-			if r = filepath.Clean(r); r != "" {
-				roots = append(roots, r)
-			}
-		}
+	if ok {
+		return safePath, nil
 	}
-	return roots
-}
-
-func isInsideAnyRoot(path string, roots []string) bool {
-	for _, root := range roots {
-		if path == root || strings.HasPrefix(path, root+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
+	return "", fmt.Errorf("path %s is outside writable workspaces (roots: %v)", safePath, workspace.Snapshot())
 }
 
 func NormalizeText(text string) string {
@@ -95,7 +53,7 @@ func NormalizeText(text string) string {
 }
 
 func ReadSafeFile(path string) ([]byte, error) {
-	safePath, err := ValidatePath(path)
+	safePath, err := ValidatePathReadable(path)
 	if err != nil {
 		return nil, err
 	}

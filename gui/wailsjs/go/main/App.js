@@ -66,6 +66,10 @@ export function ReplyConfirmDecision(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReplyConfirmDecision'](arg1, arg2, arg3);
 }
 
+export function ReplyConfirmWithPermission(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ReplyConfirmWithPermission'](arg1, arg2, arg3, arg4);
+}
+
 export function ReplyQuestion(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReplyQuestion'](arg1, arg2, arg3);
 }

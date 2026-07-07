@@ -69,9 +69,8 @@ type PermissionRequest struct {
 const (
 	// Sandbox-granularity capabilities — when authorized, the command still
 	// runs inside the sandbox; only the corresponding restriction is relaxed.
-	CapNetOutbound  = "net.outbound"  // share host network namespace
-	CapFsWriteCache = "fs.write.cache" // bind package manager cache dirs (~/.npm, ~/go/pkg/mod, ~/.cargo, ...)
-	CapFsWritePath  = "fs.write.path"  // bind write_paths argument dirs as read-write
+	CapNetOutbound = "net.outbound"  // share host network namespace for outbound/local network
+	CapFsWritePath = "fs.write.path" // bind writable_roots argument dirs as read-write
 
 	// CapProcessHost: run entirely on the host without any sandbox isolation.
 	// Special: this capability is NEVER persisted — every invocation prompts

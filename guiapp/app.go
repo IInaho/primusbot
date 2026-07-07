@@ -86,6 +86,7 @@ func (a *App) Startup(ctx context.Context) {
 // Shutdown 在窗口关闭时调用。
 func (a *App) Shutdown(_ context.Context) {
 	runtime.LogInfo(a.ctx, "NekoCode GUI shutting down")
+	a.bot.Close()
 }
 
 // DomReady 在前端 DOM 就绪时调用。
@@ -568,6 +569,13 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 }
 
 // ReplyConfirmDecision 由前端调用，回复确认弹窗并可选择记住项目级权限。
+//
+// 注意：此方法不再自动授权升级 (AllowWithPermission)，即使
+// req.CanEscalatePermission == true。前端在"允许并授权"按钮被点时应调用
+// ReplyConfirmWithPermission(id, ok, remember, true)，否则升级路径会保持
+// 默认行为（即等待第二次确认弹窗或匹配既有授权）。此前的实现把
+// req.CanEscalatePermission 当作"用户已勾选授权"使用，导致 GUI 中用户点
+// "允许"按钮就静默授权了沙箱/主机升级，与 TUI 的两个独立按钮语义不一致。
 func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	a.confirmMu.Lock()
 	req, found := a.confs[id]
@@ -579,7 +587,31 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 		req.Response <- common.ConfirmReply{
 			Allowed:             ok,
 			Remember:            ok && remember,
-			AllowWithPermission: ok && req.CanEscalatePermission,
+			AllowWithPermission: false,
+		}
+	}
+}
+
+// ReplyConfirmWithPermission 由前端调用，回复确认弹窗并显式声明是否同时
+// 授权权限升级。只有当 req.CanEscalatePermission 为 true 时 withPermission
+// 才会被采用；否则 withPermission 强制为 false（防止前端误用"允许并授权"
+// 按钮对不可升级的工具下放授权）。
+func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, withPermission bool) {
+	a.confirmMu.Lock()
+	req, found := a.confs[id]
+	if found {
+		delete(a.confs, id)
+	}
+	a.confirmMu.Unlock()
+	if found {
+		grant := false
+		if ok && withPermission && req.CanEscalatePermission {
+			grant = true
+		}
+		req.Response <- common.ConfirmReply{
+			Allowed:             ok,
+			Remember:            ok && remember,
+			AllowWithPermission: grant,
 		}
 	}
 }

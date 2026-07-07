@@ -2,11 +2,13 @@ package runner
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/tools/runtime/workspace"
 	"nekocode/common"
 )
 
@@ -23,7 +25,11 @@ func (t fakeToolForPerm) Execute(context.Context, map[string]any) (string, error
 	return "ran", nil
 }
 
-func newPermTestExecutor() *Executor {
+func newPermTestExecutor(t *testing.T) *Executor {
+	t.Helper()
+	cwd, _ := os.Getwd()
+	workspace.Configure("/repo", nil)
+	t.Cleanup(func() { workspace.Configure(cwd, nil) })
 	e := NewExecutor(fakeRegistry{
 		"bash":  fakeToolForPerm{name: "bash"},
 		"write": fakeToolForPerm{name: "write"},
@@ -33,7 +39,7 @@ func newPermTestExecutor() *Executor {
 }
 
 func TestPermEngine_DeniesSudo(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -45,7 +51,7 @@ func TestPermEngine_DeniesSudo(t *testing.T) {
 }
 
 func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	asked := false
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		asked = true
@@ -64,7 +70,7 @@ func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
 }
 
 func TestPermEngine_DeniesDdCommand(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		t.Fatal("dd deny should not ask for confirmation")
 		return common.AllowOnce()
@@ -79,7 +85,7 @@ func TestPermEngine_DeniesDdCommand(t *testing.T) {
 }
 
 func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	asked := false
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		asked = true
@@ -98,7 +104,7 @@ func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
 }
 
 func TestPermEngine_AsksForRm(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	asked := false
 	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
 		asked = true
@@ -117,7 +123,7 @@ func TestPermEngine_AsksForRm(t *testing.T) {
 }
 
 func TestPermEngine_AskDeniedCancels(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -129,7 +135,7 @@ func TestPermEngine_AskDeniedCancels(t *testing.T) {
 }
 
 func TestPermEngine_WriteToolNoPrompt(t *testing.T) {
-	e := newPermTestExecutor()
+	e := newPermTestExecutor(t)
 	called := false
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		called = true

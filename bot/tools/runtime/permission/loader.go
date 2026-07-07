@@ -3,6 +3,8 @@ package permission
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // RuleSources aggregates the three rule origins for a workspace:
@@ -22,9 +24,21 @@ type RuleSources struct {
 // PermissionsDecl is the declarative rule config (mirrors config.PermissionsConfig
 // without the import cycle — the caller extracts the string slices).
 type PermissionsDecl struct {
-	Allow []string
-	Ask   []string
-	Deny  []string
+	Allow   []string
+	Ask     []string
+	Deny    []string
+	Sandbox map[string]SandboxProfile
+}
+
+type SandboxProfile struct {
+	SandboxMode   string   `json:"sandbox_mode,omitempty"`
+	Network       bool     `json:"network,omitempty"`
+	WritableRoots []string `json:"writable_roots,omitempty"`
+}
+
+type SandboxRule struct {
+	Rule    Rule
+	Profile SandboxProfile
 }
 
 // LoadRules builds the full ordered rule list for the engine. Order within the
@@ -81,6 +95,36 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 	return rules, nil
 }
 
+func LoadSandboxRules(decl PermissionsDecl) ([]SandboxRule, error) {
+	if len(decl.Sandbox) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(decl.Sandbox))
+	for spec := range decl.Sandbox {
+		keys = append(keys, spec)
+	}
+	sort.Strings(keys)
+	rules := make([]SandboxRule, 0, len(decl.Sandbox))
+	for _, spec := range keys {
+		profile := decl.Sandbox[spec]
+		profile.SandboxMode = strings.TrimSpace(profile.SandboxMode)
+		r, err := ParseRule(spec, EffectAllow, "declared")
+		if err != nil {
+			return nil, fmt.Errorf("permissions.sandbox %q: %w", spec, err)
+		}
+		if !strings.EqualFold(r.Tool, "bash") && !strings.EqualFold(r.Tool, "shell") {
+			return nil, fmt.Errorf("permissions.sandbox %q: only Bash/Shell rules can define sandbox profiles", spec)
+		}
+		switch profile.SandboxMode {
+		case "", "read-only", "workspace-write", "host":
+		default:
+			return nil, fmt.Errorf("permissions.sandbox %q: unsupported sandbox_mode %q", spec, profile.SandboxMode)
+		}
+		rules = append(rules, SandboxRule{Rule: r, Profile: profile})
+	}
+	return rules, nil
+}
+
 // NewEngineForWorkspace builds a ready engine: builtin + declared + remembered
 // rules, with the standard matchers registered.
 func NewEngineForWorkspace(decl PermissionsDecl, store *Store, workspace string) (*Engine, error) {
@@ -97,8 +141,13 @@ func NewEngineForWorkspace(decl PermissionsDecl, store *Store, workspace string)
 	if err != nil {
 		return nil, err
 	}
+	sandboxRules, err := LoadSandboxRules(decl)
+	if err != nil {
+		return nil, err
+	}
 	e := NewEngine(DefaultMatchers())
 	e.SetRules(rules)
+	e.SetSandboxRules(sandboxRules)
 	return e, nil
 }
 

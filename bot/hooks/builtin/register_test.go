@@ -11,13 +11,12 @@ func TestRegisterRegistersExpectedHookSet(t *testing.T) {
 	Register(r)
 
 	hooks := r.List()
-	if len(hooks) != 10 {
-		t.Fatalf("builtin hooks = %d, want 10", len(hooks))
+	if len(hooks) != 9 {
+		t.Fatalf("builtin hooks = %d, want 9", len(hooks))
 	}
 	want := map[string]bool{
 		"quota":                   true,
 		"tool_result_guardrail":   true,
-		"bash_ls_guardrail":       true,
 		"read_before_write":       true,
 		"read_only_spiral":        true,
 		"verification":            true,
