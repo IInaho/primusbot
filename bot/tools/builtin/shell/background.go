@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -507,12 +508,23 @@ func drainToRing(t *shellTask, r io.Reader) {
 			t.appendLogs([]byte(line))
 		}
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && !isPipeClosedError(err) {
 				t.appendLogs([]byte(fmt.Sprintf("[read error: %v]\n", err)))
 			}
 			return
 		}
 	}
+}
+
+// isPipeClosedError reports whether err is caused by the pipe being closed
+// after the command exited and cmd.Wait() cleaned up the file descriptors.
+// This is a normal termination condition, not a real error.
+func isPipeClosedError(err error) bool {
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return errors.Is(pathErr.Err, os.ErrClosed)
+	}
+	return errors.Is(err, os.ErrClosed)
 }
 
 func formatDuration(d time.Duration) string {
