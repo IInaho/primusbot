@@ -10,7 +10,7 @@ import { ImageGrid } from './ImageGrid'
 import { TasksList } from './TasksList'
 import { ThinkingCard } from './ThinkingCard'
 
-const PERSISTENT = new Set(['edit', 'diff', 'bash', 'write'])
+const PERSISTENT = new Set(['edit', 'diff', 'shell', 'write'])
 const persistentTool = (name: string) => PERSISTENT.has(name)
 
 interface RunCardProps {

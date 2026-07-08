@@ -71,6 +71,9 @@ func (b *Bot) initCtxMgr() {
 	systemPrompt := b.promptBuilder.Build()
 	memFile, _ := memory.Load(memory.DefaultPath())
 	b.ctxMgr = ctxmgr.New(ctxmgr.Config{SystemPrompt: systemPrompt, Memory: memFile})
+	if b.cfg != nil && b.cfg.ContextWindow > 0 {
+		b.ctxMgr.SetContextWindow(b.cfg.ContextWindow)
+	}
 }
 
 // reinit rebuilds the runtime facades, agent, summarizer, and commands.
@@ -93,6 +96,9 @@ func (b *Bot) reinit() {
 	// in tests and may differ after /cd).
 	os.Setenv("NEKOCODE_WORKSPACE", b.cwd)
 	workspace.Configure(b.cwd, b.configuredWorkspaceRoots())
+	if b.ctxMgr != nil && b.cfg != nil && b.cfg.ContextWindow > 0 {
+		b.ctxMgr.SetContextWindow(b.cfg.ContextWindow)
+	}
 	b.ext = newExtensionFacade(b.ctxMgr, b.toolRegistry, b.hookReg, b.cfg.ContextWindow)
 	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.cfg.ContextWindow)
 	b.ext.InitPlugins()

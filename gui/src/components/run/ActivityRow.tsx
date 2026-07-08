@@ -108,7 +108,7 @@ export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: Activ
         {argsLabel && (
           <span className="grid w-full min-w-0 grid-cols-[34px_minmax(0,1fr)] items-start gap-2 pl-5">
             <span className="text-[10px] font-medium text-text-3">调用</span>
-            <span className={cn('min-w-0 truncate font-mono text-[11px]', step.toolName === 'bash' ? 'text-text-2' : 'text-text-3')}>
+            <span className={cn('min-w-0 truncate font-mono text-[11px]', step.toolName === 'shell' ? 'text-text-2' : 'text-text-3')}>
               {argsLabel}
             </span>
           </span>
@@ -144,7 +144,7 @@ function ToolGlyph({ name }: { name: string }) {
       return <svg {...common}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
     case 'write':
       return <svg {...common}><path d="M5 4h10l4 4v12H5Z" /><path d="M14 4v5h5" /><path d="M8 14h8M8 17h5" /></svg>
-    case 'bash':
+    case 'shell':
       return <svg {...common}><path d="m7 8 4 4-4 4" /><path d="M13 16h4" /></svg>
     case 'grep':
     case 'glob':

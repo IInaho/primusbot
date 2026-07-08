@@ -23,7 +23,7 @@ describe('ConfirmDialog', () => {
       <ConfirmDialog
         entry={{
           id: 'confirm-1',
-          toolName: 'bash',
+          toolName: 'shell',
           args: { command },
           kind: 'permission',
         }}
@@ -85,7 +85,7 @@ describe('ConfirmDialog', () => {
       <ConfirmDialog
         entry={{
           id: 'confirm-permission',
-          toolName: 'bash',
+          toolName: 'shell',
           args: {
             command: 'go test ./...',
             permission_reason: 'command requires public network access',
@@ -113,7 +113,7 @@ describe('ConfirmDialog', () => {
       <ConfirmDialog
         entry={{
           id: 'confirm-bash',
-          toolName: 'bash',
+          toolName: 'shell',
           args: {
             command: 'go get github.com/hajimehoshi/ebiten/v2',
             permission_reason: 'command requires public network access',
@@ -135,7 +135,7 @@ describe('ConfirmDialog', () => {
       <ConfirmDialog
         entry={{
           id: 'confirm-bash-plain',
-          toolName: 'bash',
+          toolName: 'shell',
           args: {
             command: 'go get github.com/hajimehoshi/ebiten/v2',
             permission_scope: 'project',

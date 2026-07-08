@@ -227,8 +227,8 @@ export function useChat(): UseChatReturn {
         preview,
         isError: e.isError,
         status: e.isError ? 'error' : 'done',
-        // edit/bash 默认保持展开，write/diff 默认收起，与 ActivityRow 原本地状态一致。
-        collapsed: !(e.toolName === 'edit' || e.toolName === 'bash'),
+        // edit/shell 默认保持展开，write/diff 默认收起，与 ActivityRow 原本地状态一致。
+        collapsed: !(e.toolName === 'edit' || e.toolName === 'shell'),
       }
       return {
         ...m,
@@ -480,7 +480,7 @@ function addActivity(current: Msg['activity'] | undefined, delta: NonNullable<Ms
 }
 
 function persistentTool(name: string): boolean {
-  return name === 'edit' || name === 'diff' || name === 'bash' || name === 'write'
+  return name === 'edit' || name === 'diff' || name === 'shell' || name === 'write'
 }
 
 function resetBuffers(

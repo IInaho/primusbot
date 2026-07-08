@@ -242,7 +242,7 @@ function showArg(entry: ConfirmEntry, key: string): boolean {
   if (key === '_preview') return false
   if (key.startsWith('permission_')) return false
   if (isPermissionConfirm(entry) && ['workspace', 'commandClass', 'sandbox'].includes(key)) return false
-  if (entry.toolName === 'bash' && key === 'command') return false
+  if (entry.toolName === 'shell' && key === 'command') return false
   return true
 }
 
@@ -259,7 +259,7 @@ function titleFor(entry: ConfirmEntry): string {
       return '确认文件编辑'
     case 'write':
       return '确认写入文件'
-    case 'bash':
+    case 'shell':
       return '确认执行命令'
     default:
       return '确认工具调用'
@@ -270,7 +270,7 @@ function scopeFor(entry: ConfirmEntry): string {
   if (isPermissionConfirm(entry)) return permissionScope(entry) || 'permission'
   if (entry.toolName === 'edit') return 'file edit'
   if (entry.toolName === 'write') return 'file write'
-  if (entry.toolName === 'bash') return 'command'
+  if (entry.toolName === 'shell') return 'command'
   return 'tool'
 }
 
@@ -286,7 +286,7 @@ function footerCopy(entry: ConfirmEntry): string {
   if (entry.toolName === 'edit' && entry.args.revert === true) return '上方差异是本次 revert 将恢复的内容。'
   if (entry.toolName === 'edit' && entry.args.replaceAll === true) return 'replaceAll 会替换所有精确匹配，请确认替换范围。'
   if (entry.toolName === 'edit' && entry.preview) return '上方差异是本次 edit 将应用的内容。'
-  if (entry.toolName === 'bash') return '命令会在当前工作区执行。'
+  if (entry.toolName === 'shell') return '命令会在当前工作区执行。'
   return '允许后工具会继续执行，拒绝会返回 cancelled。'
 }
 

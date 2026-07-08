@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,16 +31,32 @@ import (
 // the Landlock enforcement in the child.
 //
 // Known tbsb bug worked around here: setupLandlock omits prctl(PR_SET_NO_NEW_PRIVS),
-// so landlock_restrict_self returns EPERM. We set no_new_privs once in the
-// parent; it is inherited across exec so the self-exec child gets it too.
+// so landlock_restrict_self returns EPERM unless no_new_privs is already set
+// on the child process. no_new_privs is a per-thread attribute inherited only
+// via clone(2), and os/exec forks the child from whatever OS thread the
+// calling goroutine happens to be scheduled on. Setting it once on the parent
+// process is therefore NOT sufficient: other runtime threads (GC, sysmon,
+// timers) never get the flag, and a child forked from one of those threads
+// lacks no_new_privs and hits EPERM. The fix is to set PR_SET_NO_NEW_PRIVS on
+// the exact OS thread that performs the fork, immediately before spawning —
+// see withNoNewPrivs.
 
-var noNewPrivsOnce sync.Once
-
-func ensureNoNewPrivs() {
-	noNewPrivsOnce.Do(func() {
-		const prSetNoNewPrivs = 38 // PR_SET_NO_NEW_PRIVS
-		_, _, _ = syscall.Syscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0)
-	})
+// withNoNewPrivs runs fn on a goroutine locked to the current OS thread,
+// after setting PR_SET_NO_NEW_PRIVS on that thread. The lock pins the
+// goroutine (and therefore the fork inside fn) to a thread known to carry the
+// no_new_privs flag, which the child then inherits across clone(2). The flag
+// is idempotent and harmless to set repeatedly; pinning per-spawn keeps
+// concurrency (different callers land on different threads) while guaranteeing
+// correctness regardless of which thread the goroutine started on.
+//
+// Calls may also be nested (e.g. the probe re-enters via runLandlockBash); the
+// lock is recursive-safe because Go counts nested LockOSThread calls.
+func withNoNewPrivs(fn func() error) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	const prSetNoNewPrivs = 38 // PR_SET_NO_NEW_PRIVS
+	_, _, _ = syscall.Syscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0)
+	return fn()
 }
 
 // landlockAvailable reports whether the tbsb Landlock backend is usable.
@@ -141,8 +158,6 @@ func runLandlockBash(ctx context.Context, command string, profile Profile, timeo
 		return "", fmt.Errorf("get executable path: %w", err)
 	}
 
-	ensureNoNewPrivs()
-
 	// Replicate tbsb applySandbox argv: <self> __sandbox__ -- bash -c <command>
 	args := []string{"__sandbox__", "--", "bash", "-c", command}
 	env := append(os.Environ(),
@@ -158,7 +173,17 @@ func runLandlockBash(ctx context.Context, command string, profile Profile, timeo
 		return strings.Contains(stderr, "landlock setup failed")
 	}
 
-	return runChild(ctx, self, args, env, ws, timeout, sysproc, unavail, "landlock restrict failed")
+	// Spawn on a thread that carries PR_SET_NO_NEW_PRIVS so the child
+	// inherits it (see withNoNewPrivs). Without this the tbsb helper child
+	// hits landlock_restrict_self EPERM when forked from a Go runtime thread
+	// lacking the flag.
+	var out string
+	spawnErr := withNoNewPrivs(func() error {
+		var err error
+		out, err = runChild(ctx, self, args, env, ws, timeout, sysproc, unavail, "landlock restrict failed")
+		return err
+	})
+	return out, spawnErr
 }
 
 func startLandlockBash(ctx context.Context, command string, profile Profile) (*Process, error) {
@@ -190,11 +215,19 @@ func startLandlockBash(ctx context.Context, command string, profile Profile) (*P
 	if err != nil {
 		return nil, fmt.Errorf("get executable path: %w", err)
 	}
-	ensureNoNewPrivs()
 	args := []string{"__sandbox__", "--", "bash", "-c", command}
 	env := append(os.Environ(),
 		"__SANDBOX_HELPER=1",
 		"__SANDBOX_CONFIG="+string(cfgJSON),
 	)
-	return startCommand(ctx, self, args, env, ws, &syscall.SysProcAttr{Setpgid: true}, nil)
+	// Spawn on a PR_SET_NO_NEW_PRIVS thread so the child inherits it (see
+	// withNoNewPrivs); otherwise landlock_restrict_self EPERMs in the child
+	// when forked from a Go runtime thread lacking the flag.
+	var p *Process
+	spawnErr := withNoNewPrivs(func() error {
+		var err error
+		p, err = startCommand(ctx, self, args, env, ws, &syscall.SysProcAttr{Setpgid: true}, nil)
+		return err
+	})
+	return p, spawnErr
 }

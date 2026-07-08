@@ -91,7 +91,7 @@ describe('useSessions', () => {
         Content: '',
         Blocks: [
           {
-            ToolName: 'bash',
+            ToolName: 'shell',
             Args: '{"command":"false"}',
             Content: 'command failed: exit status 1',
             IsError: true,
@@ -107,7 +107,7 @@ describe('useSessions', () => {
     const loaded = await act(async () => result.current.switchSession('one'))
 
     expect(loaded?.[0].steps?.[0]).toMatchObject({
-      toolName: 'bash',
+      toolName: 'shell',
       status: 'error',
       isError: true,
     })
@@ -127,7 +127,7 @@ describe('useSessions', () => {
             IsError: false,
           },
           {
-            ToolName: 'bash',
+            ToolName: 'shell',
             Args: '{"command":"npm test"}',
             Content: 'ok',
             IsError: false,
@@ -151,7 +151,7 @@ describe('useSessions', () => {
 
     expect(steps.map((s) => ({ toolName: s.toolName, collapsed: s.collapsed }))).toEqual([
       { toolName: 'edit', collapsed: false },
-      { toolName: 'bash', collapsed: false },
+      { toolName: 'shell', collapsed: false },
       { toolName: 'write', collapsed: true },
     ])
   })

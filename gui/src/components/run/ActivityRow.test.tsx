@@ -46,7 +46,7 @@ describe('ActivityRow', () => {
   it('calls toggleStep when the expand/collapse button is clicked', async () => {
     const step: ToolStep = {
       id: 'bash-1',
-      toolName: 'bash',
+      toolName: 'shell',
       args: 'command=echo hello',
       output: 'hello\nworld',
       status: 'done',
@@ -68,7 +68,7 @@ describe('ActivityRow', () => {
   it('renders blocked tools as blocked instead of execution errors', () => {
     const step: ToolStep = {
       id: 'bash-blocked',
-      toolName: 'bash',
+      toolName: 'shell',
       args: 'command=rm -rf /tmp/example',
       output: 'command was blocked by policy',
       status: 'blocked',

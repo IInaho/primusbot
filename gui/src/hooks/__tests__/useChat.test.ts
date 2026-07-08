@@ -211,18 +211,18 @@ describe('useChat', () => {
 
     act(() => {
       emit('agent:tool_start', { id: 't1', toolName: 'ls', args: '{"path":"a"}', preview: 'preview-a', blocked: false })
-      emit('agent:tool_start', { id: 't2', toolName: 'bash', args: '', preview: 'preview-b', blocked: false })
+      emit('agent:tool_start', { id: 't2', toolName: 'shell', args: '', preview: 'preview-b', blocked: false })
     })
     await waitFor(() => expect(result.current.msgs[1].steps).toHaveLength(2))
 
     act(() => {
       emit('agent:tool_done', { id: 't1', toolName: 'ls', args: '', output: 'content-a', isError: false })
-      emit('agent:tool_done', { id: 't2', toolName: 'bash', args: '', output: 'content-b', isError: false })
+      emit('agent:tool_done', { id: 't2', toolName: 'shell', args: '', output: 'content-b', isError: false })
     })
     await waitFor(() => expect(result.current.msgs[1].steps![1].status).toBe('done'))
 
     const readStep = result.current.msgs[1].steps!.find((s) => s.toolName === 'ls')!
-    const bashStep = result.current.msgs[1].steps!.find((s) => s.toolName === 'bash')!
+    const bashStep = result.current.msgs[1].steps!.find((s) => s.toolName === 'shell')!
     expect(readStep.output).toBe('')
     expect(readStep.preview).toBeUndefined()
     expect(bashStep.output).toBe('content-b')

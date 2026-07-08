@@ -169,5 +169,5 @@ function extractFilePath(content: string): string {
 }
 
 function shouldCollapseLoadedTool(name: string): boolean {
-  return !(name === 'edit' || name === 'bash')
+  return !(name === 'edit' || name === 'shell')
 }

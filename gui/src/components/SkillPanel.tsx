@@ -373,7 +373,7 @@ function SkillRow({ skill }: { skill: SkillView }) {
     <div className={cn('border-b border-border/30 last:border-b-0', expanded && 'bg-surface-3/30')}>
       <button
         type="button"
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-3/60 active:scale-[0.997]"
+        className="grid w-full grid-cols-[auto_minmax(120px,1fr)_auto] items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-3/60 active:scale-[0.997]"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
@@ -382,7 +382,7 @@ function SkillRow({ skill }: { skill: SkillView }) {
         </span>
         <span className="min-w-0">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-xs font-semibold text-text">{skill.name}</span>
+            <span className="truncate text-sm font-medium tracking-wide text-text">{skill.name}</span>
             {skill.loaded && <span className="rounded-sm bg-success/12 px-1.5 py-0.5 text-[10px] text-success">已加载</span>}
           </span>
         </span>
@@ -493,7 +493,7 @@ function PluginRow(props: { plugin: PluginView; mutating: string; onToggle: (plu
             >
               <ChevronIcon open={expanded} />
             </button>
-            <span className="truncate text-xs font-semibold text-text">{p.name}</span>
+            <span className="truncate text-sm font-medium tracking-wide text-text">{p.name}</span>
             {p.version && <span className="text-[10px] text-text-3">v{p.version}</span>}
             {!p.enabled && <span className="rounded-sm bg-surface-3 px-1.5 py-0.5 text-[10px] text-text-3">已停用</span>}
           </div>
@@ -627,7 +627,7 @@ function McpRow({ server }: { server: MCPServerView }) {
     <div className="grid gap-2 px-4 py-3 transition-colors hover:bg-surface-3/35 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate text-xs font-semibold text-text">{server.name}</span>
+          <span className="truncate text-sm font-medium tracking-wide text-text">{server.name}</span>
           <StatusBadge status={server.status} />
           <span className="shrink-0 rounded-sm bg-accent/12 px-1.5 py-0.5 text-[10px] text-accent">{server.plugin}</span>
           {server.status === 'ready' && (

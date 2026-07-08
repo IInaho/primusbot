@@ -10,20 +10,46 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"nekocode/util/fs"
 )
 
 // childFlag is the sentinel argument that tells a re-exec'd process to
 // behave as the sandbox child (set up namespaces and exec the command).
 const childFlag = "--nekocode-sandbox-child"
 
-// defaultStagingRoot is used when the parent did not supply one. It is a
-// shared path, so the parent must NOT clean it up (see runNativeBash).
-const defaultStagingRoot = "/tmp/.nekocode-sandbox-root"
+const (
+	stagingRootPrefix = "nekocode-sb-"
+	stagingOwnerFile  = ".owner-pid"
+
+	defaultRootTmpfsSize = "2g"
+	defaultTmpTmpfsSize  = "2g"
+)
+
+// sandboxStagingBase returns the directory under which per-run staging
+// roots are created. It prefers ~/.nekocode/sandbox so sandbox artifacts
+// live alongside the rest of the user's NekoCode data instead of cluttering
+// the system /tmp. It falls back to the OS temp dir when the home dir is
+// unavailable (e.g. read-only home in some containers).
+var sandboxStagingBase = sync.OnceValue(func() string {
+	if base := fs.NekocodeDataDir("sandbox"); os.MkdirAll(base, 0o700) == nil {
+		return base
+	}
+	return os.TempDir()
+})
+
+// defaultStagingRoot is the shared fallback used when the parent could not
+// create a unique per-run staging dir. It is the base dir itself, so the
+// parent must NOT clean it up (see runNativeBash) — doing so would break
+// concurrent runs that share it.
+func defaultStagingRoot() string { return sandboxStagingBase() }
 
 // isNativeAvailable reports whether the current system can run the native
 // Linux-namespaced sandbox. It requires Linux and working user namespaces.
@@ -56,25 +82,28 @@ func runNativeBash(ctx context.Context, command string, profile Profile, timeout
 	}
 	profile.WritePaths = writePaths
 
-	// The parent creates the staging mountpoint on the host /tmp filesystem
-	// and cleans it up after the child exits. Using a unique dir avoids
-	// collisions between concurrent sandbox runs. When MkdirTemp fails we
-	// fall back to a shared default path, which must NOT be removed (it
-	// would break concurrent runs).
+	// The parent creates the staging mountpoint and cleans it up after the
+	// child exits. Using a unique dir avoids collisions between concurrent
+	// sandbox runs. When MkdirTemp fails we fall back to a shared default
+	// path (the base dir itself), which must NOT be removed (it would break
+	// concurrent runs).
 	createdStaging := false
 	if profile.StagingRoot == "" {
-		if staging, err := os.MkdirTemp("/tmp", "nekocode-sb-"); err == nil {
+		base := sandboxStagingBase()
+		cleanupStaleStagingRoots(base)
+		if staging, err := os.MkdirTemp(base, stagingRootPrefix); err == nil {
 			profile.StagingRoot = staging
 			createdStaging = true
+			writeStagingOwner(staging)
 		} else {
-			profile.StagingRoot = defaultStagingRoot
+			profile.StagingRoot = defaultStagingRoot()
 		}
 	}
 	if err := os.MkdirAll(profile.StagingRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create staging root: %w", err)
 	}
 	if createdStaging {
-		defer os.RemoveAll(profile.StagingRoot)
+		defer cleanupStagingRoot(profile.StagingRoot)
 	}
 
 	profileJSON, err := json.Marshal(profile)
@@ -152,11 +181,14 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 
 	createdStaging := false
 	if profile.StagingRoot == "" {
-		if staging, err := os.MkdirTemp("/tmp", "nekocode-sb-"); err == nil {
+		base := sandboxStagingBase()
+		cleanupStaleStagingRoots(base)
+		if staging, err := os.MkdirTemp(base, stagingRootPrefix); err == nil {
 			profile.StagingRoot = staging
 			createdStaging = true
+			writeStagingOwner(staging)
 		} else {
-			profile.StagingRoot = defaultStagingRoot
+			profile.StagingRoot = defaultStagingRoot()
 		}
 	}
 	if err := os.MkdirAll(profile.StagingRoot, 0o700); err != nil {
@@ -165,7 +197,7 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 	cleanup := func() {}
 	if createdStaging {
 		staging := profile.StagingRoot
-		cleanup = func() { _ = os.RemoveAll(staging) }
+		cleanup = func() { cleanupStagingRoot(staging) }
 	}
 
 	profileJSON, err := json.Marshal(profile)
@@ -208,6 +240,80 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 	return p, nil
 }
 
+func writeStagingOwner(staging string) {
+	if staging == "" || staging == defaultStagingRoot() {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(staging, stagingOwnerFile), []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
+}
+
+func cleanupStagingRoot(staging string) {
+	if staging == "" || staging == defaultStagingRoot() {
+		return
+	}
+	_ = unix.Unmount(staging, unix.MNT_DETACH)
+	_ = os.RemoveAll(staging)
+}
+
+func cleanupStaleStagingRoots(parent string) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), stagingRootPrefix) {
+			continue
+		}
+		staging := filepath.Join(parent, entry.Name())
+		data, err := os.ReadFile(filepath.Join(staging, stagingOwnerFile))
+		if err != nil {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || processAlive(pid) {
+			continue
+		}
+		cleanupStagingRoot(staging)
+	}
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+func sandboxTmpfsSize(envName, fallback string) string {
+	size := strings.TrimSpace(os.Getenv(envName))
+	if validTmpfsSize(size) {
+		return size
+	}
+	return fallback
+}
+
+func validTmpfsSize(size string) bool {
+	if size == "" {
+		return false
+	}
+	digits := 0
+	for i, r := range size {
+		if r >= '0' && r <= '9' {
+			digits++
+			continue
+		}
+		if digits > 0 && i == len(size)-1 {
+			switch r {
+			case 'k', 'K', 'm', 'M', 'g', 'G', 't', 'T':
+				return true
+			}
+		}
+		return false
+	}
+	return digits == len(size)
+}
+
 // handleSandboxChild is invoked from init() when the process has been
 // re-exec'd by runNativeBash. It sets up the filesystem view and execs
 // the target command, never returning.
@@ -241,7 +347,7 @@ func init() {
 func sandboxChildSetupAndExec(profile Profile, command string) error {
 	root := profile.StagingRoot
 	if root == "" {
-		root = defaultStagingRoot
+		root = defaultStagingRoot()
 	}
 
 	// 1. Detach all mounts from the host namespace so nothing leaks back.
@@ -250,13 +356,14 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 	}
 
 	// 2. The new root is a fresh tmpfs mounted on the staging mountpoint.
-	//    Mounting on a subdirectory (not on /tmp itself) means the host /tmp
-	//    — and any workspace that lives under it — stays reachable as a bind
-	//    source until we pivot away from it.
+	//    Mounting on a subdirectory (not on /tmp or /home itself) means the
+	//    host /tmp, /home, and any workspace that lives under them stay
+	//    reachable as bind sources until we pivot away from the staging dir.
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("create staging root: %w", err)
 	}
-	if err := unix.Mount("tmpfs", root, "tmpfs", 0, "size=384m"); err != nil {
+	rootSize := sandboxTmpfsSize("NEKOCODE_SANDBOX_ROOT_SIZE", defaultRootTmpfsSize)
+	if err := unix.Mount("tmpfs", root, "tmpfs", 0, "size="+rootSize); err != nil {
 		return fmt.Errorf("mount staging root: %w", err)
 	}
 
@@ -308,7 +415,8 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o1777); err != nil {
 		return fmt.Errorf("mkdir /tmp: %w", err)
 	}
-	if err := unix.Mount("tmpfs", filepath.Join(root, "tmp"), "tmpfs", 0, "size=256m"); err != nil {
+	tmpSize := sandboxTmpfsSize("NEKOCODE_SANDBOX_TMP_SIZE", defaultTmpTmpfsSize)
+	if err := unix.Mount("tmpfs", filepath.Join(root, "tmp"), "tmpfs", 0, "size="+tmpSize); err != nil {
 		return fmt.Errorf("mount /tmp: %w", err)
 	}
 
