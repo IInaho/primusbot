@@ -100,6 +100,24 @@
     @apply h-9 w-full rounded-md border border-border/60 bg-surface-2 px-2.5 text-xs text-text transition-colors placeholder:text-text-3 hover:border-border focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
   }
 
+  select.field {
+    color-scheme: dark;
+  }
+
+  select.field option {
+    background: var(--bg2);
+    color: var(--t);
+  }
+
+  [data-theme='light'] select.field {
+    color-scheme: light;
+  }
+
+  [data-theme='light'] select.field option {
+    background: var(--bg2);
+    color: var(--t);
+  }
+
   .primary-button {
     @apply inline-flex h-8 items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-black transition-all hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
   }

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { cn } from '../lib/classnames'
 import { isWailsEnvironment, safeGetConfig, safeSaveConfig } from '../lib/wails'
 import type { ConfigView, ImageGenConfig, MCPServerConfig, ModelConfig } from '../types/config'
+import { Select } from './Select'
 
 interface ConfigPanelProps {
   open: boolean
@@ -328,19 +329,18 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
 
               <section className="grid gap-3 rounded-md border border-border/50 bg-surface px-4 py-3 md:grid-cols-3">
                 <Field label="当前模型">
-                  <select className="field" value={cfg.active} onChange={(e) => update({ active: e.target.value })}>
-                    {cfg.models.map((m) => (
-                      <option key={m.name} value={m.name}>{m.name}</option>
-                    ))}
-                  </select>
+                  <Select
+                    value={cfg.active}
+                    options={cfg.models.map((m) => ({ value: m.name, label: m.name }))}
+                    onChange={(v) => update({ active: v })}
+                  />
                 </Field>
                 <Field label="Flash 模型">
-                  <select className="field" value={cfg.flash_model ?? ''} onChange={(e) => update({ flash_model: e.target.value })}>
-                    <option value="">跟随当前模型</option>
-                    {cfg.models.map((m) => (
-                      <option key={m.name} value={m.name}>{m.name}</option>
-                    ))}
-                  </select>
+                  <Select
+                    value={cfg.flash_model ?? ''}
+                    options={[{ value: '', label: '跟随当前模型' }, ...cfg.models.map((m) => ({ value: m.name, label: m.name }))]}
+                    onChange={(v) => update({ flash_model: v })}
+                  />
                 </Field>
                 <Field label="上下文窗口">
                   <input
@@ -483,10 +483,11 @@ function ModelCard({
         <Field label="Provider"><input className="field" value={model.provider} onChange={(e) => onChange({ provider: e.target.value })} /></Field>
         <Field label="模型 ID"><input className="field" value={model.model} onChange={(e) => onChange({ model: e.target.value })} /></Field>
         <Field label="协议">
-          <select className="field" value={model.protocol || 'openai'} onChange={(e) => onChange({ protocol: e.target.value as ModelConfig['protocol'] })}>
-            <option value="openai">openai</option>
-            <option value="anthropic">anthropic</option>
-          </select>
+          <Select
+            value={model.protocol || 'openai'}
+            options={[{ value: 'openai', label: 'openai' }, { value: 'anthropic', label: 'anthropic' }]}
+            onChange={(v) => onChange({ protocol: v as ModelConfig['protocol'] })}
+          />
         </Field>
         <Field label="API Key"><input className="field font-mono" type="password" value={model.api_key} onChange={(e) => onChange({ api_key: e.target.value })} /></Field>
         <Field label="Base URL"><input className="field font-mono" value={model.base_url ?? ''} onChange={(e) => onChange({ base_url: e.target.value })} /></Field>
