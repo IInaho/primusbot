@@ -2,8 +2,7 @@ package execution
 
 import (
 	"context"
-
-	"nekocode/bot/tools/runtime/editcore"
+	"nekocode/bot/tools/runtime/snapshot"
 )
 
 // ExecutionState carries mutable tool execution state that must be isolated
@@ -59,3 +58,22 @@ func GetGlobalFileCache() *FileStateCache { return globalFileCache }
 
 // GetGlobalSnapshotStore returns the global snapshot store.
 func GetGlobalSnapshotStore() *editcore.SnapshotStore { return globalSnapshotStore }
+
+// RecordSnapshot stores a snapshot of path's current content in the global
+// store and returns its content hash. Returns "" if the store is unavailable.
+func RecordSnapshot(path, content string) string {
+	return recordSnapshot(GetGlobalSnapshotStore(), path, content)
+}
+
+// RecordSnapshotInContext stores a snapshot using the context's store (or the
+// global store if the context has none) and returns its content hash.
+func RecordSnapshotInContext(ctx context.Context, path, content string) string {
+	return recordSnapshot(SnapshotStoreFromContext(ctx), path, content)
+}
+
+func recordSnapshot(store *editcore.SnapshotStore, path, content string) string {
+	if store == nil {
+		return ""
+	}
+	return store.Record(path, content)
+}

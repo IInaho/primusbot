@@ -6,7 +6,7 @@ import (
 	"nekocode/bot/agent/runtime/toolrun"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/runner"
@@ -48,7 +48,7 @@ func (h runnerHost) ApplyPostToolHookResult(result hooks.Result) bool {
 	return h.agent.applyPostToolHookResult(result)
 }
 
-func (h runnerHost) LLM() types.LLM {
+func (h runnerHost) LLM() provider.LLM {
 	return h.agent.deps.llmClient
 }
 

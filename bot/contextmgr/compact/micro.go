@@ -7,7 +7,7 @@ import (
 
 // compactableTools are the tools whose results can be safely cleared.
 var compactableTools = map[string]bool{
-	"read": true, "bash": true, "grep": true, "glob": true, "list": true,
+	"read": true, "shell": true, "bash": true, "grep": true, "glob": true, "list": true,
 	"web_search": true, "web_fetch": true, "edit": true, "write": true,
 }
 
@@ -24,7 +24,7 @@ func compactableToolPriority(toolName, content string) int {
 	switch toolName {
 	case "read", "edit", "write":
 		return priorityHigh
-	case "bash":
+	case "bash", "shell":
 		if len(content) > 120 {
 			return priorityMedium
 		}

@@ -6,14 +6,14 @@ import (
 
 	"nekocode/common/debug"
 	"nekocode/bot/hooks"
-	"nekocode/common"
+	"nekocode/bot/extension"
 )
 
 const InstallUsage = "Usage: /plugin install <source>\n  source: GitHub URL | user/repo | ./local-path"
 
 type Manager struct {
 	reg       *Registry
-	runtime   runtime
+	pluginRuntime pluginRuntime
 	onInstall func(*Plugin)
 	onChanged func()
 }
@@ -48,7 +48,7 @@ type lookupResult struct {
 	OK      bool
 }
 
-type runtime struct {
+type pluginRuntime struct {
 	Hooks               *hooks.Registry
 	Logf                func(string, ...any)
 	RegisterAgentPath   func(path string) error
@@ -67,7 +67,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		reg:       reg,
 		onInstall: opts.OnInstall,
 		onChanged: opts.OnChanged,
-		runtime: runtime{
+		pluginRuntime: pluginRuntime{
 			Hooks:               opts.Hooks,
 			Logf:                reg.Logf,
 			RegisterAgentPath:   opts.RegisterAgentPath,
@@ -108,9 +108,9 @@ func (m *Manager) SkillDirs() []string {
 
 // MCPServers returns flattened MCP server views for all installed plugins,
 // attributed to their source plugin and its current enabled state.
-func (m *Manager) MCPServers() []common.MCPServerView {
+func (m *Manager) MCPServers() []extension.MCPServerView {
 	plugins := m.reg.List()
-	out := make([]common.MCPServerView, 0)
+	out := make([]extension.MCPServerView, 0)
 	for _, p := range plugins {
 		out = append(out, MCPServersFor(p)...)
 	}
@@ -308,11 +308,11 @@ func (m *Manager) notifyChanged() {
 }
 
 func (m *Manager) loadExtensions(p *Plugin) {
-	m.runtime.Load(p)
+	m.pluginRuntime.Load(p)
 }
 
 func (m *Manager) unloadExtensions(p *Plugin) {
-	m.runtime.Unload(p)
+	m.pluginRuntime.Unload(p)
 }
 
 func parseInstallArgs(args []string) installArgs {
@@ -371,19 +371,19 @@ func uninstallFailed(err error) string   { return fmt.Sprintf("Uninstall failed:
 func enableFailed(err error) string      { return fmt.Sprintf("Enable failed: %v", err) }
 func disableFailed(err error) string     { return fmt.Sprintf("Disable failed: %v", err) }
 
-func (r runtime) Load(p *Plugin) {
+func (r pluginRuntime) Load(p *Plugin) {
 	r.registerAgents(p)
 	r.registerHooks(p)
 	r.registerMCP(p)
 }
 
-func (r runtime) Unload(p *Plugin) {
+func (r pluginRuntime) Unload(p *Plugin) {
 	r.unregisterAgents(p)
 	r.unregisterMCP(p)
 	r.unregisterHooks(p)
 }
 
-func (r runtime) logf(format string, args ...any) {
+func (r pluginRuntime) logf(format string, args ...any) {
 	if r.Logf != nil {
 		r.Logf(format, args...)
 		return
@@ -391,7 +391,7 @@ func (r runtime) logf(format string, args ...any) {
 	debug.Log(format, args...)
 }
 
-func (r runtime) registerAgents(p *Plugin) {
+func (r pluginRuntime) registerAgents(p *Plugin) {
 	if r.RegisterAgentPath == nil {
 		return
 	}
@@ -402,7 +402,7 @@ func (r runtime) registerAgents(p *Plugin) {
 	}
 }
 
-func (r runtime) unregisterAgents(p *Plugin) {
+func (r pluginRuntime) unregisterAgents(p *Plugin) {
 	if r.UnregisterAgentPath == nil {
 		return
 	}
@@ -411,7 +411,7 @@ func (r runtime) unregisterAgents(p *Plugin) {
 	}
 }
 
-func (r runtime) registerHooks(p *Plugin) {
+func (r pluginRuntime) registerHooks(p *Plugin) {
 	if r.Hooks == nil {
 		return
 	}
@@ -426,7 +426,7 @@ func (r runtime) registerHooks(p *Plugin) {
 	}
 }
 
-func (r runtime) unregisterHooks(p *Plugin) {
+func (r pluginRuntime) unregisterHooks(p *Plugin) {
 	if r.Hooks == nil {
 		return
 	}
@@ -435,7 +435,7 @@ func (r runtime) unregisterHooks(p *Plugin) {
 	})
 }
 
-func (r runtime) registerMCP(p *Plugin) {
+func (r pluginRuntime) registerMCP(p *Plugin) {
 	if r.RegisterMCPServer == nil {
 		return
 	}
@@ -446,7 +446,7 @@ func (r runtime) registerMCP(p *Plugin) {
 	}
 }
 
-func (r runtime) unregisterMCP(p *Plugin) {
+func (r pluginRuntime) unregisterMCP(p *Plugin) {
 	if r.UnregisterMCPServer == nil {
 		return
 	}

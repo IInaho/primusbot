@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"nekocode/common"
+	"nekocode/util/yaml"
 
-	"gopkg.in/yaml.v3"
+	goyaml "gopkg.in/yaml.v3"
 )
 
 // AgentDef is parsed from an agents/*.md file (Claude Code format).
@@ -22,12 +22,12 @@ func ParseAgentMD(path string) (*AgentDef, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read agent file: %w", err)
 	}
-	yamlBytes, body, err := common.ParseYAMLFrontmatter(string(data))
+	yamlBytes, body, err := yaml.ParseYAMLFrontmatter(string(data))
 	if err != nil {
 		return nil, err
 	}
 	var def AgentDef
-	if err := yaml.Unmarshal(yamlBytes, &def); err != nil {
+	if err := goyaml.Unmarshal(yamlBytes, &def); err != nil {
 		return nil, fmt.Errorf("invalid frontmatter: %w", err)
 	}
 	if def.Name == "" {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 // startMockMCP builds and starts a minimal MCP server that responds to

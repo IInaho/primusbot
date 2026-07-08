@@ -39,14 +39,14 @@ func (e *Executor) applySandboxProfile(tc core.ToolCallItem) core.ToolCallItem {
 	if engine == nil {
 		return tc
 	}
-	if cmd, ok := bgStartCommand(tc); ok {
-		callInfo := permission.BuildCallInfo("bash", map[string]any{"command": cmd}, ws, home)
-		if profile, matched := engine.SandboxFor("bash", callInfo); matched {
+	if cmd, ok := shellCommandForPolicy(tc); ok {
+		callInfo := permission.BuildCallInfo(tc.Name, map[string]any{"command": cmd}, ws, home)
+		if profile, matched := engine.SandboxFor(tc.Name, callInfo); matched {
 			tc.Args = mergeSandboxArgs(tc.Args, profile)
 		}
 		return tc
 	}
-	if tc.Name != "bash" && tc.Name != "shell" {
+	if tc.Name != "shell" {
 		return tc
 	}
 	callInfo := permission.BuildCallInfo(tc.Name, tc.Args, ws, home)
@@ -67,6 +67,9 @@ func mergeSandboxArgs(args map[string]any, profile permission.SandboxProfile) ma
 	if profile.SandboxMode != "" && !hasNonEmptyArg(next, "sandbox_mode") {
 		next["sandbox_mode"] = profile.SandboxMode
 	}
+	// Rule-declared network is a default applied only when the caller did
+	// not explicitly set one. If the LLM passed network=true/false, that
+	// choice wins.
 	if profile.Network {
 		if _, ok := next["network"]; !ok {
 			next["network"] = true

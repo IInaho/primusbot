@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 func TestBuildBar(t *testing.T) {
@@ -50,7 +50,7 @@ func TestFormatTokens(t *testing.T) {
 		{999, "999"},
 	}
 	for _, tt := range tests {
-		got := common.FormatTokens(tt.n)
+		got := text.FormatTokens(tt.n)
 		if got != tt.want {
 			t.Errorf("FormatTokens(%d) = %s, want %s", tt.n, got, tt.want)
 		}

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 type Snapshot struct {
@@ -53,7 +53,7 @@ type Meta struct {
 }
 
 func dir() string {
-	return filepath.Join(common.NekocodeHome(), "sessions")
+	return filepath.Join(fs.NekocodeHome(), "sessions")
 }
 
 func New(cwd string) (*Snapshot, error) {
@@ -67,7 +67,7 @@ func New(cwd string) (*Snapshot, error) {
 }
 
 func Load(id string) (*Snapshot, error) {
-	return common.ReadJSONFile[*Snapshot](filepath.Join(dir(), id, "session.json"))
+	return fs.ReadJSONFile[*Snapshot](filepath.Join(dir(), id, "session.json"))
 }
 
 // Delete removes a session directory and all its contents.
@@ -82,7 +82,7 @@ func (s *Snapshot) Save() error {
 	if err != nil {
 		return fmt.Errorf("marshal session: %w", err)
 	}
-	return common.WriteFileWithDir(filepath.Join(d, "session.json"), data, 0o644)
+	return fs.WriteFileWithDir(filepath.Join(d, "session.json"), data, 0o644)
 }
 
 // sessionMeta is a lightweight struct for deserializing only metadata from

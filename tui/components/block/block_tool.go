@@ -31,7 +31,7 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 }
 
 func toolDisplayName(toolName string) string {
-	if toolName == "bash" {
+	if toolName == "shell" {
 		return "Ran"
 	}
 	return toolName
@@ -419,7 +419,7 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 			return renderEditPreview(b.Content, contentW, sty)
 		}
 		return sty.Muted.MaxWidth(contentW).Render(b.Content)
-	case "bash":
+	case "shell":
 		if strings.TrimSpace(b.Content) == "" {
 			return sty.Subtle.Render("(No output)")
 		}

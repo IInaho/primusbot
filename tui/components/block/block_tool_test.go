@@ -35,8 +35,8 @@ func TestDiffToolIsPersistent(t *testing.T) {
 func TestRenderToolsSeparatesMultipleToolBlocks(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := RenderTools([]ContentBlock{
-		{Type: BlockTool, ToolName: "bash", ToolArgs: "go test", Done: true},
-		{Type: BlockTool, ToolName: "bash", ToolArgs: "go vet", Done: true},
+		{Type: BlockTool, ToolName: "shell", ToolArgs: "go test", Done: true},
+		{Type: BlockTool, ToolName: "shell", ToolArgs: "go vet", Done: true},
 	}, 80, &sty)
 
 	if !strings.Contains(got, "\n\n") {
@@ -49,7 +49,7 @@ func TestRenderToolLineWrapsLongCommand(t *testing.T) {
 	cmd := "git status --short tui/components/block/block_render.go tui/components/block/block_tool.go tui/components/block/block_tool_test.go tui/styles/colors.go tui/components/processing/processing_test.go"
 	got := renderToolLine(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		ToolArgs: cmd,
 		Done:     true,
 	}, 96, &sty)
@@ -59,7 +59,7 @@ func TestRenderToolLineWrapsLongCommand(t *testing.T) {
 		t.Fatalf("long command should wrap instead of truncate:\n%s", got)
 	}
 	if !strings.Contains(clean, "Ran git status --short") {
-		t.Fatalf("bash tool should render as Ran with command:\n%s", got)
+		t.Fatalf("shell tool should render as Ran with command:\n%s", got)
 	}
 	if !strings.Contains(clean, "processing_test.go") {
 		t.Fatalf("wrapped command should keep the tail:\n%s", got)
@@ -85,7 +85,7 @@ func TestRenderToolLinePrefixesMultilineCommand(t *testing.T) {
 	cmd := "echo one\necho two\necho three"
 	got := renderToolLine(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		ToolArgs: cmd,
 		Content:  "one\ntwo\nthree",
 		Done:     true,
@@ -106,26 +106,26 @@ func TestRenderToolLinePrefixesMultilineCommand(t *testing.T) {
 	}
 }
 
-func TestRenderBashContentPreservesLeadingStatusSpace(t *testing.T) {
+func TestRenderShellContentPreservesLeadingStatusSpace(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolContent(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		Content:  " M tui/components/block/block_tool.go\n",
 		Done:     true,
 	}, 80, &sty)
 	clean := ansi.Strip(got)
 
 	if !strings.HasPrefix(clean, " M ") {
-		t.Fatalf("bash output should preserve leading status space, got %q", clean)
+		t.Fatalf("shell output should preserve leading status space, got %q", clean)
 	}
 }
 
-func TestRenderBashContentKeepsHeadAndTail(t *testing.T) {
+func TestRenderShellContentKeepsHeadAndTail(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolContent(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		Content:  "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n",
 		Done:     true,
 	}, 80, &sty)
@@ -150,7 +150,7 @@ func TestRenderToolOutputUsesCornerConnector(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolLine(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		ToolArgs: `echo "hello" && date`,
 		Content:  "hello\nFri Jul  3 00:41:48 CST 2026",
 		Done:     true,
@@ -158,10 +158,10 @@ func TestRenderToolOutputUsesCornerConnector(t *testing.T) {
 	clean := ansi.Strip(got)
 
 	if !strings.Contains(clean, "\n    └  hello") {
-		t.Fatalf("bash output should start with a corner connector:\n%s", clean)
+		t.Fatalf("shell output should start with a corner connector:\n%s", clean)
 	}
 	if strings.Contains(clean, "\n    │  hello") || strings.Contains(clean, "\n    │  Fri") {
-		t.Fatalf("bash output should not use a vertical rail:\n%s", clean)
+		t.Fatalf("shell output should not use a vertical rail:\n%s", clean)
 	}
 
 	got = renderToolLine(ContentBlock{
@@ -184,7 +184,7 @@ func TestRenderToolLineDoesNotShowCollapseToggle(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolLine(ContentBlock{
 		Type:     BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		ToolArgs: "echo hello",
 		Content:  "hello",
 		Done:     true,

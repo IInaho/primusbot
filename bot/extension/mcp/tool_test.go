@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func TestMCPToolAdapter(t *testing.T) {

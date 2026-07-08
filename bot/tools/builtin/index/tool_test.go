@@ -1,4 +1,4 @@
-package indextool
+package index
 
 import (
 	"context"
@@ -6,15 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"nekocode/bot/index"
 )
 
-func setupTestManager(t *testing.T) index.Manager {
+// setupTestProject creates a minimal Go project in a temp directory and
+// chdirs into it so NewIndexTool()'s os.Getwd() resolves the project.
+func setupTestProject(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Create a minimal Go project
 	writeFile(t, dir, "go.mod", "module myproject\n")
 	writeFile(t, dir, "main.go", `package main
 
@@ -33,17 +32,7 @@ func Hello(name string) {
 }
 `)
 
-	mgr, err := index.NewManager(dir)
-	if err != nil {
-		t.Skipf("NewManager failed (FTS5 may be unavailable): %v", err)
-		return nil
-	}
-	if err := mgr.Init(); err != nil {
-		t.Skipf("Init failed (FTS5 may be unavailable): %v", err)
-		return nil
-	}
-	t.Cleanup(func() { mgr.Close() })
-	return mgr
+	t.Chdir(dir)
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
@@ -54,8 +43,8 @@ func writeFile(t *testing.T, dir, name, content string) {
 }
 
 func TestIndexToolSkeleton(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "skeleton"})
 	if err != nil {
@@ -70,8 +59,8 @@ func TestIndexToolSkeleton(t *testing.T) {
 }
 
 func TestIndexToolSymbol(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "symbol:Hello"})
 	if err != nil {
@@ -83,8 +72,8 @@ func TestIndexToolSymbol(t *testing.T) {
 }
 
 func TestIndexToolFile(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "file:main.go"})
 	if err != nil {
@@ -96,8 +85,8 @@ func TestIndexToolFile(t *testing.T) {
 }
 
 func TestIndexToolDeps(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "deps:main"})
 	if err != nil {
@@ -110,11 +99,8 @@ func TestIndexToolDeps(t *testing.T) {
 }
 
 func TestIndexToolSearch(t *testing.T) {
-	mgr := setupTestManager(t)
-	if mgr == nil {
-		t.Skip("manager not available")
-	}
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "search:Hello"})
 	if err != nil {
@@ -130,8 +116,8 @@ func TestIndexToolSearch(t *testing.T) {
 }
 
 func TestIndexToolEmptyQuery(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": ""})
 	if err != nil {
@@ -143,8 +129,8 @@ func TestIndexToolEmptyQuery(t *testing.T) {
 }
 
 func TestIndexToolInvalidFormat(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "invalid"})
 	if err != nil {
@@ -156,8 +142,8 @@ func TestIndexToolInvalidFormat(t *testing.T) {
 }
 
 func TestIndexToolUnknownPrefix(t *testing.T) {
-	mgr := setupTestManager(t)
-	tool := NewIndexTool(mgr)
+	setupTestProject(t)
+	tool := NewIndexTool()
 
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "unknown:value"})
 	if err != nil {
@@ -165,18 +151,6 @@ func TestIndexToolUnknownPrefix(t *testing.T) {
 	}
 	if !strings.Contains(result, "Unknown") {
 		t.Errorf("unknown prefix should return error message, got: %s", result)
-	}
-}
-
-func TestIndexToolNilGraph(t *testing.T) {
-	tool := NewIndexTool(emptyManager{})
-
-	result, err := tool.Execute(context.Background(), map[string]any{"query": "skeleton"})
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if !strings.Contains(result, "not available") {
-		t.Errorf("nil graph should return not available, got: %s", result)
 	}
 }
 
@@ -198,7 +172,7 @@ func TestShortenPath(t *testing.T) {
 }
 
 func TestIndexToolNameAndDescription(t *testing.T) {
-	tool := NewIndexTool(emptyManager{})
+	tool := NewIndexTool()
 
 	if tool.Name() != "index" {
 		t.Errorf("Name() = %q, want index", tool.Name())
@@ -210,14 +184,3 @@ func TestIndexToolNameAndDescription(t *testing.T) {
 		t.Error("Parameters() should not be empty")
 	}
 }
-
-type emptyManager struct{}
-
-func (emptyManager) Init() error                                      { return nil }
-func (emptyManager) Close() error                                     { return nil }
-func (emptyManager) Rebuild() error                                   { return nil }
-func (emptyManager) Skeleton() string                                 { return "Project index not available for this workspace." }
-func (emptyManager) QuerySymbol(string) []index.Symbol                { return nil }
-func (emptyManager) QueryDeps(string) []string                        { return nil }
-func (emptyManager) QueryFile(string) []index.File                    { return nil }
-func (emptyManager) Search(string, int) ([]index.SearchResult, error) { return nil, nil }

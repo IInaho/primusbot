@@ -55,7 +55,8 @@ var toolCosts = map[string]int{
 	"grep":       grepCost,
 	"glob":       trivialCost,
 	"list":       trivialCost,
-	"bash":       grepCost, // bash can be exploratory (ls, cat, etc.)
+	"shell":      grepCost, // shell can be exploratory (ls, cat, etc.)
+	"bash":       grepCost, // legacy histories before shell merge.
 	"web_search": webSearchCost,
 	"web_fetch":  webFetchCost,
 	"task":       taskCost,

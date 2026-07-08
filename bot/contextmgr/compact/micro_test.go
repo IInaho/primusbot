@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"nekocode/bot/contextmgr/context"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func newCompactor(msgs []types.Message, budget int, boundary int) *Compactor {
@@ -65,11 +65,11 @@ func TestCompactableToolPriority(t *testing.T) {
 	if p := compactableToolPriority("grep", ""); p != priorityLow {
 		t.Errorf("grep = %d, want low(%d)", p, priorityLow)
 	}
-	if p := compactableToolPriority("bash", strings.Repeat("x", 200)); p != priorityMedium {
-		t.Errorf("long bash = %d, want medium(%d)", p, priorityMedium)
+	if p := compactableToolPriority("shell", strings.Repeat("x", 200)); p != priorityMedium {
+		t.Errorf("long shell = %d, want medium(%d)", p, priorityMedium)
 	}
-	if p := compactableToolPriority("bash", "short"); p != priorityLow {
-		t.Errorf("short bash = %d, want low(%d)", p, priorityLow)
+	if p := compactableToolPriority("shell", "short"); p != priorityLow {
+		t.Errorf("short shell = %d, want low(%d)", p, priorityLow)
 	}
 }
 

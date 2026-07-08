@@ -9,9 +9,8 @@ import (
 	"sync"
 
 	"nekocode/bot/tools/builtin/diff"
-	"nekocode/bot/tools/builtin/toolhelpers"
-	"nekocode/bot/tools/runtime/editcore"
 	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 )
 
@@ -95,14 +94,14 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	if err := writeUndoSnapshot(pe); err != nil {
 		return "", fmt.Errorf("failed to prepare undo snapshot: %w", err)
 	}
-	finalText := editcore.RestoreLineEndings(plan.NormalizedAfter, plan.LineEnding)
+	finalText := RestoreLineEndings(plan.NormalizedAfter, plan.LineEnding)
 	if err := os.WriteFile(plan.SafePath, []byte(finalText), plan.OrigMode); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 	if cache := execution.FileCacheFromContext(ctx); cache != nil {
 		cache.Invalidate(plan.SafePath)
 	}
-	newTag := toolutil.RecordSnapshotInContext(ctx, plan.SafePath, plan.NormalizedAfter)
+	newTag := execution.RecordSnapshotInContext(ctx, plan.SafePath, plan.NormalizedAfter)
 	msg := formatEditResult(plan.SafePath, plan.NormalizedBefore, plan.NormalizedAfter, plan.Hunks, newTag)
 	if plan.ReplaceAll {
 		msg += fmt.Sprintf("\n(%d replacements)", len(plan.Hunks))
@@ -130,10 +129,10 @@ func buildEditPlan(args map[string]any) (editPlan, error) {
 		return editPlan{}, fmt.Errorf("failed to read file: %w", err)
 	}
 	rawText := string(data)
-	lineEnding := editcore.DetectLineEnding(rawText)
-	before := editcore.NormalizeToLF(rawText)
-	oldString := editcore.NormalizeToLF(req.OldString)
-	newString := editcore.NormalizeToLF(req.NewString)
+	lineEnding := toolutil.DetectLineEnding(rawText)
+	before := toolutil.NormalizeToLF(rawText)
+	oldString := toolutil.NormalizeToLF(req.OldString)
+	newString := toolutil.NormalizeToLF(req.NewString)
 
 	matches, err := findMatches(before, oldString, req.ReplaceAll)
 	if err != nil {
@@ -377,4 +376,23 @@ func truncateMatchContext(text string, maxRunes int) string {
 func lockForPath(path string) *sync.Mutex {
 	actual, _ := fileLocks.LoadOrStore(path, &sync.Mutex{})
 	return actual.(*sync.Mutex)
+}
+
+// RestoreLineEndings converts LF back to the original line ending style.
+func RestoreLineEndings(text, lineEnding string) string {
+	if lineEnding == "\n" {
+		return text
+	}
+	// First normalize to LF, then convert to target.
+	text = toolutil.NormalizeToLF(text)
+	return strings.ReplaceAll(text, "\n", lineEnding)
+}
+
+// DetectLineEnding returns the first line ending found ("\r\n" or "\n").
+// Defaults to "\n" if no line endings are present.
+func DetectLineEnding(text string) string {
+	if strings.Contains(text, "\r\n") {
+		return "\r\n"
+	}
+	return "\n"
 }

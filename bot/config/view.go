@@ -1,17 +1,11 @@
 package config
 
-type View struct {
-	Path           string                     `json:"path"`
-	Exists         bool                       `json:"exists"`
-	Active         string                     `json:"active"`
-	ContextWindow  int                        `json:"context_window"`
-	FlashModel     string                     `json:"flash_model,omitempty"`
-	Models         []ModelConfig              `json:"models"`
-	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"`
-	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
-	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
-	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
-}
+import (
+	"nekocode/common/ui"
+)
+
+// View is the UI-facing config view. It now lives in common/ui.
+type View = ui.ConfigView
 
 func NewView(cfg Config) View {
 	return View{
@@ -28,7 +22,8 @@ func NewView(cfg Config) View {
 	}
 }
 
-func (v View) Config() Config {
+// ToConfig converts a View back to a Config.
+func ToConfig(v View) Config {
 	return Config{
 		Active:         v.Active,
 		ContextWindow:  v.ContextWindow,

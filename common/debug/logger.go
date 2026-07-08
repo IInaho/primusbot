@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 const (
@@ -59,5 +59,5 @@ func (l *Logger) Log(skip int, level, prefix, format string, args ...any) {
 }
 
 func defaultPath() string {
-	return filepath.Join(common.NekocodeLogDir(), defaultLogFile)
+	return filepath.Join(fs.NekocodeLogDir(), defaultLogFile)
 }

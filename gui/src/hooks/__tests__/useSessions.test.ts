@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../useSessions'
-import type { SessionMeta } from '../../types/session'
+import type { ui } from '../../../wailsjs/go/models'
+type SessionMeta = ui.SessionMeta
 
 const mockSafeListSessions = vi.fn<() => Promise<SessionMeta[] | null>>()
 const mockSafeNewSession = vi.fn<() => Promise<SessionMeta | null>>()
@@ -18,10 +19,11 @@ vi.mock('../../lib/wails', () => ({
 const meta = (id: string): SessionMeta => ({
   id,
   cwd: '/repo',
-  created_at: 1,
-  updated_at: 1,
-  msg_count: 1,
-})
+  createdAt: 1,
+  updatedAt: 1,
+  msgCount: 1,
+  convertValues: () => ({}),
+} as SessionMeta)
 
 describe('useSessions', () => {
   beforeEach(() => {

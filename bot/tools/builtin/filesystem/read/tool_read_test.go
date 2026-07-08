@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"nekocode/bot/tools/builtin/filesystem/testutil"
-	"nekocode/bot/tools/runtime/editcore"
 	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 func TestReadTool(t *testing.T) {
@@ -46,7 +46,7 @@ func TestReadToolRecordsSnapshotInExecutionState(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	tag := editcore.ComputeFileHash("package main\n\nfunc main() {}\n")
+	tag := toolutil.ComputeFileHash("package main\n\nfunc main() {}\n")
 	if snap := state.SnapshotStore.ByHash(p, tag); snap == nil {
 		t.Fatalf("expected snapshot %s in execution state", tag)
 	}

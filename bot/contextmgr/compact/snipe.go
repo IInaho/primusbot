@@ -2,7 +2,7 @@ package compact
 
 import (
 	"nekocode/common/debug"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 // Layer 2: History Sniping.

@@ -142,7 +142,7 @@ func TestRememberRuleCanonicalizesDuplicates(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected one canonical remembered rule, got %+v", got)
 	}
-	if got[0].Tool != "bash" || got[0].Specifier != "echo hi" {
+	if got[0].Tool != "shell" || got[0].Specifier != "echo hi" {
 		t.Fatalf("unexpected canonical rule: %+v", got[0])
 	}
 }

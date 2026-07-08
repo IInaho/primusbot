@@ -6,14 +6,14 @@ import (
 	"nekocode/bot/config"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
-	"nekocode/common"
+	"nekocode/bot/extension"
 	"nekocode/common/debug"
 )
 
 func (e *extensionFacade) InitConfigMCPServers(servers map[string]config.MCPServerConfig) {
 	e.configMCP = nil
 	for name, cfg := range servers {
-		view := common.MCPServerView{
+		view := extension.MCPServerView{
 			Name:          name,
 			Plugin:        "配置",
 			Command:       cfg.Command,

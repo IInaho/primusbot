@@ -6,7 +6,7 @@ import (
 
 	agentruntime "nekocode/bot/agent/runtime"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
@@ -20,9 +20,9 @@ const (
 )
 
 type Engine struct {
-	llmClient    types.LLM
+	llmClient    provider.LLM
 	toolRegistry *tools.Registry
-	mergeClient  types.LLM
+	mergeClient  provider.LLM
 }
 
 type runState struct {
@@ -34,7 +34,7 @@ type runState struct {
 	lastText       string
 }
 
-func NewEngine(llmClient types.LLM, registry *tools.Registry, mergeClient types.LLM) *Engine {
+func NewEngine(llmClient provider.LLM, registry *tools.Registry, mergeClient provider.LLM) *Engine {
 	return &Engine{llmClient: llmClient, toolRegistry: registry, mergeClient: mergeClient}
 }
 

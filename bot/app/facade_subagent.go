@@ -7,7 +7,7 @@ import (
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
 	"nekocode/bot/contextmgr"
-	"nekocode/bot/llm"
+	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/taskbridge"
@@ -18,16 +18,14 @@ type subagentWiring struct {
 	toolRegistry  *tools.Registry
 	ctxMgr        *contextmgr.Manager
 	cwd           string
-	projCtx       string
 	contextWindow int
 }
 
-func newSubagentWiring(toolRegistry *tools.Registry, ctxMgr *contextmgr.Manager, cwd, projCtx string, contextWindow int) *subagentWiring {
+func newSubagentWiring(toolRegistry *tools.Registry, ctxMgr *contextmgr.Manager, cwd string, contextWindow int) *subagentWiring {
 	return &subagentWiring{
 		toolRegistry:  toolRegistry,
 		ctxMgr:        ctxMgr,
 		cwd:           cwd,
-		projCtx:       projCtx,
 		contextWindow: contextWindow,
 	}
 }
@@ -42,7 +40,7 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 		return
 	}
 	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
-		subLLM := llm.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
+		subLLM := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 		subLLM.SetDisableThinking(true)
 		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient)
 		cfg, ok := w.buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, ag)
@@ -66,32 +64,30 @@ type agentCallbacks interface {
 
 func (w *subagentWiring) buildSubagentRunConfig(ctx context.Context, prompt, agentType, thoroughness string, ag agentCallbacks) (subagent.RunConfig, bool) {
 	return buildSubagentRunConfig(subagentRunConfigInput{
-		Context:        ctx,
-		Prompt:         prompt,
-		AgentTypeName:  agentType,
-		Thoroughness:   thoroughness,
-		Cwd:            w.cwd,
-		ProjectContext: w.projCtx,
-		ContextWindow:  w.contextWindow,
-		ConfirmFn:      ag.ConfirmFn(),
-		ToolState:      ag.ToolExecutionState(),
-		PhaseFn:        ag.PhaseFn(),
-		AddTokens:      ag.AddTokens,
+		Context:       ctx,
+		Prompt:        prompt,
+		AgentTypeName: agentType,
+		Thoroughness:  thoroughness,
+		Cwd:           w.cwd,
+		ContextWindow: w.contextWindow,
+		ConfirmFn:     ag.ConfirmFn(),
+		ToolState:     ag.ToolExecutionState(),
+		PhaseFn:       ag.PhaseFn(),
+		AddTokens:     ag.AddTokens,
 	})
 }
 
 type subagentRunConfigInput struct {
-	Context        context.Context
-	Prompt         string
-	AgentTypeName  string
-	Thoroughness   string
-	Cwd            string
-	ProjectContext string
-	ContextWindow  int
-	ConfirmFn      common.ConfirmFunc
-	ToolState      *execution.ExecutionState
-	PhaseFn        func(string)
-	AddTokens      func(prompt, completion int)
+	Context       context.Context
+	Prompt        string
+	AgentTypeName string
+	Thoroughness  string
+	Cwd           string
+	ContextWindow int
+	ConfirmFn     common.ConfirmFunc
+	ToolState     *execution.ExecutionState
+	PhaseFn       func(string)
+	AddTokens     func(prompt, completion int)
 }
 
 func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, bool) {
@@ -100,15 +96,14 @@ func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, b
 		return subagent.RunConfig{}, false
 	}
 	cfg := subagent.RunConfig{
-		Prompt:         input.Prompt,
-		AgentType:      at,
-		Cwd:            input.Cwd,
-		ProjectContext: input.ProjectContext,
-		Thoroughness:   input.Thoroughness,
-		ContextWindow:  input.ContextWindow,
-		ConfirmFn:      input.ConfirmFn,
-		ToolState:      input.ToolState,
-		AddTokens:      input.AddTokens,
+		Prompt:        input.Prompt,
+		AgentType:     at,
+		Cwd:           input.Cwd,
+		Thoroughness:  input.Thoroughness,
+		ContextWindow: input.ContextWindow,
+		ConfirmFn:     input.ConfirmFn,
+		ToolState:     input.ToolState,
+		AddTokens:     input.AddTokens,
 	}
 	if subCB, ok := taskbridge.TaskCallbackFromCtx(input.Context); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {

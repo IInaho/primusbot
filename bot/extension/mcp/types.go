@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 // ServerConfig defines how to launch an MCP server.

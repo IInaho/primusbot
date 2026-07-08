@@ -2,7 +2,7 @@ package contextmgr
 
 import (
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 // ManagerSnapshot captures the full context manager state for session persistence.

@@ -6,12 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 // DefaultDirs returns the default skill directories (project + user).
 func DefaultDirs() []string {
-	return common.NekocodeDirs("skills")
+	return fs.NekocodeDirs("skills")
 }
 
 func discoverSkills(dirs []string) []string {

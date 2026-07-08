@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"nekocode/bot/tools/builtin/toolhelpers"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 	"net"
 	"net/http"
@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 type WebFetchTool struct {
@@ -97,7 +97,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 		content = extractRelevant(content, prompt)
 	}
 
-	content = common.TruncateByRune(content, 3000)
+	content = text.TruncateByRune(content, 3000)
 	return content, nil
 }
 

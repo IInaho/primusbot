@@ -40,7 +40,7 @@ func TestReplyConfirmDecisionNoLongerAutoEscalates(t *testing.T) {
 	// 并授权" button. Allow-with-permission now requires an explicit call
 	// to ReplyConfirmWithPermission.
 	app := NewApp()
-	req := common.NewConfirmRequest("bash", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
+	req := common.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
 	req.CanEscalatePermission = true
 
 	app.confirmMu.Lock()
@@ -59,7 +59,7 @@ func TestReplyConfirmDecisionNoLongerAutoEscalates(t *testing.T) {
 
 func TestReplyConfirmWithPermission(t *testing.T) {
 	app := NewApp()
-	req := common.NewConfirmRequest("bash", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
+	req := common.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
 	req.CanEscalatePermission = true
 
 	app.confirmMu.Lock()

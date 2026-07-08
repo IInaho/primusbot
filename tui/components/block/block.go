@@ -35,7 +35,7 @@ func FilterFinalBlocks(blocks []ContentBlock) []ContentBlock {
 }
 
 func IsPersistent(toolName string) bool {
-	return toolName == "edit" || toolName == "diff" || toolName == "bash" || toolName == "write"
+	return toolName == "edit" || toolName == "diff" || toolName == "shell" || toolName == "write"
 }
 
 // ParseReadOutput extracts the displayable content from read tool output.

@@ -2,7 +2,7 @@
 package tui
 
 import (
-	"nekocode/common"
+	"nekocode/util/runtime"
 	"nekocode/tui/components"
 	"nekocode/tui/components/message"
 
@@ -14,7 +14,7 @@ import (
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer func() {
 		if r := recover(); r != nil {
-			common.WritePanicLog(r)
+			runtime.WritePanicLog(r)
 		}
 	}()
 

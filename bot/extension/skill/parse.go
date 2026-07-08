@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/yaml"
 
-	"gopkg.in/yaml.v3"
+	goyaml "gopkg.in/yaml.v3"
 )
 
 type frontmatter struct {
@@ -42,12 +42,12 @@ func parseSkillContent(content string) (*Skill, error) {
 }
 
 func parseFrontmatter(content string) (*frontmatter, string, error) {
-	yamlBytes, body, err := common.ParseYAMLFrontmatter(content)
+	yamlBytes, body, err := yaml.ParseYAMLFrontmatter(content)
 	if err != nil {
 		return nil, "", err
 	}
 	var fm frontmatter
-	if err := yaml.Unmarshal(yamlBytes, &fm); err != nil {
+	if err := goyaml.Unmarshal(yamlBytes, &fm); err != nil {
 		return nil, "", fmt.Errorf("invalid YAML: %w", err)
 	}
 	return &fm, body, nil

@@ -11,13 +11,12 @@ func TestBuildSystemPromptAddsHandoff(t *testing.T) {
 			Name:         "executor",
 			SystemPrompt: "base prompt",
 		},
-		Cwd:            "/repo",
-		ProjectContext: "project info",
-		Handoff:        "prior findings",
+		Cwd:     "/repo",
+		Handoff: "prior findings",
 	}
 
 	got := buildSystemPrompt(cfg)
-	for _, want := range []string{"base prompt", "<cwd>/repo</cwd>", "project info", "<handoff>", "prior findings"} {
+	for _, want := range []string{"base prompt", "<cwd>/repo</cwd>", "<handoff>", "prior findings"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("system prompt = %q, want %q", got, want)
 		}

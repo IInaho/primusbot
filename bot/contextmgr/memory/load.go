@@ -4,12 +4,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 // DefaultPath returns the default memory file path.
 func DefaultPath() string {
-	return filepath.Join(common.NekocodeHome(), "memory.md")
+	return filepath.Join(fs.NekocodeHome(), "memory.md")
 }
 
 // Load reads the memory file from disk. Returns an empty File if none exists.

@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func TestDisplayMessagesKeepsPersistentToolBlocks(t *testing.T) {
@@ -33,21 +33,21 @@ func TestDisplayMessagesCoalescesAssistantToolTurn(t *testing.T) {
 		{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{
-				{ID: "add-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git add README.md"}`}},
+				{ID: "add-call", Function: types.FunctionCall{Name: "shell", Arguments: `{"command":"git add README.md"}`}},
 			},
 		},
 		{Role: "tool", ToolCallID: "add-call", Content: ""},
 		{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{
-				{ID: "commit-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git commit -m docs"}`}},
+				{ID: "commit-call", Function: types.FunctionCall{Name: "shell", Arguments: `{"command":"git commit -m docs"}`}},
 			},
 		},
 		{Role: "tool", ToolCallID: "commit-call", Content: "Author identity unknown", IsError: true},
 		{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{
-				{ID: "commit-retry-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"git -c user.name=NekoCode commit -m docs"}`}},
+				{ID: "commit-retry-call", Function: types.FunctionCall{Name: "shell", Arguments: `{"command":"git -c user.name=NekoCode commit -m docs"}`}},
 			},
 		},
 		{Role: "tool", ToolCallID: "commit-retry-call", Content: "[master e0e5307] docs"},
@@ -65,8 +65,8 @@ func TestDisplayMessagesCoalescesAssistantToolTurn(t *testing.T) {
 	if len(assistant.Blocks) != 3 {
 		t.Fatalf("assistant blocks = %d, want 3: %+v", len(assistant.Blocks), assistant.Blocks)
 	}
-	if assistant.Blocks[1].ToolName != "bash" || !assistant.Blocks[1].IsError {
-		t.Fatalf("second block = %+v, want failed bash block", assistant.Blocks[1])
+	if assistant.Blocks[1].ToolName != "shell" || !assistant.Blocks[1].IsError {
+		t.Fatalf("second block = %+v, want failed shell block", assistant.Blocks[1])
 	}
 	if assistant.Blocks[2].Content != "[master e0e5307] docs" {
 		t.Fatalf("third block content = %q", assistant.Blocks[2].Content)
@@ -108,7 +108,7 @@ func TestDisplayMessagesCarriesToolArgs(t *testing.T) {
 		{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{
-				{ID: "bash-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"ls -la"}`}},
+				{ID: "bash-call", Function: types.FunctionCall{Name: "shell", Arguments: `{"command":"ls -la"}`}},
 			},
 		},
 		{Role: "tool", ToolCallID: "bash-call", Content: "file.txt"},
@@ -118,8 +118,8 @@ func TestDisplayMessagesCarriesToolArgs(t *testing.T) {
 		t.Fatalf("display messages = %+v, want one assistant bash block", got)
 	}
 	b := got[0].Blocks[0]
-	if b.ToolName != "bash" || b.Args != `{"command":"ls -la"}` {
-		t.Fatalf("block = %+v, want bash command args", b)
+	if b.ToolName != "shell" || b.Args != `{"command":"ls -la"}` {
+		t.Fatalf("block = %+v, want shell command args", b)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestDisplayMessagesCarriesToolErrorState(t *testing.T) {
 		{
 			Role: "assistant",
 			ToolCalls: []types.ToolCall{
-				{ID: "bash-call", Function: types.FunctionCall{Name: "bash", Arguments: `{"command":"false"}`}},
+				{ID: "bash-call", Function: types.FunctionCall{Name: "shell", Arguments: `{"command":"false"}`}},
 			},
 		},
 		{Role: "tool", ToolCallID: "bash-call", Content: "command failed: exit status 1", IsError: true},

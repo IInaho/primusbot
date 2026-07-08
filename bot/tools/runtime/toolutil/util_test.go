@@ -65,3 +65,34 @@ func TestNewToolHTTPClient(t *testing.T) {
 		t.Error("expected zero timeout")
 	}
 }
+
+func TestComputeFileHash(t *testing.T) {
+	hash := ComputeFileHash("hello\nworld\n")
+	if len(hash) != 8 {
+		t.Fatalf("expected 8-char hash, got %q", hash)
+	}
+	hash2 := ComputeFileHash("hello\nworld\n")
+	if hash != hash2 {
+		t.Fatalf("same content should produce same hash: %q vs %q", hash, hash2)
+	}
+	hash3 := ComputeFileHash("hello\nworld!\n")
+	if hash == hash3 {
+		t.Fatalf("different content should produce different hash: %q vs %q", hash, hash3)
+	}
+}
+
+func TestComputeFileHash_CRLF(t *testing.T) {
+	hashLF := ComputeFileHash("hello\nworld\n")
+	hashCRLF := ComputeFileHash("hello\r\nworld\r\n")
+	if hashLF != hashCRLF {
+		t.Fatalf("CRLF/LF should produce same hash: %q vs %q", hashLF, hashCRLF)
+	}
+}
+
+func TestComputeFileHash_TrailingWhitespace(t *testing.T) {
+	hash1 := ComputeFileHash("hello\nworld\n")
+	hash2 := ComputeFileHash("hello  \nworld\t\n")
+	if hash1 != hash2 {
+		t.Fatalf("trailing whitespace should not affect hash: %q vs %q", hash1, hash2)
+	}
+}

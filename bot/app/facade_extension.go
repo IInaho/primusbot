@@ -8,7 +8,7 @@ import (
 	"nekocode/bot/extension/skill"
 	"nekocode/bot/hooks"
 	"nekocode/bot/tools"
-	"nekocode/common"
+	"nekocode/bot/extension"
 	"nekocode/common/debug"
 )
 
@@ -17,7 +17,7 @@ type extensionFacade struct {
 	plugins    *plugin.Manager
 	mcpClients map[string]*mcp.Client
 	mcpHealth  map[string]mcpHealth
-	configMCP  []common.MCPServerView
+	configMCP  []extension.MCPServerView
 
 	ctxMgr        *ctxmgr.Manager
 	toolRegistry  *tools.Registry
@@ -74,14 +74,14 @@ func (e *extensionFacade) RefreshSkillList() {
 	}
 }
 
-func (e *extensionFacade) SkillManagementView() common.SkillManagementView {
+func (e *extensionFacade) SkillManagementView() extension.SkillManagementView {
 	mcpServers := e.plugins.MCPServers()
 	mcpServers = append(mcpServers, e.configMCP...)
 	e.applyMCPHealth(mcpServers)
 	return e.skills.ManagementView(e.plugins.Views(), mcpServers)
 }
 
-func (e *extensionFacade) applyMCPHealth(servers []common.MCPServerView) {
+func (e *extensionFacade) applyMCPHealth(servers []extension.MCPServerView) {
 	for i := range servers {
 		if !servers[i].PluginEnabled {
 			servers[i].Status = "disabled"
@@ -98,14 +98,14 @@ func (e *extensionFacade) applyMCPHealth(servers []common.MCPServerView) {
 	}
 }
 
-func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (common.SkillManagementView, error) {
+func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
 	if _, err := e.plugins.SetEnabled(name, enabled); err != nil {
-		return common.SkillManagementView{}, err
+		return extension.SkillManagementView{}, err
 	}
 	return e.SkillManagementView(), nil
 }
 
-func (e *extensionFacade) RefreshSkillManagement() common.SkillManagementView {
+func (e *extensionFacade) RefreshSkillManagement() extension.SkillManagementView {
 	e.plugins.Reload()
 	return e.SkillManagementView()
 }

@@ -7,7 +7,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools"

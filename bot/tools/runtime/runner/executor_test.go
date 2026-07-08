@@ -99,6 +99,52 @@ func TestHasPermissionDeclIncludesSandboxOnlyPolicy(t *testing.T) {
 	}
 }
 
+func TestExecutorShellSessionActionsDoNotPromptByDefault(t *testing.T) {
+	e := NewExecutor(fakeRegistry{
+		"shell": fakeTool{name: "shell", mode: core.ModeParallel},
+	})
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+		t.Fatal("shell wait/poll/list should not prompt by default")
+		return common.Deny()
+	})
+
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID:   "1",
+		Name: "shell",
+		Args: map[string]any{
+			"action":     "wait",
+			"session_id": 1,
+		},
+	}})[0]
+	if got.Error != "" || got.Output != "ok" {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+}
+
+func TestExecutorShellRunDoesNotDoublePromptAfterCommandAllow(t *testing.T) {
+	e := NewExecutor(fakeRegistry{
+		"shell": fakeTool{name: "shell", mode: core.ModeSequential},
+	})
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+		t.Fatal("shell run should not prompt again after command-level allow")
+		return common.Deny()
+	})
+
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID:   "1",
+		Name: "shell",
+		Args: map[string]any{
+			"action":  "run",
+			"command": "ls .",
+		},
+	}})[0]
+	if got.Error != "" || got.Output != "ok" {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+}
+
 func TestExecutorConfirmDenial(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
 		"writer": fakeTool{name: "writer", mode: core.ModeSequential},
@@ -257,7 +303,7 @@ func (e testPermissionError) PermissionRequest() core.PermissionRequest {
 }
 
 func TestExecutorUsesPersistedGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	req := core.PermissionRequest{
 		Capabilities: []string{core.CapNetOutbound},
@@ -268,15 +314,19 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 	if err := store.Allow("bash", req); err != nil {
 		t.Fatalf("AllowProject: %v", err)
 	}
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		t.Fatal("confirm should not be called when a persisted grant matches")
 		return common.Deny()
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID:   "1",
+		Name: "shell",
+		Args: map[string]any{"command": "npm install", "network": true},
+	}})[0]
 
 	if got.Error != "" || got.Output != "privileged ok" {
 		t.Fatalf("unexpected result: %+v", got)
@@ -287,16 +337,16 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 }
 
 func TestExecutorPermissionAllowOnceDoesNotPersistGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.AllowOnce()
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if got.Error != "" {
 		t.Fatalf("unexpected error: %s", got.Error)
 	}
@@ -323,21 +373,21 @@ func TestExecutorSessionGrantScopesFsWriteToWritePaths(t *testing.T) {
 	}
 	e.addSessionGrant("bash", req)
 
-	if !e.matchSessionGrant("bash", req) {
-		t.Fatal("expected session grant to match the same write path")
+	if !e.matchSessionGrant("shell", req) {
+		t.Fatal("expected legacy shell-family session grant to match shell")
 	}
 	childReq := core.PermissionRequest{
 		Capabilities: []string{core.CapFsWritePath},
 		Details:      map[string]any{"writePaths": []string{filepath.Join(allowed, "nested")}},
 	}
-	if !e.matchSessionGrant("bash", childReq) {
+	if !e.matchSessionGrant("shell", childReq) {
 		t.Fatal("expected session grant to cover descendants of the authorized write path")
 	}
 	otherReq := core.PermissionRequest{
 		Capabilities: []string{core.CapFsWritePath},
 		Details:      map[string]any{"writePaths": []string{other}},
 	}
-	if e.matchSessionGrant("bash", otherReq) {
+	if e.matchSessionGrant("shell", otherReq) {
 		t.Fatal("session fs.write.path grant must not match a different write path")
 	}
 }
@@ -350,16 +400,16 @@ func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
 	// to permissions.json — that file is for "remember" approvals only.
 	// Originally both branches persisted to disk; that filled the project
 	// file with one-time grants and silently granted capabilities forever.
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.ConfirmReply{Allowed: true, AllowWithPermission: true} // Remember: false
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if got.Error != "" || got.Output != "privileged ok" {
 		t.Fatalf("unexpected result: %+v", got)
 	}
@@ -374,17 +424,17 @@ func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
 	if _, ok := store.Match("bash", req); ok {
 		t.Fatal("one-time pre-approved escalation must NOT persist grant to disk")
 	}
-	// But the in-memory session grant must satisfy a retry — model issuing
-	// the same bash call again should succeed without re-prompting.
-	got2 := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "2", Name: "bash"}})[0]
+	// But the in-memory session grant must satisfy a retry: issuing the same
+	// shell call again should succeed without re-prompting.
+	got2 := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "2", Name: "shell"}})[0]
 	if got2.Error != "" || got2.Output != "privileged ok" {
 		t.Fatalf("retry must find the in-memory session grant; got: %+v", got2)
 	}
 }
 
 // TestIssue_RetryAfterOneTimeApproval is the end-to-end regression guard for
-// the user-reported flow: bash requests an explicit sandbox opening → user
-// approves ONCE ("仅本次允许并授权") → model retries the bash call with the
+// the user-reported flow: shell requests an explicit sandbox opening → user
+// approves ONCE ("仅本次允许并授权") → model retries the shell call with the
 // same sandbox opening. Prior to the fix the retry reproduced
 //
 //	permission required: command requests sandbox profile: net.outbound.
@@ -394,23 +444,23 @@ func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
 // through to the no-confirmFn branch. The test pins the correct
 // behavior: retry must find the persisted grant.
 func TestIssue_RetryAfterOneTimeApproval(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.ConfirmReply{Allowed: true, AllowWithPermission: true}
 	})
 
-	first := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	first := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if first.Error != "" || first.Output != "privileged ok" {
 		t.Fatalf("first call: %+v", first)
 	}
 
 	second := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "2",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command": "npm run build",
 			"network": true,
@@ -422,16 +472,16 @@ func TestIssue_RetryAfterOneTimeApproval(t *testing.T) {
 }
 
 func TestExecutorPreApprovedEscalationRememberPersistsGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.ConfirmReply{Allowed: true, Remember: true, AllowWithPermission: true}
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if got.Error != "" || got.Output != "privileged ok" {
 		t.Fatalf("unexpected result: %+v", got)
 	}
@@ -442,23 +492,23 @@ func TestExecutorPreApprovedEscalationRememberPersistsGrant(t *testing.T) {
 			"workspace": "/repo",
 		},
 	}
-	if _, ok := store.Match("bash", req); !ok {
+	if _, ok := store.Match("shell", req); !ok {
 		t.Fatal("remembered pre-approved escalation should persist grant")
 	}
 }
 
 func TestExecutorRecognizesWrappedPermissionError(t *testing.T) {
 	tool := &permissionTool{
-		fakeTool:  fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool:  fakeTool{name: "shell", mode: core.ModeSequential},
 		wrapError: true,
 	}
-	e := NewExecutor(fakeRegistry{"bash": tool})
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e := NewExecutor(fakeRegistry{"shell": tool})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.AllowOnce()
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if got.Error != "" || got.Output != "privileged ok" {
 		t.Fatalf("unexpected result: %+v", got)
 	}
@@ -468,16 +518,16 @@ func TestExecutorRecognizesWrappedPermissionError(t *testing.T) {
 }
 
 func TestExecutorPermissionRememberPersistsGrant(t *testing.T) {
-	tool := &permissionTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
 		return common.AllowRemembered()
 	})
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash"}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
 	if got.Error != "" {
 		t.Fatalf("unexpected error: %s", got.Error)
 	}
@@ -488,28 +538,28 @@ func TestExecutorPermissionRememberPersistsGrant(t *testing.T) {
 			"workspace": "/repo",
 		},
 	}
-	if _, ok := store.Match("bash", req); !ok {
+	if _, ok := store.Match("shell", req); !ok {
 		t.Fatal("remembered permission should persist grant")
 	}
 }
 
-func TestExecutorPermissionErrorDoesNotTellBashToDeclareCapabilities(t *testing.T) {
+func TestExecutorPermissionErrorDoesNotTellShellToDeclareCapabilities(t *testing.T) {
 	tool := &permissionTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		req: core.PermissionRequest{
 			Reason:       "needs host",
 			Capabilities: []string{core.CapProcessHost},
 		},
 	}
-	e := NewExecutor(fakeRegistry{"bash": tool})
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e := NewExecutor(fakeRegistry{"shell": tool})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 
-	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "bash", Args: map[string]any{"command": "npm run dev"}}})[0]
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell", Args: map[string]any{"command": "npm run dev"}}})[0]
 
 	if !strings.Contains(got.Error, "no approval available in this runtime") {
 		t.Fatalf("error = %q, want a headless-style 'no approval available' message", got.Error)
 	}
-	if strings.Contains(got.Error, "Retry the bash call") || strings.Contains(got.Error, `capabilities ["process.host"]`) {
+	if strings.Contains(got.Error, "Retry the shell call") || strings.Contains(got.Error, `capabilities ["process.host"]`) {
 		t.Fatalf("error must not tell the model to request capabilities: %q", got.Error)
 	}
 }
@@ -521,18 +571,18 @@ func TestExecutorPermissionErrorExplainsMissingApprovalForDeclaredCapabilities(t
 	// chat" (those used to leak the dialog's existence and made the model
 	// reply in chat asking the user to click confirm).
 	tool := &permissionTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		req: core.PermissionRequest{
 			Reason:       "needs host",
 			Capabilities: []string{core.CapProcessHost},
 		},
 	}
-	e := NewExecutor(fakeRegistry{"bash": tool})
-	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"bash"}}, "/repo", "/home/user")
+	e := NewExecutor(fakeRegistry{"shell": tool})
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command":      "npm run dev",
 			"sandbox_mode": "host",
@@ -553,11 +603,11 @@ func TestExecutorPermissionErrorExplainsMissingApprovalForDeclaredCapabilities(t
 // even a process.host escalation. Keying by ToolCallItem.ID plus a cleanup on
 // the success path closes that path.
 func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
-	tool := &stickyEscalationTool{fakeTool: fakeTool{name: "bash", mode: core.ModeSequential}}
+	tool := &stickyEscalationTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 
 	confirmCount := 0
 	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
@@ -580,7 +630,7 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 	// because there is no escalation.
 	tool.escalate = false
 	callA := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
-		ID: "A", Name: "bash",
+		ID: "A", Name: "shell",
 		Args: map[string]any{"command": "ls", "network": true},
 	}})[0]
 	if callA.Error != "" || callA.Output != "ok" {
@@ -595,7 +645,7 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 	// to a fresh escalation dialog — which our confirmFn denies.
 	tool.escalate = true
 	callB := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
-		ID: "B", Name: "bash",
+		ID: "B", Name: "shell",
 		Args: map[string]any{"command": "go get x", "network": true},
 	}})[0]
 	if callB.Error == "" {
@@ -633,7 +683,7 @@ func (t *stickyEscalationTool) ExecuteWithPermission(context.Context, map[string
 	return "privileged ok", nil
 }
 
-// TestExecutor_SkipsBasicPromptWhenGrantMatches regresses bug #5: a bash call
+// TestExecutor_SkipsBasicPromptWhenGrantMatches regresses bug #5: a shell run
 // with an explicit sandbox opening used to re-prompt the basic "ask" dialog on
 // every retry, even when the grant had already been issued and a session/disk
 // grant matched. The fix pre-checks grant coverage and skips the basic prompt
@@ -645,13 +695,13 @@ func (t *stickyEscalationTool) ExecuteWithPermission(context.Context, map[string
 // where the grant shortcut is allowed.
 func TestExecutor_SkipsBasicPromptWhenGrantMatches(t *testing.T) {
 	tool := &stickyEscalationTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		escalate: true,
 	}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	// Empty policy → only builtin rules + default EffectAsk for bash.
+	// Empty policy: only builtin rules plus the default ask for shell commands.
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	// Pre-populate the store with a project grant covering net.outbound
@@ -674,7 +724,7 @@ func TestExecutor_SkipsBasicPromptWhenGrantMatches(t *testing.T) {
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command": "go get x",
 			"network": true,
@@ -690,16 +740,16 @@ func TestExecutor_SkipsBasicPromptWhenGrantMatches(t *testing.T) {
 
 // TestExecutor_AskRuleStillPromptsDespiteGrant is the counterpart guard: a
 // declared ask rule for `rm *` MUST still prompt the basic dialog, even if
-// the user has a net.outbound capability grant for bash. Capability grant
+// the user has a net.outbound capability grant for shell. Capability grant
 // is orthogonal to command-level ask — bypassing the latter would let any
 // prior capability approval silently whitelist dangerous commands.
 func TestExecutor_AskRuleStillPromptsDespiteGrant(t *testing.T) {
 	tool := &stickyEscalationTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		escalate: true,
 	}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	// rm * has a builtin ask rule; combine with a net.outbound grant.
 	req := core.PermissionRequest{
@@ -720,7 +770,7 @@ func TestExecutor_AskRuleStillPromptsDespiteGrant(t *testing.T) {
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command": "rm -rf /tmp/x",
 			"network": true,
@@ -739,7 +789,7 @@ func TestExecutor_AskRuleStillPromptsDespiteGrant(t *testing.T) {
 }
 
 // TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel regresses the
-// user-reported bug: when bash requested an explicit sandbox opening and the
+// user-reported bug: when shell requested an explicit sandbox opening and the
 // user dismissed the confirm dialog, the old permissionFailureMessage told
 // the model "Wait for and answer the permission prompt; if no prompt appears,
 // this runtime has no confirmation callback...". The model read that as
@@ -749,13 +799,13 @@ func TestExecutor_AskRuleStillPromptsDespiteGrant(t *testing.T) {
 // by user" error with no dialog-leakage.
 func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 	tool := &stickyEscalationTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		escalate: true,
 	}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
-	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"bash"}}, "/repo", "/home/user")
+	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 
 	// Basic dialog: user allows (so we get to the escalation dialog).
 	// Escalation dialog: user denies.
@@ -772,7 +822,7 @@ func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command": "npm run dev",
 			"network": true,
@@ -794,10 +844,10 @@ func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 	}
 }
 
-func TestExecutor_BgDevServerPromptsCommandThenNetwork(t *testing.T) {
-	tool := &fakeBgNetworkTool{fakeTool: fakeTool{name: "bg", mode: core.ModeSequential}}
+func TestExecutorShellRunPromptsCommandThenNetwork(t *testing.T) {
+	tool := &fakeShellNetworkTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bg": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
@@ -809,9 +859,9 @@ func TestExecutor_BgDevServerPromptsCommandThenNetwork(t *testing.T) {
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bg",
+		Name: "shell",
 		Args: map[string]any{
-			"action":  "start",
+			"action":  "run",
 			"command": "npm run dev",
 		},
 	}})[0]
@@ -825,8 +875,8 @@ func TestExecutor_BgDevServerPromptsCommandThenNetwork(t *testing.T) {
 	if _, ok := prompts[0].Args["permission_reason"]; ok {
 		t.Fatalf("first prompt must be command approval, got %+v", prompts[0])
 	}
-	if prompts[0].ToolName != "bash" {
-		t.Fatalf("first prompt should display bash command approval, got %+v", prompts[0])
+	if prompts[0].ToolName != "shell" {
+		t.Fatalf("first prompt should display shell command approval, got %+v", prompts[0])
 	}
 	if prompts[0].Args["command"] != "npm run dev" {
 		t.Fatalf("first prompt should show actual command, got %+v", prompts[0].Args)
@@ -834,8 +884,8 @@ func TestExecutor_BgDevServerPromptsCommandThenNetwork(t *testing.T) {
 	if prompts[0].CanEscalatePermission {
 		t.Fatalf("first prompt must not offer merged escalation, got %+v", prompts[0])
 	}
-	if prompts[1].ToolName != "bg" {
-		t.Fatalf("second prompt should remain bg capability approval, got %+v", prompts[1])
+	if prompts[1].ToolName != "shell" {
+		t.Fatalf("second prompt should remain shell capability approval, got %+v", prompts[1])
 	}
 	reason, ok := prompts[1].Args["permission_reason"].(string)
 	if !ok || !strings.Contains(reason, "local network") {
@@ -861,11 +911,11 @@ func TestExecutor_PermissionRetryErrorShowsRealRuntimeFailure(t *testing.T) {
 	// backend "unavailable" error, mimicking the user's environment where
 	// the OS sandbox can't actually host-execute the command.
 	tool := &privilegedExecuteErrTool{
-		fakeTool: fakeTool{name: "bash", mode: core.ModeSequential},
+		fakeTool: fakeTool{name: "shell", mode: core.ModeSequential},
 		retryErr: fmt.Errorf("sandbox backend unavailable: this OS cannot run host processes"),
 	}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
-	e := NewExecutor(fakeRegistry{"bash": tool})
+	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
@@ -880,7 +930,7 @@ func TestExecutor_PermissionRetryErrorShowsRealRuntimeFailure(t *testing.T) {
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bash",
+		Name: "shell",
 		Args: map[string]any{
 			"command":      "npm run dev",
 			"sandbox_mode": "host",
@@ -925,8 +975,10 @@ func TestMergeSandboxArgsPreservesExplicitArgs(t *testing.T) {
 	if got["sandbox_mode"] != "workspace-write" {
 		t.Fatalf("explicit sandbox_mode should win, got %+v", got)
 	}
+	// An explicit network=false from the caller must be respected — builtin
+	// rules are defaults, not overrides.
 	if got["network"] != false {
-		t.Fatalf("explicit network=false should win, got %+v", got)
+		t.Fatalf("explicit network=false should be preserved, got %+v", got)
 	}
 	roots := stringSliceArg(got, "writable_roots")
 	if len(roots) != 1 || roots[0] != "/explicit" {
@@ -934,7 +986,7 @@ func TestMergeSandboxArgsPreservesExplicitArgs(t *testing.T) {
 	}
 }
 
-func TestApplySandboxProfileToBgStart(t *testing.T) {
+func TestApplySandboxProfileToShellRun(t *testing.T) {
 	e := NewExecutor(fakeRegistry{})
 	e.SetPermissionPolicy(permission.PermissionsDecl{
 		Sandbox: map[string]permission.SandboxProfile{
@@ -948,9 +1000,9 @@ func TestApplySandboxProfileToBgStart(t *testing.T) {
 
 	got := e.applySandboxProfile(core.ToolCallItem{
 		ID:   "1",
-		Name: "bg",
+		Name: "shell",
 		Args: map[string]any{
-			"action":  "start",
+			"action":  "run",
 			"command": "npm run dev",
 		},
 	})
@@ -964,9 +1016,27 @@ func TestApplySandboxProfileToBgStart(t *testing.T) {
 	}
 }
 
+func TestApplyBuiltinSandboxProfileForPackageScaffold(t *testing.T) {
+	e := NewExecutor(fakeRegistry{})
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+
+	shellCall := e.applySandboxProfile(core.ToolCallItem{
+		ID:   "1",
+		Name: "shell",
+		Args: map[string]any{
+			"action":  "run",
+			"command": "pnpm create vite work-planner --template react",
+		},
+	})
+
+	if shellCall.Args["network"] != true {
+		t.Fatalf("shell pnpm create vite should request network by default: %+v", shellCall.Args)
+	}
+}
+
 func TestPredictedPermissionRequestUsesSandboxArgs(t *testing.T) {
 	e := NewExecutor(fakeRegistry{})
-	req := e.predictedPermissionRequest("bg", map[string]any{
+	req := e.predictedPermissionRequest("shell", map[string]any{
 		"network":        true,
 		"writable_roots": []any{"/cache"},
 	})
@@ -984,7 +1054,7 @@ func TestPredictedPermissionRequestUsesSandboxArgs(t *testing.T) {
 
 func TestPredictedPermissionRequestHostIgnoresSandboxOpenings(t *testing.T) {
 	e := NewExecutor(fakeRegistry{})
-	req := e.predictedPermissionRequest("bash", map[string]any{
+	req := e.predictedPermissionRequest("shell", map[string]any{
 		"sandbox_mode":   "host",
 		"network":        true,
 		"writable_roots": []any{"/cache"},
@@ -1021,21 +1091,21 @@ func (t *privilegedExecuteErrTool) ExecuteWithPermission(context.Context, map[st
 	return "", t.retryErr
 }
 
-type fakeBgNetworkTool struct {
+type fakeShellNetworkTool struct {
 	fakeTool
 	privilegedCalls int
 }
 
-func (t *fakeBgNetworkTool) Execute(context.Context, map[string]any) (string, error) {
+func (t *fakeShellNetworkTool) Execute(context.Context, map[string]any) (string, error) {
 	return "", testPermissionError{req: core.PermissionRequest{
-		Reason:       "bg command needs local network listener access",
+		Reason:       "shell command needs local network listener access",
 		Capabilities: []string{core.CapNetOutbound},
 		Scope:        "project",
 		Details:      map[string]any{"workspace": "/repo"},
 	}}
 }
 
-func (t *fakeBgNetworkTool) ExecuteWithPermission(_ context.Context, _ map[string]any, req core.PermissionRequest) (string, error) {
+func (t *fakeShellNetworkTool) ExecuteWithPermission(_ context.Context, _ map[string]any, req core.PermissionRequest) (string, error) {
 	t.privilegedCalls++
 	if len(req.Capabilities) != 1 || req.Capabilities[0] != core.CapNetOutbound {
 		return "", fmt.Errorf("unexpected grant: %+v", req)

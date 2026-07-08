@@ -1,32 +1,34 @@
-// 匹配 Go common.DisplayMessage / session.Meta 序列化格式（无 json tag，Go 导出名 PascalCase）。
+// 与 Go ui.SessionMeta 对齐（Wails 自动生成格式）。
+// createdAt / updatedAt 为 Wails 对 time.Time 的映射（any），
+// 运行时实际是 ISO 字符串，由调用方按需转换。
 
 export interface SessionMeta {
   id: string
   cwd: string
-  created_at: number
-  updated_at: number
-  msg_count: number
+  createdAt: any
+  updatedAt: any
+  msgCount: number
 }
 
 export interface DisplayMessage {
-  Role: string
-  Content: string
-  Blocks: DisplayBlock[] | null
-  Images: ImageRef[] | null
+  role: string
+  content: string
+  blocks: DisplayBlock[] | null
+  images: ImageRef[] | null
 }
 
 export interface DisplayBlock {
-  ToolName: string
-  Args: string
-  Content: string
-  IsError?: boolean
+  toolName: string
+  args: string
+  content: string
+  isError?: boolean
 }
 
 export interface ImageRef {
-  Path: string
-  URL: string
-  Width: number
-  Height: number
+  path: string
+  url: string
+  width: number
+  height: number
 }
 
 // 兼容旧命名。

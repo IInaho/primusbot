@@ -172,7 +172,7 @@ func extractReadPaths(name string, args map[string]any) []string {
 		if p, _ := args["path"].(string); p != "" {
 			return []string{filepath.Clean(p)}
 		}
-	case "bash":
+	case "bash", "shell":
 		cmd, _ := args["command"].(string)
 		return cleanPaths(extractBashReadPaths(cmd))
 	}
@@ -188,7 +188,7 @@ func extractModifiedPaths(ev ToolEvent) []string {
 		if p, _ := ev.Args["path"].(string); p != "" {
 			return []string{filepath.Clean(p)}
 		}
-	case "bash":
+	case "bash", "shell":
 		cmd, _ := ev.Args["command"].(string)
 		return cleanPaths(extractBashWritePaths(cmd))
 	}

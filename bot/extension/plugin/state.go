@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 // registryJSON is the on-disk format for ~/.nekocode/plugins/registry.json.
@@ -22,7 +22,7 @@ type registryEntry struct {
 }
 
 func userPluginDir() (string, error) {
-	return filepath.Join(common.NekocodeHome(), "plugins"), nil
+	return filepath.Join(fs.NekocodeHome(), "plugins"), nil
 }
 
 func (r *Registry) registryPath() (string, error) {

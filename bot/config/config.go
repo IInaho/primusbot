@@ -8,20 +8,15 @@ import (
 	"sort"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/fs"
+	uitype "nekocode/common/ui"
 )
 
-type ModelConfig struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	BaseURL  string `json:"base_url,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
-}
+// ModelConfig is re-exported from common/ui for backward compatibility.
+type ModelConfig = uitype.ModelConfig
 
 func Path() string {
-	return filepath.Join(common.NekocodeHome(), "config.json")
+	return filepath.Join(fs.NekocodeHome(), "config.json")
 }
 
 func Exists() bool {
@@ -29,21 +24,8 @@ func Exists() bool {
 	return err == nil
 }
 
-type ImageGenConfig struct {
-	Name      string `json:"name"`
-	Provider  string `json:"provider"`           // e.g. "jimeng"
-	APIKey    string `json:"api_key"`            // Volcengine Access Key ID
-	SecretKey string `json:"secret_key"`         // Volcengine Secret Access Key
-	BaseURL   string `json:"base_url,omitempty"` // default: https://visual.volcengineapi.com
-	Model     string `json:"model,omitempty"`    // default: jimeng_t2i_v31
-}
-
-type MCPServerConfig struct {
-	Command string            `json:"command"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Enabled bool              `json:"enabled"`
-}
+type ImageGenConfig = uitype.ImageGenConfig
+type MCPServerConfig = uitype.MCPServerConfig
 
 type Config struct {
 	Active         string                     `json:"active"` // name of the active model
@@ -56,10 +38,7 @@ type Config struct {
 	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
 }
 
-type WorkspaceConfig struct {
-	Path   string `json:"path"`
-	Access string `json:"access,omitempty"`
-}
+type WorkspaceConfig = uitype.WorkspaceConfig
 
 var Default = Config{
 	Active:        "default",
@@ -113,6 +92,12 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Apply defaults for zero-valued fields so a hand-edited config with
+	// context_window: 0 (or missing the field in older files) still works.
+	if cfg.ContextWindow <= 0 {
+		cfg.ContextWindow = Default.ContextWindow
+	}
+
 	return &cfg, nil
 }
 
@@ -125,7 +110,7 @@ func Save(cfg Config) error {
 		return err
 	}
 	data = append(data, '\n')
-	return common.WriteFileWithDir(Path(), data, 0o600)
+	return fs.WriteFileWithDir(Path(), data, 0o600)
 }
 
 func Validate(cfg *Config) error {

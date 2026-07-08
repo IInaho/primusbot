@@ -12,7 +12,7 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName: "bash",
+		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
 			"permission_reason":       "command requests unsandboxed host execution",
@@ -43,7 +43,7 @@ func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 	cb := NewConfirmBar(&sty)
 	ch := make(chan common.ConfirmReply, 1)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName:              "bash",
+		ToolName:              "shell",
 		Args:                  map[string]any{"command": "go get example.com/pkg", "permission_scope": "once"},
 		Kind:                  common.ConfirmKindPermission,
 		Response:              ch,
@@ -77,7 +77,7 @@ func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
 	cb := NewConfirmBar(&sty)
 	ch := make(chan common.ConfirmReply, 1)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName: "bash",
+		ToolName: "shell",
 		Args: map[string]any{
 			"command":          "go get example.com/pkg",
 			"permission_scope": "project",

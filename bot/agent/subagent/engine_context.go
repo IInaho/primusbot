@@ -21,9 +21,6 @@ func buildSystemPrompt(cfg RunConfig) string {
 	if cfg.Cwd != "" {
 		parts = append(parts, ctxfmt.FormatCwd(cfg.Cwd))
 	}
-	if cfg.ProjectContext != "" && !cfg.AgentType.OmitProjectContext {
-		parts = append(parts, cfg.ProjectContext)
-	}
 	if cfg.Handoff != "" {
 		parts = append(parts, "<handoff>\n"+cfg.Handoff+"\n</handoff>")
 	}

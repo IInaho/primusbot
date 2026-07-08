@@ -1,7 +1,7 @@
 package contextmgr
 
 import (
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func (m *Manager) Build() []types.Message {

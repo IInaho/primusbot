@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"nekocode/bot"
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 func formatBriefArgs(toolName, toolArgs string) string {
@@ -28,7 +28,7 @@ func formatBriefArgs(toolName, toolArgs string) string {
 				return m
 			}
 		}
-		for _, pair := range common.SplitPairs(s) {
+		for _, pair := range text.SplitPairs(s) {
 			kv := strings.SplitN(pair, "=", 2)
 			if len(kv) == 2 {
 				m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -49,7 +49,7 @@ func formatBriefArgs(toolName, toolArgs string) string {
 		return p
 	case "write", "list", "tree", "edit":
 		return args["path"]
-	case "bash":
+	case "shell":
 		return cleanShellPreview(args["command"])
 	case "glob":
 		return args["pattern"]
@@ -64,7 +64,7 @@ func formatBriefArgs(toolName, toolArgs string) string {
 		if q == "" {
 			q = args["url"]
 		}
-		return common.TruncateByRune(q, 60)
+		return text.TruncateByRune(q, 60)
 	case "todo_write":
 		return formatTodos(args["todos"])
 	case "task":
@@ -77,10 +77,10 @@ func formatBriefArgs(toolName, toolArgs string) string {
 		}
 		p := strings.SplitN(args["prompt"], "\n", 2)[0]
 		p = strings.Trim(p, " \"")
-		return t + " \u00b7 " + common.TruncateByRune(p, 30)
+		return t + " \u00b7 " + text.TruncateByRune(p, 30)
 	default:
 		for _, v := range args {
-			return common.TruncateByRune(v, 50)
+			return text.TruncateByRune(v, 50)
 		}
 		return ""
 	}
@@ -97,7 +97,7 @@ func cleanShellPreview(command string) string {
 
 func tokensSummary(b bot.UI) string {
 	st := b.Stats()
-	return "↑" + common.FormatTokens(st.TurnPrompt) + " ↓" + common.FormatTokens(st.TurnCompletion)
+	return "↑" + text.FormatTokens(st.TurnPrompt) + " ↓" + text.FormatTokens(st.TurnCompletion)
 }
 
 func formatTodos(raw string) string {

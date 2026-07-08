@@ -6,7 +6,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
 	"nekocode/bot/tools/runtime/toolutil"

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/bot/llm"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
+	"nekocode/bot/provider/types"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 // MergeSummaries runs an independent LLM session to merge old and new summaries.
 // Uses a clean context (no history) with thinking disabled — fast and focused.
 // Returns the merged summary, or falls back to raw append on failure.
-func MergeSummaries(ctx context.Context, llmClient types.LLM, oldSummary, newSummary string) string {
+func MergeSummaries(ctx context.Context, llmClient provider.LLM, oldSummary, newSummary string) string {
 	if oldSummary == "" {
 		return newSummary
 	}
@@ -40,7 +40,7 @@ func MergeSummaries(ctx context.Context, llmClient types.LLM, oldSummary, newSum
 	return merged
 }
 
-func tryMerge(ctx context.Context, client types.LLM, oldSummary, newSummary string) (string, error) {
+func tryMerge(ctx context.Context, client provider.LLM, oldSummary, newSummary string) (string, error) {
 	// Save and restore both MaxTokens and DisableThinking to avoid
 	// mutating shared state when concurrent sub-agents use the same client.
 	origMaxTokens := client.GetMaxTokens()
@@ -53,7 +53,7 @@ func tryMerge(ctx context.Context, client types.LLM, oldSummary, newSummary stri
 	}()
 
 	var merged string
-	err := llm.Retry(ctx, llm.DefaultRetryConfig, func() error {
+	err := provider.Retry(ctx, provider.DefaultRetryConfig, func() error {
 		m, err := callMerge(ctx, client, oldSummary, newSummary)
 		if err != nil {
 			return err
@@ -64,7 +64,7 @@ func tryMerge(ctx context.Context, client types.LLM, oldSummary, newSummary stri
 	return merged, err
 }
 
-func callMerge(ctx context.Context, client types.LLM, oldSummary, newSummary string) (string, error) {
+func callMerge(ctx context.Context, client provider.LLM, oldSummary, newSummary string) (string, error) {
 	prompt := buildMergePrompt(oldSummary, newSummary)
 	resp, err := client.Chat(ctx, []types.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/common"
 )
 

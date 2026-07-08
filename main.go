@@ -6,8 +6,9 @@ import (
 	"log"
 
 	botconfig "nekocode/bot/config"
-	"nekocode/bot/session"
+	"nekocode/bot/extension"
 	"nekocode/common"
+	"nekocode/common/ui"
 	"nekocode/guiapp"
 
 	"github.com/wailsapp/wails/v2"
@@ -84,23 +85,23 @@ func (a *App) SaveConfig(cfg botconfig.View) (botconfig.View, error) {
 	return a.impl.SaveConfig(cfg)
 }
 
-func (a *App) GetSkillManagement() common.SkillManagementView {
+func (a *App) GetSkillManagement() extension.SkillManagementView {
 	return a.impl.GetSkillManagement()
 }
 
-func (a *App) RefreshSkillManagement() common.SkillManagementView {
+func (a *App) RefreshSkillManagement() extension.SkillManagementView {
 	return a.impl.RefreshSkillManagement()
 }
 
-func (a *App) SetPluginEnabled(name string, enabled bool) (common.SkillManagementView, error) {
+func (a *App) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
 	return a.impl.SetPluginEnabled(name, enabled)
 }
 
-func (a *App) ListSessions() []session.Meta {
+func (a *App) ListSessions() []ui.SessionMeta {
 	return a.impl.ListSessions()
 }
 
-func (a *App) NewSession() (session.Meta, error) {
+func (a *App) NewSession() (ui.SessionMeta, error) {
 	return a.impl.NewSession()
 }
 

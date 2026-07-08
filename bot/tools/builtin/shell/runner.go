@@ -1,13 +1,9 @@
 package shell
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/sandbox"
@@ -40,92 +36,6 @@ func (r sandboxRequest) permissionCapabilities() []string {
 		caps = append(caps, core.CapFsWritePath)
 	}
 	return uniqueStrings(caps)
-}
-
-func runCommand(ctx context.Context, cmdStr string, req sandboxRequest, timeout time.Duration) (string, error) {
-	workspace, _ := os.Getwd()
-	caps := req.permissionCapabilities()
-
-	// process.host: the escape hatch of last resort. Never enters the sandbox.
-	// scope=once ensures it is never persisted — every invocation prompts.
-	if hasCapability(caps, core.CapProcessHost) {
-		return "", permissionRequired(
-			"command requests unsandboxed host execution",
-			[]string{core.CapProcessHost},
-			"once",
-			workspace,
-			req.WritableRoots,
-		)
-	}
-
-	// Explicit sandbox openings require authorization before entering the
-	// sandbox. Throw a RequiredPermissionError; execute_one.go catches it,
-	// prompts the user (or matches an existing grant), and calls
-	// ExecuteWithPermission with the authorized capabilities to re-run inside
-	// an enhanced sandbox.
-	if len(caps) > 0 {
-		return "", permissionRequired(
-			fmt.Sprintf("command requests sandbox profile: %s", strings.Join(caps, ", ")),
-			caps,
-			"project",
-			workspace,
-			req.WritableRoots,
-		)
-	}
-
-	profile, err := buildProfileFromRequest(workspace, req, nil)
-	if err != nil {
-		return "", err
-	}
-	out, err := backend.Run(ctx, cmdStr, profile, timeout)
-	var unavailable sandbox.UnavailableError
-	if errors.As(err, &unavailable) {
-		return "", hostPermission(err.Error(), workspace, req.WritableRoots)
-	}
-	return out, err
-}
-
-// runCommandWithPermission is called by ExecuteWithPermission after the user
-// (or a persisted grant) authorized the capability request. It re-runs the
-// command — inside the sandbox, with the authorized openings applied — rather
-// than escaping to the host. Only CapProcessHost escapes the sandbox entirely.
-func runCommandWithPermission(ctx context.Context, cmdStr string, req sandboxRequest, timeout time.Duration, grant core.PermissionRequest) (string, error) {
-	workspace, _ := os.Getwd()
-	requestedCaps := req.permissionCapabilities()
-	if len(requestedCaps) > 0 && !containsAllCapabilities(grant.Capabilities, requestedCaps) {
-		scope := "project"
-		reason := fmt.Sprintf("command requests sandbox profile: %s", strings.Join(requestedCaps, ", "))
-		if hasCapability(requestedCaps, core.CapProcessHost) {
-			scope = "once"
-			reason = "command requests unsandboxed host execution"
-		}
-		return "", permissionRequired(
-			reason,
-			requestedCaps,
-			scope,
-			workspace,
-			req.WritableRoots,
-		)
-	}
-
-	// process.host is the only capability that runs on the host without
-	// any sandbox isolation.
-	if hasCapability(grant.Capabilities, core.CapProcessHost) {
-		return backend.RunHost(ctx, cmdStr, timeout)
-	}
-
-	// All other capabilities: rebuild an enhanced profile from the authorized
-	// capabilities and re-run inside the sandbox with those openings applied.
-	profile, err := buildProfileFromRequest(workspace, req, grant.Capabilities)
-	if err != nil {
-		return "", err
-	}
-	out, err := backend.Run(ctx, cmdStr, profile, timeout)
-	var unavailable sandbox.UnavailableError
-	if errors.As(err, &unavailable) {
-		return "", hostPermission(err.Error(), workspace, req.WritableRoots)
-	}
-	return out, err
 }
 
 func buildProfileFromRequest(workspace string, req sandboxRequest, authorizedCaps []string) (sandbox.Profile, error) {

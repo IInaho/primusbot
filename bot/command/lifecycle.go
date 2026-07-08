@@ -9,7 +9,7 @@ import (
 	"nekocode/bot/prompt/planmode"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 // SkillState tracks skill-related state shared between bot and command packages.
@@ -148,7 +148,7 @@ func ContextStats(ctxMgr *ctxmgr.Manager) string {
 		{Size: r.Messages, Kind: "msgs"},
 		{Size: free, Kind: "free"},
 	}, 20)
-	return fmt.Sprintf("%s  %s / %s", bar, common.FormatTokens(used), common.FormatTokens(r.Budget))
+	return fmt.Sprintf("%s  %s / %s", bar, text.FormatTokens(used), text.FormatTokens(r.Budget))
 }
 
 // ContextReport returns a detailed context window breakdown.

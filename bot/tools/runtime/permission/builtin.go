@@ -4,74 +4,74 @@ package permission
 // are evaluated alongside these (deny from any source wins; user/project can
 // add ask/allow to override the builtin defaults for unmatched calls).
 //
-// Bash rules use command-prefix matching (claude-code style): a specifier
+// Shell rules use command-prefix matching (claude-code style): a specifier
 // like "npm run *" matches commands starting with "npm run ". The bash
 // matcher handles the wildcard logic; here we only declare the policies.
 //
-// Bash uses explicit authorization: builtins block obviously unsafe commands,
+// Shell uses explicit authorization: builtins block obviously unsafe commands,
 // force prompts for destructive ones, and allow common read-only inspection
 // commands. Everything else falls to the engine caller's default ask until a
 // user/project/remembered allow rule exists.
 
 var builtinRules = []Rule{
-	// --- Bash: hard-deny (irreversible / privilege escalation) ---
-	{Tool: "bash", Specifier: "sudo *", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "sudo", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "eval *", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "dd *", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "mkfs*", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "ssh *", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "| bash", Effect: EffectDeny, Source: "builtin"},
-	{Tool: "bash", Specifier: "| sh", Effect: EffectDeny, Source: "builtin"},
+	// --- Shell: hard-deny (irreversible / privilege escalation) ---
+	{Tool: "shell", Specifier: "sudo *", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "sudo", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "eval *", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "dd *", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "mkfs*", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "ssh *", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "| bash", Effect: EffectDeny, Source: "builtin"},
+	{Tool: "shell", Specifier: "| sh", Effect: EffectDeny, Source: "builtin"},
 
-	// --- Bash: ask (destructive but reversible within workspace) ---
-	{Tool: "bash", Specifier: "rm *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "rmdir *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "kill *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "pkill *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "chmod *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "chown *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "git push *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "git push", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "git reset --hard *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "mv *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "shutdown *", Effect: EffectAsk, Source: "builtin"},
-	{Tool: "bash", Specifier: "reboot *", Effect: EffectAsk, Source: "builtin"},
+	// --- Shell: ask (destructive but reversible within workspace) ---
+	{Tool: "shell", Specifier: "rm *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "rmdir *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "kill *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "pkill *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "chmod *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "chown *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "git push *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "git push", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "git reset --hard *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "mv *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "shutdown *", Effect: EffectAsk, Source: "builtin"},
+	{Tool: "shell", Specifier: "reboot *", Effect: EffectAsk, Source: "builtin"},
 
-	// --- Bash: allow common read-only inspection ---
-	{Tool: "bash", Specifier: "ls *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "pwd", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "whoami", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "date", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "printenv *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "which *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "uname *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "hostname", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "wc *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "cat *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "head *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "tail *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "less *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "more *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "du *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "df *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "free *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "uptime", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "pgrep *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "file *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "stat *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "go version", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "go env *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "go doc *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "go vet *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "go fmt *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git status *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git log *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git diff *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git show *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git blame *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git tag *", Effect: EffectAllow, Source: "builtin"},
-	{Tool: "bash", Specifier: "git remote *", Effect: EffectAllow, Source: "builtin"},
+	// --- Shell: allow common read-only inspection ---
+	{Tool: "shell", Specifier: "ls *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "pwd", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "whoami", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "date", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "printenv *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "which *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "uname *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "hostname", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "wc *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "cat *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "head *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "tail *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "less *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "more *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "du *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "df *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "free *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "uptime", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "pgrep *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "file *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "stat *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "go version", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "go env *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "go doc *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "go vet *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "go fmt *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git status *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git log *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git diff *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git show *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git blame *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git tag *", Effect: EffectAllow, Source: "builtin"},
+	{Tool: "shell", Specifier: "git remote *", Effect: EffectAllow, Source: "builtin"},
 
 	// --- File tools: workspace writes default to allow (path boundary enforces scope) ---
 	{Tool: "write", Effect: EffectAllow, Source: "builtin"},
@@ -95,5 +95,53 @@ var builtinRules = []Rule{
 func BuiltinRules() []Rule {
 	out := make([]Rule, len(builtinRules))
 	copy(out, builtinRules)
+	return out
+}
+
+var builtinSandboxRules = []SandboxRule{
+	{Rule: Rule{Tool: "shell", Specifier: "npm install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "npm ci *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "npm update *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "npm create *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "npm exec *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "npx *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm add *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm update *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm create *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm dlx *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pnpm dev *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "yarn install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "yarn add *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "yarn up *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "yarn create *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "yarn dlx *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "bun install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "bun add *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "bun update *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "bun create *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "bunx *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pip install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "pip3 install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "python -m pip install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "python3 -m pip install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "go get *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "go install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "go mod download *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "cargo install *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "cargo add *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "cargo fetch *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "git clone *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "git fetch *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "git pull *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "curl *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "wget *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "docker pull *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+	{Rule: Rule{Tool: "shell", Specifier: "degit *", Source: "builtin"}, Profile: SandboxProfile{Network: true}},
+}
+
+func BuiltinSandboxRules() []SandboxRule {
+	out := make([]SandboxRule, len(builtinSandboxRules))
+	copy(out, builtinSandboxRules)
 	return out
 }

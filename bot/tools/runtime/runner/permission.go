@@ -83,7 +83,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 		}
 		return "", false, failRetryError, err
 	}
-	confirmReq := common.NewConfirmRequest(tc.Name, permissionConfirmArgs(tc.Args, req), common.ConfirmKindPermission)
+	confirmReq := common.NewConfirmRequest(canonicalPermissionTool(tc.Name), permissionConfirmArgs(tc.Args, req), common.ConfirmKindPermission)
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
 		return "", false, failUserDenied, execErr
@@ -195,8 +195,12 @@ func (e *Executor) permissionDenied(toolName string, req core.PermissionRequest)
 	if store == nil {
 		return false
 	}
-	_, denied := store.Denied(toolName, req)
-	return denied
+	for _, tool := range permissionToolAliases(toolName) {
+		if _, denied := store.Denied(tool, req); denied {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest) bool {
@@ -211,8 +215,12 @@ func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest
 	if store == nil {
 		return false
 	}
-	_, ok := store.Match(toolName, req)
-	return ok
+	for _, tool := range permissionToolAliases(toolName) {
+		if _, ok := store.Match(tool, req); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // rememberPermission persists a capability grant so the retry path's
@@ -236,7 +244,38 @@ func (e *Executor) rememberPermission(toolName string, req core.PermissionReques
 	if store == nil || !persistStore {
 		return
 	}
-	_ = store.Allow(toolName, req)
+	_ = store.Allow(canonicalPermissionTool(toolName), req)
+}
+
+func canonicalPermissionTool(toolName string) string {
+	switch toolName {
+	case "bash", "bg", "shell":
+		return "shell"
+	}
+	return toolName
+}
+
+func permissionToolAliases(toolName string) []string {
+	canonical := canonicalPermissionTool(toolName)
+	out := []string{canonical}
+	if toolName != canonical {
+		out = append(out, toolName)
+	}
+	if canonical == "shell" {
+		for _, legacy := range []string{"bash", "bg"} {
+			seen := false
+			for _, existing := range out {
+				if existing == legacy {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				out = append(out, legacy)
+			}
+		}
+	}
+	return out
 }
 
 func permissionConfirmArgs(args map[string]any, req core.PermissionRequest) map[string]any {

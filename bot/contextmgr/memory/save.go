@@ -3,7 +3,7 @@ package memory
 import (
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 // Save writes the memory file to disk.
@@ -24,5 +24,5 @@ func (f *File) Save() error {
 			b.WriteString("\n\n")
 		}
 	}
-	return common.WriteFileWithDir(f.path, []byte(b.String()), 0o644)
+	return fs.WriteFileWithDir(f.path, []byte(b.String()), 0o644)
 }

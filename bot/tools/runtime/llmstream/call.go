@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"regexp"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
 )
 
 var ansiRegex = regexp.MustCompile("\x1b\\[[0-9;]*[a-zA-Z]")
 
 // CallLLM executes a single LLM stream call and returns the result.
-func CallLLM(client types.LLM, opts LLMCallOptions) (*LLMCallResult, error) {
+func CallLLM(client provider.LLM, opts LLMCallOptions) (*LLMCallResult, error) {
 	tokenCh, errCh := client.ChatStream(opts.Ctx, opts.Messages, opts.ToolDefs)
 	if tokenCh == nil {
 		select {

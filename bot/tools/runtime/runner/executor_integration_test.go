@@ -99,9 +99,9 @@ func TestExecutorConfirm(t *testing.T) {
 	}
 }
 
-func TestExecutorBgStartAndLogs(t *testing.T) {
+func TestExecutorShellRunAndPoll(t *testing.T) {
 	r := tools.NewRegistry()
-	r.Register(&shell.BgTool{})
+	r.Register(&shell.ShellTool{})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	prompts := 0
@@ -110,76 +110,77 @@ func TestExecutorBgStartAndLogs(t *testing.T) {
 		if req.Kind != common.ConfirmKindPermission {
 			t.Fatalf("unexpected confirm kind: %+v", req)
 		}
-		if req.ToolName != "bash" {
-			t.Fatalf("bg command approval should display bash, got %+v", req)
+		if req.ToolName != "shell" {
+			t.Fatalf("shell command approval should display shell, got %+v", req)
 		}
-		if req.Args["command"] != "echo executor-bg" {
-			t.Fatalf("bg command approval should show actual command, got %+v", req.Args)
+		if req.Args["command"] != "echo executor-shell" {
+			t.Fatalf("shell command approval should show actual command, got %+v", req.Args)
 		}
 		if prompts > 1 {
-			t.Fatalf("plain bg command should only need command approval, got prompt %d: %+v", prompts, req)
+			t.Fatalf("plain shell command should only need command approval, got prompt %d: %+v", prompts, req)
 		}
 		if req.CanEscalatePermission {
-			t.Fatalf("plain bg command should not expose merged capability escalation: %+v", req)
+			t.Fatalf("plain shell command should not expose merged capability escalation: %+v", req)
 		}
 		return common.ConfirmReply{Allowed: true}
 	})
 
 	start := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bg",
+		Name: "shell",
 		Args: map[string]any{
-			"action":  "start",
-			"command": "echo executor-bg",
+			"action":        "run",
+			"command":       "echo executor-shell",
+			"yield_time_ms": 1000,
 		},
 	}})[0]
 	if start.Error != "" {
-		t.Fatalf("bg start failed: %+v", start)
+		t.Fatalf("shell run failed: %+v", start)
 	}
-	if !strings.Contains(start.Output, "Task 1 started") {
-		t.Fatalf("start output missing task id: %q", start.Output)
+	if !strings.Contains(start.Output, "session_id: 1") {
+		t.Fatalf("run output missing session id: %q", start.Output)
 	}
 
 	time.Sleep(200 * time.Millisecond)
 	logs := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "2",
-		Name: "bg",
+		Name: "shell",
 		Args: map[string]any{
-			"action": "logs",
-			"id":     1,
+			"action":     "poll",
+			"session_id": 1,
 		},
 	}})[0]
 	if logs.Error != "" {
-		t.Fatalf("bg logs failed: %+v", logs)
+		t.Fatalf("shell poll failed: %+v", logs)
 	}
-	if !strings.Contains(logs.Output, "executor-bg") {
+	if !strings.Contains(logs.Output, "executor-shell") {
 		t.Fatalf("logs output missing command output: %q", logs.Output)
 	}
 }
 
-func TestExecutorBgStartAppliesBashDenyRules(t *testing.T) {
+func TestExecutorShellRunAppliesBashDenyRules(t *testing.T) {
 	r := tools.NewRegistry()
-	r.Register(&shell.BgTool{})
+	r.Register(&shell.ShellTool{})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
-		t.Fatalf("denied bg command should not prompt: %+v", req)
+		t.Fatalf("denied shell command should not prompt: %+v", req)
 		return common.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "bg",
+		Name: "shell",
 		Args: map[string]any{
-			"action":  "start",
+			"action":  "run",
 			"command": "sudo echo blocked",
 		},
 	}})[0]
 	if got.Error == "" {
-		t.Fatalf("expected bg start to be denied")
+		t.Fatalf("expected shell run to be denied")
 	}
-	if !strings.Contains(got.Error, "denied by rule bash") {
-		t.Fatalf("error = %q, want bash deny rule", got.Error)
+	if !strings.Contains(got.Error, "denied by rule shell") {
+		t.Fatalf("error = %q, want shell deny rule", got.Error)
 	}
 }
 

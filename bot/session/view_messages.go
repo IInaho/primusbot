@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/common"
 )
 
@@ -118,7 +118,7 @@ func appendDisplayToolResult(blocks []common.DisplayBlock, images []common.Image
 }
 
 func isPersistentTool(name string) bool {
-	return name == "edit" || name == "diff" || name == "write" || name == "bash"
+	return name == "edit" || name == "diff" || name == "write" || name == "shell" || name == "bash"
 }
 
 // image tool name set — matches the tool Name() registered by ImageGenTool.

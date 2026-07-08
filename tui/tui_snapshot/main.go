@@ -74,7 +74,7 @@ func renderConfirmEdit() string {
 func renderConfirmBashMassive() string {
 	cb := components.NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName: "bash",
+		ToolName: "shell",
 		Args: map[string]any{
 			"command": `python3 << 'PYEOF'
 import sys, json, os
@@ -112,7 +112,7 @@ PYEOF`,
 func renderConfirmPermission() string {
 	cb := components.NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName: "bash",
+		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 "go test ./...",
 			"permission_reason":       "command requests sandbox profile: net.outbound, fs.write.path",
@@ -130,7 +130,7 @@ func renderConfirmPermission() string {
 func renderConfirmProcessHost() string {
 	cb := components.NewConfirmBar(&sty)
 	cb.SetRequest(&common.ConfirmRequest{
-		ToolName: "bash",
+		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
 			"permission_reason":       "command requests unsandboxed host execution",
@@ -185,7 +185,7 @@ func renderToolBlocks() string {
 		},
 		{
 			Type:     block.BlockTool,
-			ToolName: "bash",
+			ToolName: "shell",
 			ToolArgs: "git status --short tui/components/block/block_render.go tui/components/block/block_tool.go tui/components/block/block_tool_test.go tui/styles/colors.go tui/components/processing/processing_test.go",
 			Content:  " M tui/components/block/block_render.go\n M tui/components/block/block_tool.go\n M tui/components/block/block_tool_test.go\n M tui/components/processing/processing_test.go\n M tui/styles/colors.go",
 			Done:     true,
@@ -316,7 +316,7 @@ func renderProcessingSubAgent() string {
 
 	// Main agent continues
 	p.AddToolBlock(block.ContentBlock{
-		Type: block.BlockTool, ToolName: "bash", ToolArgs: "go test ./bot/agent/...",
+		Type: block.BlockTool, ToolName: "shell", ToolArgs: "go test ./bot/agent/...",
 		Content: "ok      nekocode/bot/agent      0.456s", Done: true,
 	})
 
@@ -342,7 +342,7 @@ func renderAssistantWithEdit() string {
 		},
 		{
 			Type:     block.BlockTool,
-			ToolName: "bash",
+			ToolName: "shell",
 			ToolArgs: `echo "Hello from bash! Current directory: $(pwd)" && date`,
 			Content:  "Hello from bash! Current directory: /home/lznauy/precode/NekoCode\nFri Jul  3 00:41:48 CST 2026",
 			Done:     true,

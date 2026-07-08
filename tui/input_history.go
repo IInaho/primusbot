@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 const maxInputHistoryEntries = 200
@@ -16,7 +16,7 @@ type inputHistoryFile struct {
 }
 
 func inputHistoryPath() string {
-	return filepath.Join(common.NekocodeHome(), "input_history.json")
+	return filepath.Join(fs.NekocodeHome(), "input_history.json")
 }
 
 func loadInputHistory() []string {
@@ -37,7 +37,7 @@ func saveInputHistory(entries []string) error {
 	if err != nil {
 		return err
 	}
-	return common.WriteFileWithDir(inputHistoryPath(), data, 0o600)
+	return fs.WriteFileWithDir(inputHistoryPath(), data, 0o600)
 }
 
 func appendInputHistory(entries []string, entry string) []string {

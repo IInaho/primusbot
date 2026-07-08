@@ -12,12 +12,10 @@ import (
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/index"
-	"nekocode/bot/llm"
+	"nekocode/bot/provider"
 	systemprompt "nekocode/bot/prompt/system"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
-	indextool "nekocode/bot/tools/builtin/index"
 	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
@@ -40,15 +38,13 @@ type botCore struct {
 	cmdParser     *command.Parser
 	skillState    *command.SkillState
 	promptBuilder *systemprompt.Builder
-	projCtx       string
-	indexMgr      index.Manager
 	cwd           string
 }
 
 type botRuntime struct {
 	ag           *runtime.Agent
 	toolRegistry *tools.Registry
-	bgTool       *shell.BgTool
+	shellTool    *shell.ShellTool
 	hookReg      *hooks.Registry
 }
 
@@ -75,13 +71,6 @@ func (b *Bot) initCtxMgr() {
 	systemPrompt := b.promptBuilder.Build()
 	memFile, _ := memory.Load(memory.DefaultPath())
 	b.ctxMgr = ctxmgr.New(ctxmgr.Config{SystemPrompt: systemPrompt, Memory: memFile})
-
-	result := index.Apply(b.ctxMgr, index.ApplyOptions{
-		CWD:           b.cwd,
-		ContextWindow: b.cfg.ContextWindow,
-	})
-	b.projCtx = result.ProjectContext
-	b.indexMgr = result.IndexManager
 }
 
 // reinit rebuilds the runtime facades, agent, summarizer, and commands.
@@ -105,7 +94,7 @@ func (b *Bot) reinit() {
 	os.Setenv("NEKOCODE_WORKSPACE", b.cwd)
 	workspace.Configure(b.cwd, b.configuredWorkspaceRoots())
 	b.ext = newExtensionFacade(b.ctxMgr, b.toolRegistry, b.hookReg, b.cfg.ContextWindow)
-	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.projCtx, b.cfg.ContextWindow)
+	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.cfg.ContextWindow)
 	b.ext.InitPlugins()
 	b.ext.InitConfigMCPServers(b.cfg.MCPServers)
 	b.ext.InitSkills()
@@ -136,20 +125,16 @@ func (b *Bot) initSummarizer() {
 }
 
 func (b *Bot) initToolRegistry() {
-	if b.bgTool != nil {
-		b.bgTool.Shutdown()
-		b.bgTool = nil
+	if b.shellTool != nil {
+		b.shellTool.Shutdown()
+		b.shellTool = nil
 	}
 	b.toolRegistry = tools.NewRegistry()
 	catalog.RegisterAll(b.toolRegistry, b.cfg.ImageGenModels)
-	if t, err := b.toolRegistry.Get("bg"); err == nil {
-		if bg, ok := t.(*shell.BgTool); ok {
-			b.bgTool = bg
+	if t, err := b.toolRegistry.Get("shell"); err == nil {
+		if sh, ok := t.(*shell.ShellTool); ok {
+			b.shellTool = sh
 		}
-	}
-
-	if b.indexMgr != nil {
-		b.toolRegistry.Register(indextool.NewIndexTool(b.indexMgr))
 	}
 }
 
@@ -163,10 +148,10 @@ func (b *Bot) initHooks() {
 
 func (b *Bot) initAgent() {
 	am := b.cfg.ActiveModelConfig()
-	llmClient := llm.NewClientWithProtocol(am.Provider, am.APIKey, am.BaseURL, am.Model, am.Protocol)
+	llmClient := provider.NewClientWithProtocol(am.Provider, am.APIKey, am.BaseURL, am.Model, am.Protocol)
 
 	fm := b.cfg.ResolveModel(b.cfg.FlashModel)
-	mergeClient := llm.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
+	mergeClient := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 	mergeClient.SetDisableThinking(true)
 	mergeClient.SetMaxTokens(2000)
 	b.ctxMgr.MergeClient = mergeClient
@@ -174,6 +159,12 @@ func (b *Bot) initAgent() {
 	b.ag = runtime.New(context.Background(), b.ctxMgr, llmClient, b.toolRegistry)
 	b.ag.SetHookRegistry(b.hookReg)
 	b.applyCallbacks()
+
+	// Inject the permission engine into the shell tool so builtin sandbox
+	// rules (e.g. pnpm dev → network) are applied.
+	if b.shellTool != nil {
+		b.shellTool.SetSandboxProfiler(b.ag.SandboxProfiler())
+	}
 
 	b.subWiring.WireTaskTool(fm, b.ag)
 }

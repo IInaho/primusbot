@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"nekocode/bot/tools/builtin/diff"
-	"nekocode/bot/tools/builtin/toolhelpers"
+	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/toolutil"
 	"os"
@@ -72,7 +73,7 @@ func (t *WriteTool) Execute(ctx context.Context, args map[string]any) (string, e
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 	// Record snapshot for read/edit continuity within the session.
-	tag := toolutil.RecordSnapshot(safePath, content)
+	tag := execution.RecordSnapshot(safePath, content)
 
 	diffOutput := formatWriteDiff(safePath, existing, content)
 	if diffOutput == "" {

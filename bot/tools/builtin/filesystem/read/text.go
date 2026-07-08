@@ -9,8 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"nekocode/bot/tools/builtin/toolhelpers"
-	"nekocode/bot/tools/runtime/editcore"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/toolutil"
 )
@@ -93,8 +92,8 @@ func formatReadOutput(ctx context.Context, path string, lines []string, startLin
 	end := min(start+count, total)
 
 	fullText := strings.Join(lines, "\n")
-	toolutil.RecordSnapshotInContext(ctx, path, fullText)
-	tag := editcore.ComputeFileHash(fullText)
+	execution.RecordSnapshotInContext(ctx, path, fullText)
+	tag := toolutil.ComputeFileHash(fullText)
 
 	var out strings.Builder
 	fmt.Fprintf(&out, "[%s#%s]\n", path, tag)

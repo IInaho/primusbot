@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 func Usage() string {
@@ -38,7 +38,7 @@ func SourceToRawURL(source string) string {
 
 func IsLocalPath(s string) bool {
 	return strings.HasPrefix(s, "./") || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") ||
-		(!strings.Contains(s, "://") && !common.LooksLikeGit(s))
+		(!strings.Contains(s, "://") && !text.LooksLikeGit(s))
 }
 
 func ExpandPluginEnv(env map[string]string, pluginRoot string) map[string]string {

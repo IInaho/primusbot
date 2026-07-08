@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"nekocode/bot/tools/builtin/toolhelpers"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 	"net/http"
 	"os"
@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 type WebSearchTool struct {
@@ -116,7 +116,7 @@ func parseExaSSE(r io.Reader) (string, error) {
 			continue
 		}
 		if len(v.Result.Content) > 0 && v.Result.Content[0].Text != "" {
-			return common.TruncateByRune(v.Result.Content[0].Text, 6000), nil
+			return text.TruncateByRune(v.Result.Content[0].Text, 6000), nil
 		}
 	}
 	return "", scan.Err()

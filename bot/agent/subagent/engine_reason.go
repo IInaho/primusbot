@@ -5,7 +5,7 @@ import (
 
 	"nekocode/bot/agent/runtime/model"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/llmstream"
 )

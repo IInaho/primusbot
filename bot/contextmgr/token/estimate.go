@@ -1,6 +1,6 @@
 package token
 
-import "nekocode/bot/llm/types"
+import "nekocode/bot/provider/types"
 
 const asciiCharsPerToken = 4
 

@@ -10,9 +10,10 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/llm/types"
-	"nekocode/bot/policy/ledger"
 	"nekocode/common"
+	"nekocode/bot/provider/types"
+	"nekocode/bot/policy/ledger"
+	"nekocode/util/fs"
 )
 
 // ContextStore is the context-manager surface required by session persistence.
@@ -51,7 +52,7 @@ type ManagerOptions struct {
 }
 
 // DefaultExportPath is the default context-export destination under ~/.nekocode/exports.
-var DefaultExportPath = filepath.Join(common.NekocodeDataDir("exports"), "nekocode-context.json")
+var DefaultExportPath = filepath.Join(fs.NekocodeDataDir("exports"), "nekocode-context.json")
 
 func NewManager(opts ManagerOptions) *Manager {
 	return &Manager{
@@ -212,7 +213,7 @@ func ExportMessages(msgs []types.Message, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal context: %w", err)
 	}
-	if err := common.WriteFileWithDir(path, data, 0o644); err != nil {
+	if err := fs.WriteFileWithDir(path, data, 0o644); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
 	return path, nil

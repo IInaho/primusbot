@@ -3,7 +3,7 @@ package toolrun
 import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/tools/runtime/core"
 )

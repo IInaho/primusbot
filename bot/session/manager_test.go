@@ -10,7 +10,7 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
 )
 

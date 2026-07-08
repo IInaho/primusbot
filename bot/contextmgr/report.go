@@ -7,7 +7,7 @@ import (
 
 	"nekocode/bot/contextmgr/compact"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/common"
+	"nekocode/util/text"
 
 	"charm.land/lipgloss/v2"
 )
@@ -125,7 +125,7 @@ func FormatContextReport(r ContextReport) string {
 		return fmt.Sprintf("(%.0f%%)", float64(n)/float64(r.Budget)*100)
 	}
 	item := func(ch, label string, n int) string {
-		return barColors[ch].Render(barChars[ch]) + " " + label + ": " + common.FormatTokens(n) + " " + barColors["free"].Render(pct(n))
+		return barColors[ch].Render(barChars[ch]) + " " + label + ": " + text.FormatTokens(n) + " " + barColors["free"].Render(pct(n))
 	}
 
 	bar := BuildBar(r.Budget, []BarSegment{
@@ -137,28 +137,28 @@ func FormatContextReport(r ContextReport) string {
 	}, 20)
 
 	s := fmt.Sprintf("%s  %s / %s\n\n%s  %s\n%s  %s\n\n%s",
-		bar, common.FormatTokens(used), common.FormatTokens(r.Budget),
+		bar, text.FormatTokens(used), text.FormatTokens(r.Budget),
 		item("sys", "System", r.SystemPrompt),
 		item("tools", "Tools", r.ToolDefTokens),
 		item("msgs", "Messages", r.Messages),
 		item("skills", "Skills", r.SkillList),
 		barColors["free"].Render(fmt.Sprintf("%d tools · %d msgs · %d archived  %s Free: %s",
 			r.ToolDefCount, r.UserMessages+r.AssistantMsgs+r.ToolResults, r.Archived,
-			common.FormatTokens(free), pct(free))),
+			text.FormatTokens(free), pct(free))),
 	)
 
 	if r.CacheHitTokens > 0 || r.CacheMissTokens > 0 {
-		hit := common.FormatTokens(r.CacheHitTokens)
-		miss := common.FormatTokens(r.CacheMissTokens)
+		hit := text.FormatTokens(r.CacheHitTokens)
+		miss := text.FormatTokens(r.CacheMissTokens)
 		ratio := fmt.Sprintf("%.0f%%", r.CacheHitRatio*100)
 		s += fmt.Sprintf("\n%s Cache: hit %s / miss %s · %s",
 			barColors["cache"].Render(barChars["cache"]), hit, miss, ratio)
 	}
 
 	if r.SubCount > 0 {
-		subTok := common.FormatTokens(r.SubTokens)
-		subHit := common.FormatTokens(r.SubCacheHit)
-		subMiss := common.FormatTokens(r.SubCacheMiss)
+		subTok := text.FormatTokens(r.SubTokens)
+		subHit := text.FormatTokens(r.SubCacheHit)
+		subMiss := text.FormatTokens(r.SubCacheMiss)
 		var subRatio string
 		if total := r.SubCacheHit + r.SubCacheMiss; total > 0 {
 			subRatio = fmt.Sprintf(" · hit %.0f%%", float64(r.SubCacheHit)/float64(total)*100)

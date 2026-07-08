@@ -7,7 +7,10 @@ import (
 	"nekocode/bot/command"
 	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension"
 	"nekocode/common"
+	"nekocode/common/ui"
+	"nekocode/util/duration"
 )
 
 func (b *Bot) Steer(msg string) { b.getAgent().Steer(msg) }
@@ -15,11 +18,11 @@ func (b *Bot) Abort()           { b.getAgent().Abort() }
 
 func (b *Bot) Close() {
 	b.mu.Lock()
-	bg := b.bgTool
-	b.bgTool = nil
+	sh := b.shellTool
+	b.shellTool = nil
 	b.mu.Unlock()
-	if bg != nil {
-		bg.Shutdown()
+	if sh != nil {
+		sh.Shutdown()
 	}
 }
 
@@ -89,19 +92,19 @@ func (b *Bot) RunAgent(input string, onStep func(action, toolName, toolArgs, out
 	return result.FinalOutput, result.Error
 }
 
-func (b *Bot) ConfigView() config.View {
+func (b *Bot) ConfigView() ui.ConfigView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return config.NewView(*b.cfg)
 }
 
-func (b *Bot) ApplyConfig(view config.View) (config.View, error) {
-	next := view.Config()
+func (b *Bot) ApplyConfig(view ui.ConfigView) (ui.ConfigView, error) {
+	next := config.ToConfig(view)
 	if err := config.Validate(&next); err != nil {
-		return config.View{}, err
+		return ui.ConfigView{}, err
 	}
 	if err := config.Save(next); err != nil {
-		return config.View{}, err
+		return ui.ConfigView{}, err
 	}
 
 	b.mu.Lock()
@@ -235,19 +238,19 @@ func (b *Bot) ClearSelectedSkill() {
 	b.skillState.WantsAgent = false
 }
 
-func (b *Bot) SkillManagementView() common.SkillManagementView {
+func (b *Bot) SkillManagementView() extension.SkillManagementView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.SkillManagementView()
 }
 
-func (b *Bot) SetPluginEnabled(name string, enabled bool) (common.SkillManagementView, error) {
+func (b *Bot) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.SetPluginEnabled(name, enabled)
 }
 
-func (b *Bot) RefreshSkillManagement() common.SkillManagementView {
+func (b *Bot) RefreshSkillManagement() extension.SkillManagementView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.RefreshSkillManagement()
@@ -267,6 +270,6 @@ func (b *Bot) Stats() common.BotStats {
 		TurnCompletion:   tc,
 		ContextTokens:    ag.ContextTokens(),
 		CompactCount:     compactCount,
-		Duration:         common.FormatDuration(d),
+		Duration:         duration.FormatDuration(d),
 	}
 }

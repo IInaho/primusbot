@@ -34,9 +34,9 @@ import (
 	"time"
 
 	"nekocode/bot"
-	botconfig "nekocode/bot/config"
-	"nekocode/bot/session"
+	"nekocode/bot/extension"
 	"nekocode/common"
+	"nekocode/common/ui"
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -424,54 +424,40 @@ func (a *App) ClearSelectedSkill() {
 	a.bot.ClearSelectedSkill()
 }
 
-func (a *App) GetConfig() botconfig.View {
+func (a *App) GetConfig() ui.ConfigView {
 	return a.bot.ConfigView()
 }
 
-func (a *App) SaveConfig(cfg botconfig.View) (botconfig.View, error) {
+func (a *App) SaveConfig(cfg ui.ConfigView) (ui.ConfigView, error) {
 	return a.bot.ApplyConfig(cfg)
 }
 
-func (a *App) GetSkillManagement() common.SkillManagementView {
+func (a *App) GetSkillManagement() extension.SkillManagementView {
 	return a.bot.SkillManagementView()
 }
 
-func (a *App) RefreshSkillManagement() common.SkillManagementView {
+func (a *App) RefreshSkillManagement() extension.SkillManagementView {
 	return a.bot.RefreshSkillManagement()
 }
 
-func (a *App) SetPluginEnabled(name string, enabled bool) (common.SkillManagementView, error) {
+func (a *App) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
 	return a.bot.SetPluginEnabled(name, enabled)
 }
 
 // ---------- Session 管理 ----------
 
-// ListSessions 返回所有已落盘的会话元数据；未落盘的当前内存会话不显示在历史列表中。
-func (a *App) ListSessions() []session.Meta {
+// ListSessions 返回所有已落盘的会话元数据。
+func (a *App) ListSessions() []ui.SessionMeta {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	list := session.List()
-	if list == nil {
-		return []session.Meta{}
-	}
-	return list
+	return a.bot.ListSessions()
 }
 
 // NewSession 创建一个新会话并将其设为当前会话，返回会话元数据。
-// 不落盘——等发送第一条消息后 saveSession 才写文件。
-func (a *App) NewSession() (session.Meta, error) {
+func (a *App) NewSession() (ui.SessionMeta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
-	sess, err := session.New(a.bot.CWD())
-	if err != nil {
-		return session.Meta{}, err
-	}
-
-	a.bot.ClearContext()
-	a.bot.SetSession(sess)
-
-	return sessionMeta(sess), nil
+	return a.bot.NewSession()
 }
 
 func (a *App) LoadSession(id string) ([]common.DisplayMessage, error) {
@@ -488,17 +474,7 @@ func (a *App) LoadSession(id string) ([]common.DisplayMessage, error) {
 func (a *App) DeleteSession(id string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
-	if err := session.Delete(id); err != nil {
-		return err
-	}
-
-	if a.bot.CurrentSessionID() == id {
-		a.bot.ClearContext()
-		a.bot.SetSession(nil)
-	}
-
-	return nil
+	return a.bot.DeleteSession(id)
 }
 
 func (a *App) ReadImageBase64(path string) (string, error) {
@@ -551,16 +527,6 @@ func (a *App) ReadImageBase64(path string) (string, error) {
 
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
-}
-
-func sessionMeta(sess *session.Snapshot) session.Meta {
-	return session.Meta{
-		ID:        sess.ID,
-		CWD:       sess.CWD,
-		CreatedAt: sess.CreatedAt,
-		UpdatedAt: sess.UpdatedAt,
-		MsgCount:  len(sess.Messages),
-	}
 }
 
 // ReplyConfirm 由前端调用，回复确认弹窗。

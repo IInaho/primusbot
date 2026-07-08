@@ -28,7 +28,7 @@ var dangerousCommandPatterns = []string{
 
 func isSensitiveCall(c core.ToolCallItem) bool {
 	switch c.Name {
-	case "bash":
+	case "bash", "shell":
 		cmd, _ := c.Args["command"].(string)
 		return isDangerousCommand(cmd)
 	case "read", "write", "edit":

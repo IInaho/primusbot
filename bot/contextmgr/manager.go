@@ -16,7 +16,8 @@ import (
 	ctxctx "nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
+	"nekocode/bot/provider/types"
 )
 
 type Manager struct {
@@ -28,19 +29,19 @@ type Manager struct {
 	TrimCount     int
 	mem           *memory.File
 	CM            *compact.Compactor
-	MergeClient   types.LLM // for independent merge archive sessions
+	MergeClient   provider.LLM // for independent merge archive sessions
 }
 
 type Config struct {
 	SystemPrompt string
 	Memory       *memory.File
 	Summarizer   compact.Summarizer
-	MergeClient  types.LLM
+	MergeClient  provider.LLM
 }
 
 // NewSub creates a lightweight Manager for subagents.
 // A Compactor is only created when mergeClient is non-nil (for archive merging).
-func NewSub(systemPrompt string, contextWindow int, mergeClient types.LLM) *Manager {
+func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *Manager {
 	ctx := ctxctx.New(systemPrompt)
 	m := &Manager{
 		ctx:           ctx,
@@ -65,7 +66,7 @@ func NewSub(systemPrompt string, contextWindow int, mergeClient types.LLM) *Mana
 
 // MakeSummarizer creates a Summarizer func from an LLM client.
 // The provided context is used for LLM calls, enabling cancellation.
-func MakeSummarizer(ctx context.Context, client types.LLM) compact.Summarizer {
+func MakeSummarizer(ctx context.Context, client provider.LLM) compact.Summarizer {
 	return func(msgs []types.Message, prevSummary string) (string, error) {
 		prompt := compact.BuildPrompt(msgs, prevSummary)
 		resp, err := client.Chat(ctx, []types.Message{{Role: "user", Content: prompt}}, nil)

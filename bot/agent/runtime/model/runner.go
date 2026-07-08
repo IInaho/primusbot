@@ -7,8 +7,8 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/llm"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
+	"nekocode/bot/provider/types"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/llmstream"
@@ -21,7 +21,7 @@ import (
 type Host interface {
 	Context() context.Context
 	ContextManager() *ctxmgr.Manager
-	LLM() types.LLM
+	LLM() provider.LLM
 	ToolRegistry() *tools.Registry
 	Governance() *aggov.Manager
 	IsFinished() bool
@@ -41,7 +41,7 @@ func New(host Host) *Runner {
 	return &Runner{host: host}
 }
 
-func CallLLMWithRetry(ctx context.Context, client types.LLM, buildOptions func() llmstream.LLMCallOptions) (*llmstream.LLMCallResult, error) {
+func CallLLMWithRetry(ctx context.Context, client provider.LLM, buildOptions func() llmstream.LLMCallOptions) (*llmstream.LLMCallResult, error) {
 	var result *llmstream.LLMCallResult
 	err := WithRetry(ctx, func() error {
 		var err error
@@ -195,9 +195,9 @@ func (r *Runner) streamCallbacks() llmstream.StreamCallbacks {
 
 func WithRetry(ctx context.Context, fn func() error) error {
 	var attempt int
-	return llm.Retry(ctx, llm.DefaultRetryConfig, func() error {
+	return provider.Retry(ctx, provider.DefaultRetryConfig, func() error {
 		err := fn()
-		if err != nil && llm.IsRetryable(err) {
+		if err != nil && provider.IsRetryable(err) {
 			attempt++
 			debug.Log("retry %d: %v", attempt, err)
 		}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/text"
 	"nekocode/tui/components/block"
 	"nekocode/tui/styles"
 
@@ -63,7 +63,7 @@ func (p *ProcessingItem) renderHeader(width int) string {
 		meta = append(meta, p.sty.Yellow.Render("skill:"+p.skill))
 	}
 	if p.tokenPrompt > 0 || p.tokenCompl > 0 {
-		meta = append(meta, p.sty.Muted.Render("↑"+common.FormatTokens(p.tokenPrompt)+" ↓"+common.FormatTokens(p.tokenCompl)))
+		meta = append(meta, p.sty.Muted.Render("↑"+text.FormatTokens(p.tokenPrompt)+" ↓"+text.FormatTokens(p.tokenCompl)))
 	}
 	if p.compactCount > 0 {
 		meta = append(meta, p.sty.Muted.Render(fmt.Sprintf("🧹%d", p.compactCount)))

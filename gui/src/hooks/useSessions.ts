@@ -7,7 +7,9 @@ import {
 } from '../lib/wails'
 import { genId } from '../lib/id'
 import type { Msg, ToolStep } from '../types/events'
-import type { DisplayMessage, SessionMeta } from '../types/session'
+import type { ui } from '../../wailsjs/go/models'
+type SessionMeta = ui.SessionMeta
+type DisplayMessage = ui.DisplayMessage
 
 export interface UseSessionsReturn {
   sessions: SessionMeta[]

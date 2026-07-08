@@ -3,7 +3,7 @@ package compact
 import (
 	"testing"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func TestSnipHistory_NoOp(t *testing.T) {

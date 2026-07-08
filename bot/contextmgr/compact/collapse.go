@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 // Layer 4: Context Collapsing.

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { cn } from '../../lib/classnames'
-import type { SessionMeta } from '../../types/session'
+import type { ui } from '../../../wailsjs/go/models'
+type SessionMeta = ui.SessionMeta
 
 interface SessionItemProps {
   session: SessionMeta
@@ -10,7 +11,7 @@ interface SessionItemProps {
 }
 
 export function SessionItem({ session, active, onClick, onDelete }: SessionItemProps) {
-  const age = formatAge(session.updated_at)
+  const age = formatAge(session.updatedAt)
   const [confirming, setConfirming] = useState(false)
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -84,7 +85,7 @@ export function SessionItem({ session, active, onClick, onDelete }: SessionItemP
       </div>
       <div className="truncate text-[11px] text-text-3">{session.cwd}</div>
       <div className="mt-1 flex items-center gap-1.5 text-[10px] text-text-3">
-        <span>{session.msg_count} 条</span>
+        <span>{session.msgCount} 条</span>
         <span className="opacity-40">·</span>
         <span>{age}</span>
       </div>
@@ -111,8 +112,10 @@ function TrashIcon() {
   )
 }
 
-function formatAge(ts: number): string {
-  const diff = Date.now() / 1000 - ts
+function formatAge(ts: any): string {
+  // time.Time 序列化为 ISO 字符串，统一转为毫秒时间戳
+  const ms = typeof ts === 'number' ? ts * 1000 : new Date(ts).getTime()
+  const diff = (Date.now() - ms) / 1000
   if (diff < 60) return '刚刚'
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`

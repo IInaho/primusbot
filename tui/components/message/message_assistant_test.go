@@ -16,7 +16,7 @@ func TestAssistantMessagePreservesToolBlockIndentation(t *testing.T) {
 	m := NewAssistantMessageItem(&sty, "This is a long assistant sentence that should wrap without inheriting tool indentation in the final message body.")
 	m.SetBlocks([]block.ContentBlock{{
 		Type:     block.BlockTool,
-		ToolName: "bash",
+		ToolName: "shell",
 		ToolArgs: `echo "hello" && date`,
 		Content:  "hello\nFri Jul  3 00:41:48 CST 2026",
 		Done:     true,
@@ -33,7 +33,7 @@ func TestAssistantMessagePreservesToolBlockIndentation(t *testing.T) {
 		t.Fatalf("assistant tool header should preserve inner indentation:\n%s", clean)
 	}
 	if !strings.Contains(clean, "\n    └  hello") {
-		t.Fatalf("assistant bash output connector should stay under Ran:\n%s", clean)
+		t.Fatalf("assistant shell output connector should stay under Ran:\n%s", clean)
 	}
 	if strings.Contains(clean, "\n└  hello") || strings.Contains(clean, "\n│") {
 		t.Fatalf("assistant render stripped tool indentation:\n%s", clean)

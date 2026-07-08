@@ -1,9 +1,9 @@
 package bot
 
 import (
-	"nekocode/bot/config"
-	"nekocode/bot/session"
+	"nekocode/bot/extension"
 	"nekocode/common"
+	"nekocode/common/ui"
 )
 
 type UI interface {
@@ -28,14 +28,17 @@ type UI interface {
 
 type GUI interface {
 	UI
-	ConfigView() config.View
-	ApplyConfig(view config.View) (config.View, error)
-	SkillManagementView() common.SkillManagementView
-	RefreshSkillManagement() common.SkillManagementView
-	SetPluginEnabled(name string, enabled bool) (common.SkillManagementView, error)
+	ConfigView() ui.ConfigView
+	ApplyConfig(view ui.ConfigView) (ui.ConfigView, error)
+	SkillManagementView() extension.SkillManagementView
+	RefreshSkillManagement() extension.SkillManagementView
+	SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error)
 	CWD() string
 	ClearContext()
 	CurrentSessionID() string
-	SetSession(sess *session.Snapshot)
+	SetSession(id string) error
 	ResumeSession(id string) error
+	ListSessions() []ui.SessionMeta
+	NewSession() (ui.SessionMeta, error)
+	DeleteSession(id string) error
 }

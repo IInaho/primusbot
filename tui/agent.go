@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"nekocode/common"
+	"nekocode/util/runtime"
 	"nekocode/tui/components/block"
 	"nekocode/tui/components/message"
 
@@ -61,7 +62,7 @@ func (m *Model) runAgent(value string) func() tea.Msg {
 	return func() (msg tea.Msg) {
 		defer func() {
 			if r := recover(); r != nil {
-				common.WritePanicLog(r)
+				runtime.WritePanicLog(r)
 				// Ensure the TUI does not get stuck in stateProcessing.
 				msg = doneMsg{
 					content: fmt.Sprintf("internal panic: %v", r),

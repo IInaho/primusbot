@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"io"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common"
+	"nekocode/util/runtime"
 	"net/http"
 	"time"
 )
 
 func FetchURL(url string) ([]byte, error) {
-	ctx, cancel := common.ShortContext()
+	ctx, cancel := runtime.ShortContext()
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

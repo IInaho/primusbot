@@ -53,7 +53,7 @@ func (s *Store) rememberRule(workspace string, rule Rule) error {
 }
 
 func canonicalRememberedRule(rule Rule) (Rule, error) {
-	rule.Tool = strings.ToLower(strings.TrimSpace(rule.Tool))
+	rule.Tool = normalizeToolName(strings.ToLower(strings.TrimSpace(rule.Tool)))
 	rule.Specifier = strings.TrimSpace(rule.Specifier)
 	if rule.Tool == "" {
 		return Rule{}, fmt.Errorf("remembered rule requires a tool")

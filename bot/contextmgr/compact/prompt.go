@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/bot/llm/types"
-	"nekocode/common"
+	"nekocode/bot/provider/types"
+	"nekocode/util/text"
 )
 
 // NO_TOOLS_PREAMBLE prevents the summarizer model from making tool calls.
@@ -27,7 +27,7 @@ func FormatMessages(msgs []types.Message) string {
 		if m.Role == "tool" {
 			limit = 800
 		}
-		fmt.Fprintf(&b, "[%s]: %s\n", m.Role, common.TruncateByRune(content, limit))
+		fmt.Fprintf(&b, "[%s]: %s\n", m.Role, text.TruncateByRune(content, limit))
 	}
 	return b.String()
 }

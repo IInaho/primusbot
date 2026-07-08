@@ -56,6 +56,7 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("permissions.deny %q: %w", s, err)
 		}
+		r.Tool = normalizeToolName(r.Tool)
 		rules = append(rules, r)
 	}
 	for _, s := range src.Declared.Ask {
@@ -63,6 +64,7 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("permissions.ask %q: %w", s, err)
 		}
+		r.Tool = normalizeToolName(r.Tool)
 		rules = append(rules, r)
 	}
 	for _, s := range src.Declared.Allow {
@@ -70,6 +72,7 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("permissions.allow %q: %w", s, err)
 		}
+		r.Tool = normalizeToolName(r.Tool)
 		rules = append(rules, r)
 	}
 
@@ -89,10 +92,20 @@ func LoadRules(src RuleSources) ([]Rule, error) {
 		if r.Workspace != "" && src.Workspace != "" && r.Workspace != src.Workspace {
 			continue
 		}
+		r.Tool = normalizeToolName(r.Tool)
 		rules = append(rules, r)
 	}
 
 	return rules, nil
+}
+
+// normalizeToolName maps legacy tool names to their current equivalents so
+// user-defined rules keep working after a rename (bash → shell).
+func normalizeToolName(name string) string {
+	if strings.EqualFold(name, "bash") {
+		return "shell"
+	}
+	return name
 }
 
 func LoadSandboxRules(decl PermissionsDecl) ([]SandboxRule, error) {
@@ -115,6 +128,7 @@ func LoadSandboxRules(decl PermissionsDecl) ([]SandboxRule, error) {
 		if !strings.EqualFold(r.Tool, "bash") && !strings.EqualFold(r.Tool, "shell") {
 			return nil, fmt.Errorf("permissions.sandbox %q: only Bash/Shell rules can define sandbox profiles", spec)
 		}
+		r.Tool = normalizeToolName(r.Tool)
 		switch profile.SandboxMode {
 		case "", "read-only", "workspace-write", "host":
 		default:
@@ -145,6 +159,7 @@ func NewEngineForWorkspace(decl PermissionsDecl, store *Store, workspace string)
 	if err != nil {
 		return nil, err
 	}
+	sandboxRules = append(sandboxRules, BuiltinSandboxRules()...)
 	e := NewEngine(DefaultMatchers())
 	e.SetRules(rules)
 	e.SetSandboxRules(sandboxRules)

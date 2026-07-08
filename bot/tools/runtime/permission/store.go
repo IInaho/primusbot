@@ -56,6 +56,7 @@ type WorkspaceRoot struct {
 }
 
 func (s *Store) Match(tool string, req core.PermissionRequest) (Grant, bool) {
+	tool = normalizeToolName(tool)
 	if g, denied := s.Denied(tool, req); denied {
 		return g, false
 	}
@@ -63,7 +64,7 @@ func (s *Store) Match(tool string, req core.PermissionRequest) (Grant, bool) {
 }
 
 func (s *Store) Denied(tool string, req core.PermissionRequest) (Grant, bool) {
-	return s.find(tool, req, "deny", grantDeniesRequest)
+	return s.find(normalizeToolName(tool), req, "deny", grantDeniesRequest)
 }
 
 func (s *Store) find(tool string, req core.PermissionRequest, effect string, match func(Grant, core.PermissionRequest) bool) (Grant, bool) {
@@ -75,8 +76,9 @@ func (s *Store) find(tool string, req core.PermissionRequest, effect string, mat
 	if !ok {
 		return Grant{}, false
 	}
+	tool = normalizeToolName(tool)
 	for _, g := range project.Grants {
-		if g.Effect != effect || g.Tool != tool {
+		if g.Effect != effect || normalizeToolName(g.Tool) != tool {
 			continue
 		}
 		if g.Workspace != "" && g.Workspace != s.root {
@@ -93,6 +95,7 @@ func (s *Store) Allow(tool string, req core.PermissionRequest) error {
 	if hasCapability(req.Capabilities, core.CapProcessHost) {
 		return nil
 	}
+	tool = normalizeToolName(tool)
 	f, err := s.load()
 	if err != nil {
 		return err

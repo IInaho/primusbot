@@ -30,7 +30,8 @@ import {
 } from './lib/wails'
 import type { ConfirmEvent, Msg, QuestionEvent } from './types/events'
 import type { ModelConfig } from './types/config'
-import type { ContextSnapshot } from './types/context'
+import type { ui } from '../wailsjs/go/models'
+type ContextSnapshot = ui.ContextSnapshot
 import type { SkillView } from './types/skills'
 
 export default function App() {

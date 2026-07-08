@@ -25,8 +25,10 @@ import {
   SwitchModel,
 } from '../../wailsjs/go/main/App'
 import type { ConfigView } from '../types/config'
-import type { ContextSnapshot as GUIContextSnapshot } from '../types/context'
-import type { DisplayMessage, SessionMeta } from '../types/session'
+import type { ui } from '../../wailsjs/go/models'
+type GUIContextSnapshot = ui.ContextSnapshot
+type SessionMeta = ui.SessionMeta
+type DisplayMessage = ui.DisplayMessage
 import type { SkillManagementView as SkillManagement } from '../types/skills'
 
 export function isWailsEnvironment(): boolean {

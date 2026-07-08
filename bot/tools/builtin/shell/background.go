@@ -19,13 +19,16 @@ import (
 // roughly the last few minutes of a typical dev server's output.
 const LogRingSize = 256 * 1024
 
-// LogsReturnBytes is the default cap on bytes returned by the logs action,
-// aligned with bash's MaxOutputBytes (~8 KiB).
+// LogsReturnBytes is the default cap on bytes returned by session reads.
 const LogsReturnBytes = 8 * 1024
 
 // MaxTasks caps the total number of task records kept in memory. Once the
 // limit is hit, the oldest ended task is dropped before a new one is added.
 const MaxTasks = 64
+
+// taskRetentionTTL is how long an ended task stays in the registry before
+// being auto-removed. Running tasks are never evicted by this timer.
+const taskRetentionTTL = 10 * time.Second
 
 type taskStatus int
 
@@ -33,6 +36,7 @@ const (
 	taskRunning taskStatus = iota
 	taskExited
 	taskKilled
+	taskTimeout
 )
 
 func (s taskStatus) String() string {
@@ -43,12 +47,30 @@ func (s taskStatus) String() string {
 		return "exited"
 	case taskKilled:
 		return "killed"
+	case taskTimeout:
+		return "timeout"
 	}
 	return "unknown"
 }
 
-// bgTask is a single tracked background process.
-type bgTask struct {
+// displayStatus returns the human-facing status string. A clean exit
+// (exit code 0) is reported as "done", a non-zero exit as "failed", so
+// users don't mistake success for failure.
+func (t *shellTask) displayStatus() string {
+	if t.status == taskRunning {
+		return "running"
+	}
+	if t.status == taskExited && t.exitCode == 0 {
+		return "done"
+	}
+	if t.status == taskExited {
+		return "failed"
+	}
+	return t.status.String()
+}
+
+// shellTask is a single tracked shell session.
+type shellTask struct {
 	id        int
 	cmd       string
 	pid       int
@@ -57,13 +79,15 @@ type bgTask struct {
 	// Protected by mu.
 	mu       sync.Mutex
 	status   taskStatus
+	timedOut bool
 	endedAt  time.Time
 	exitCode int
 	logs     []byte // ring buffer
 	proc     sandbox.ProcessLike
+	removeAt time.Time // zero means no pending auto-removal
 }
 
-func (t *bgTask) appendLogs(chunk []byte) {
+func (t *shellTask) appendLogs(chunk []byte) {
 	if len(chunk) == 0 {
 		return
 	}
@@ -80,16 +104,48 @@ func (t *bgTask) appendLogs(chunk []byte) {
 	t.logs = append(t.logs, chunk...)
 }
 
-func (t *bgTask) markEnded(status taskStatus, code int) {
+func (t *shellTask) markEnded(status taskStatus, code int) {
 	t.mu.Lock()
+	if t.timedOut {
+		status = taskTimeout
+		code = -1
+	}
 	t.status = status
 	t.endedAt = time.Now()
 	t.exitCode = code
 	t.mu.Unlock()
 }
 
+// scheduleRemoval sets a deadline after which the task auto-removes from the
+// registry. Calling this again (e.g. on access) pushes the deadline back.
+func (t *shellTask) scheduleRemoval(now time.Time) {
+	t.mu.Lock()
+	t.removeAt = now.Add(taskRetentionTTL)
+	t.mu.Unlock()
+}
+
+// shouldRemove reports whether the task's retention TTL has elapsed.
+func (t *shellTask) shouldRemove(now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return !t.removeAt.IsZero() && now.After(t.removeAt)
+}
+
+func (t *shellTask) markTimedOut() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.status != taskRunning {
+		return false
+	}
+	t.timedOut = true
+	t.status = taskTimeout
+	t.endedAt = time.Now()
+	t.exitCode = -1
+	return true
+}
+
 // snapshot returns the most recent `max` bytes from the log ring.
-func (t *bgTask) snapshot(max int) []byte {
+func (t *shellTask) snapshot(max int) []byte {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(t.logs)
@@ -104,7 +160,7 @@ func (t *bgTask) snapshot(max int) []byte {
 	return out
 }
 
-func (t *bgTask) summary() TaskInfo {
+func (t *shellTask) summary() TaskInfo {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	runtime := time.Since(t.startedAt)
@@ -133,26 +189,40 @@ type TaskInfo struct {
 	ExitCode int
 }
 
-// TaskRegistry manages all background tasks in a single NekoCode process.
+// TaskRegistry manages shell sessions in a single NekoCode process.
 type TaskRegistry struct {
 	mu     sync.Mutex
-	tasks  map[int]*bgTask
+	tasks  map[int]*shellTask
 	nextID int
 }
 
 func NewTaskRegistry() *TaskRegistry {
-	return &TaskRegistry{tasks: make(map[int]*bgTask)}
+	return &TaskRegistry{tasks: make(map[int]*shellTask)}
+}
+
+// cleanupExpired removes ended tasks whose retention TTL has elapsed.
+func (r *TaskRegistry) cleanupExpired() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for id, t := range r.tasks {
+		if t.shouldRemove(now) {
+			delete(r.tasks, id)
+		}
+	}
 }
 
 type StartRequest struct {
-	Command string
-	Profile sandbox.Profile
-	Host    bool
+	Command    string
+	Profile    sandbox.Profile
+	Host       bool
+	Timeout    time.Duration
+	SampleWait time.Duration
 }
 
-// Start launches command in a background bash -c process. Returns the task
-// id and the first ~1 s of output (for immediate LLM feedback).
-func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*bgTask, []byte, error) {
+// Start launches command as a tracked shell session. It returns the session
+// and the initial output sample for immediate LLM feedback.
+func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*shellTask, []byte, error) {
 	r.mu.Lock()
 	r.nextID++
 	id := r.nextID
@@ -171,7 +241,7 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*bgTask, []
 		return nil, nil, err
 	}
 
-	t := &bgTask{
+	t := &shellTask{
 		id:        id,
 		cmd:       req.Command,
 		pid:       proc.PID(),
@@ -188,11 +258,29 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*bgTask, []
 		err := proc.Wait()
 		status, code := taskStatusFromWait(err)
 		t.markEnded(status, code)
+		t.scheduleRemoval(time.Now())
 	}()
 
-	// Capture ~1 s of startup output so the LLM sees immediate feedback
-	// without needing to call logs separately.
-	waitStartupSample(t, time.Second)
+	if req.Timeout > 0 {
+		go func() {
+			timer := time.NewTimer(req.Timeout)
+			defer timer.Stop()
+			<-timer.C
+			if !t.markTimedOut() {
+				return
+			}
+			t.appendLogs([]byte(fmt.Sprintf("\n[command timed out after %s]\n", req.Timeout.Truncate(time.Millisecond))))
+			_ = proc.Terminate(2 * time.Second)
+		}()
+	}
+
+	// Capture startup output so the LLM sees immediate feedback without
+	// needing to call logs separately.
+	sampleWait := req.SampleWait
+	if sampleWait <= 0 {
+		sampleWait = time.Second
+	}
+	waitStartupSample(t, sampleWait)
 	initial := toolutil.StripAnsi(string(t.snapshot(LogsReturnBytes)))
 
 	r.mu.Lock()
@@ -203,7 +291,7 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*bgTask, []
 	return t, []byte(initial), nil
 }
 
-func waitStartupSample(t *bgTask, max time.Duration) {
+func waitStartupSample(t *shellTask, max time.Duration) {
 	deadline := time.NewTimer(max)
 	defer deadline.Stop()
 	tick := time.NewTicker(25 * time.Millisecond)
@@ -241,7 +329,8 @@ func taskStatusFromWait(err error) (taskStatus, int) {
 }
 
 // Logs returns the tail of task id's log ring buffer (ANSI-stripped).
-// running indicates whether the task is still alive.
+// running indicates whether the task is still alive. Accessing a task
+// refreshes its retention timer.
 func (r *TaskRegistry) Logs(id int) (string, bool, error) {
 	r.mu.Lock()
 	t, ok := r.tasks[id]
@@ -249,6 +338,7 @@ func (r *TaskRegistry) Logs(id int) (string, bool, error) {
 	if !ok {
 		return "", false, fmt.Errorf("task %d not found", id)
 	}
+	t.scheduleRemoval(time.Now())
 	snap := t.snapshot(LogsReturnBytes)
 	t.mu.Lock()
 	status := t.status
@@ -256,18 +346,38 @@ func (r *TaskRegistry) Logs(id int) (string, bool, error) {
 	return toolutil.StripAnsi(string(snap)), status == taskRunning, nil
 }
 
-// List returns a summary of all tracked tasks.
+func (r *TaskRegistry) Wait(id int, max time.Duration) (string, bool, error) {
+	r.mu.Lock()
+	t, ok := r.tasks[id]
+	r.mu.Unlock()
+	if !ok {
+		return "", false, fmt.Errorf("task %d not found", id)
+	}
+	if max > 0 {
+		waitTaskEnded(t, max)
+	}
+	t.scheduleRemoval(time.Now())
+	return r.Logs(id)
+}
+
+// List returns a summary of all tracked tasks (after evicting any whose
+// retention TTL has elapsed).
 func (r *TaskRegistry) List() []TaskInfo {
+	r.cleanupExpired()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]TaskInfo, 0, len(r.tasks))
 	for _, t := range r.tasks {
-		out = append(out, t.summary())
+		info := t.summary()
+		info.Status = t.displayStatus()
+		out = append(out, info)
 	}
 	return out
 }
 
 // summaryByID returns the summary for a single task, or nil if not found.
+// Accessing a task refreshes its retention timer so it stays available for
+// follow-up reads.
 func (r *TaskRegistry) summaryByID(id int) *TaskInfo {
 	r.mu.Lock()
 	t, ok := r.tasks[id]
@@ -275,7 +385,9 @@ func (r *TaskRegistry) summaryByID(id int) *TaskInfo {
 	if !ok {
 		return nil
 	}
+	t.scheduleRemoval(time.Now())
 	info := t.summary()
+	info.Status = t.displayStatus()
 	return &info
 }
 
@@ -333,7 +445,7 @@ func (r *TaskRegistry) StopAll() []error {
 	return errs
 }
 
-func waitTaskEnded(t *bgTask, max time.Duration) taskStatus {
+func waitTaskEnded(t *shellTask, max time.Duration) taskStatus {
 	deadline := time.NewTimer(max)
 	defer deadline.Stop()
 	tick := time.NewTicker(10 * time.Millisecond)
@@ -378,7 +490,7 @@ func (r *TaskRegistry) evictOld() {
 	}
 }
 
-func drainToRing(t *bgTask, r io.Reader) {
+func drainToRing(t *shellTask, r io.Reader) {
 	if r == nil {
 		return
 	}

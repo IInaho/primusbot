@@ -8,12 +8,12 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"net/url"
+	neturl "net/url"
 	"time"
 
 	"nekocode/bot/config"
-	"nekocode/bot/tools/builtin/toolhelpers"
-	"nekocode/common"
+	"nekocode/bot/tools/runtime/toolhelpers"
+	utilurl "nekocode/util/url"
 )
 
 type jimengSubmitResp struct {
@@ -139,7 +139,7 @@ func (t *ImageGenTool) jimengCallRaw(ctx context.Context, signer *Signer, baseUR
 	if err != nil {
 		return nil, fmt.Errorf("marshal body: %w", err)
 	}
-	query := url.Values{}
+	query := neturl.Values{}
 	query.Set("Action", action)
 	query.Set("Version", "2022-08-31")
 
@@ -180,8 +180,8 @@ func (t *ImageGenTool) jimengCallRaw(ctx context.Context, signer *Signer, baseUR
 	return respBody, nil
 }
 
-func jimengEndpoint(baseURL string, query url.Values) (string, error) {
-	u, err := url.Parse(common.JoinURLPath(baseURL))
+func jimengEndpoint(baseURL string, query neturl.Values) (string, error) {
+	u, err := neturl.Parse(utilurl.JoinURLPath(baseURL))
 	if err != nil {
 		return "", err
 	}

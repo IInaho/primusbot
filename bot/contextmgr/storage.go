@@ -2,7 +2,7 @@ package contextmgr
 
 import (
 	"nekocode/bot/contextmgr/compact"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func (m *Manager) Add(role, content string, source ...string) {

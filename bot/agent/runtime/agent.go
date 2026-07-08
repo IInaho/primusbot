@@ -8,9 +8,10 @@ import (
 	"nekocode/bot/agent/runtime/toolrun"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/runner"
@@ -31,14 +32,14 @@ const (
 
 type agentDeps struct {
 	ctxMgr       *ctxmgr.Manager
-	llmClient    types.LLM
+	llmClient    provider.LLM
 	toolRegistry *tools.Registry
 	executor     *runner.Executor
 	subSlotMgr   *toolrun.SlotManager
 	gov          *aggov.Manager
 }
 
-func newAgentDeps(ctxMgr *ctxmgr.Manager, llmClient types.LLM, toolRegistry *tools.Registry) agentDeps {
+func newAgentDeps(ctxMgr *ctxmgr.Manager, llmClient provider.LLM, toolRegistry *tools.Registry) agentDeps {
 	return agentDeps{
 		ctxMgr:       ctxMgr,
 		llmClient:    llmClient,
@@ -70,7 +71,7 @@ type Agent struct {
 	toolRunner  *toolrun.Runner
 }
 
-func New(ctx context.Context, ctxMgr *ctxmgr.Manager, llmClient types.LLM, toolRegistry *tools.Registry) *Agent {
+func New(ctx context.Context, ctxMgr *ctxmgr.Manager, llmClient provider.LLM, toolRegistry *tools.Registry) *Agent {
 	a := &Agent{
 		life: newLifecycleState(ctx),
 		deps: newAgentDeps(ctxMgr, llmClient, toolRegistry),
@@ -228,6 +229,12 @@ func (a *Agent) SetProjectStore(projectRoot string) {
 // /cd) and rebuilds the permission engine if a policy is configured.
 func (a *Agent) SetWorkspace(workspace, home string) {
 	a.deps.executor.SetWorkspace(workspace, home)
+}
+
+// SandboxProfiler returns the permission engine as a SandboxProfiler so tools
+// can look up sandbox rules (e.g. pnpm dev → network).
+func (a *Agent) SandboxProfiler() shell.SandboxProfiler {
+	return a.deps.executor.SandboxEngine()
 }
 
 func (a *Agent) SetPlanMode(on bool) {

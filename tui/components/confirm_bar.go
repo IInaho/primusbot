@@ -240,7 +240,7 @@ func (c *ConfirmBar) formatDesc() string {
 		return c.formatPermissionDesc()
 	}
 	switch c.req.ToolName {
-	case "bash":
+	case "shell":
 		if cmd, ok := c.req.Args["command"].(string); ok && cmd != "" {
 			return common.FormatCommandPreview(cmd, 600)
 		}

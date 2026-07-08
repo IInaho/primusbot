@@ -11,18 +11,18 @@ func TestMergeResultsPreservesOriginalCallOrder(t *testing.T) {
 	calls := []core.ToolCallItem{
 		{ID: "1", Name: "read", Args: map[string]any{"path": "a.go"}},
 		{ID: "2", Name: "write", Args: map[string]any{"path": "b.go"}},
-		{ID: "3", Name: "bash", Args: map[string]any{"command": "go test ./..."}},
+		{ID: "3", Name: "shell", Args: map[string]any{"command": "go test ./..."}},
 	}
 	execResults := []core.ToolCallResult{
 		{ID: "1", Name: "read", Output: "read ok"},
-		{ID: "3", Name: "bash", Output: "bash ok"},
+		{ID: "3", Name: "shell", Output: "shell ok"},
 	}
 
 	results := mergeResults(calls, map[int]string{1: "blocked"}, execResults)
 	if len(results) != 3 {
 		t.Fatalf("results = %d, want 3", len(results))
 	}
-	if results[0].Output != "read ok" || results[1].Error != "blocked" || results[2].Output != "bash ok" {
+	if results[0].Output != "read ok" || results[1].Error != "blocked" || results[2].Output != "shell ok" {
 		t.Fatalf("unexpected result order: %+v", results)
 	}
 }
@@ -48,9 +48,9 @@ func TestEmitResultCallbacksUsesEffectiveOutput(t *testing.T) {
 
 func TestEmitResultCallbacksMarksErrors(t *testing.T) {
 	msgs := emitResultCallbacks(
-		[]core.ToolCallItem{{ID: "1", Name: "bash", Args: map[string]any{"command": "false"}}},
+		[]core.ToolCallItem{{ID: "1", Name: "shell", Args: map[string]any{"command": "false"}}},
 		nil,
-		[]core.ToolCallResult{{ID: "1", Name: "bash", Error: "command failed: exit status 1"}},
+		[]core.ToolCallResult{{ID: "1", Name: "shell", Error: "command failed: exit status 1"}},
 		nil,
 	)
 

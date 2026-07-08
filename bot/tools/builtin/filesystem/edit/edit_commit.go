@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"nekocode/bot/tools/builtin/diff"
-	"nekocode/bot/tools/builtin/toolhelpers"
-	"nekocode/bot/tools/runtime/editcore"
+	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common"
+	"nekocode/util/fs"
 	"os"
 	"path/filepath"
 )
@@ -22,7 +22,7 @@ type preflightResult struct {
 func snapshotUndoPath(safePath string) string {
 	h := sha256.Sum256([]byte(safePath))
 	hash := hex.EncodeToString(h[:])[:16]
-	return filepath.Join(common.NekocodeDataDir("snapshots"), hash+"_"+filepath.Base(safePath)+".pre-edit")
+	return filepath.Join(fs.NekocodeDataDir("snapshots"), hash+"_"+filepath.Base(safePath)+".pre-edit")
 }
 
 func (t *EditTool) revertSnapshot(path string) (string, error) {
@@ -43,7 +43,7 @@ func (t *EditTool) revertSnapshot(path string) (string, error) {
 	if err := os.WriteFile(safePath, preData, mode); err != nil {
 		return "", fmt.Errorf("revert: write failed: %w", err)
 	}
-	newTag := toolutil.RecordSnapshot(safePath, string(preData))
+	newTag := execution.RecordSnapshot(safePath, string(preData))
 	return renderRevertDiff(safePath, newTag, string(currentData), string(preData)), nil
 }
 
@@ -76,7 +76,7 @@ func writeUndoSnapshot(pe preflightResult) error {
 	if err := os.MkdirAll(filepath.Dir(undoFile), 0755); err != nil {
 		return fmt.Errorf("create undo snapshot directory: %w", err)
 	}
-	preEditContent := editcore.RestoreLineEndings(pe.normalizedBefore, pe.lineEnding)
+	preEditContent := RestoreLineEndings(pe.normalizedBefore, pe.lineEnding)
 	if err := os.WriteFile(undoFile, []byte(preEditContent), 0644); err != nil {
 		return fmt.Errorf("write undo snapshot: %w", err)
 	}

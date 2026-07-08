@@ -195,6 +195,14 @@ func (e *Executor) rebuildEngine(decl permission.PermissionsDecl, store *permiss
 	e.fnMu.Unlock()
 }
 
+// SandboxEngine returns the current permission engine (or nil if not ready).
+// Tools use it to look up sandbox rules (e.g. pnpm dev → network).
+func (e *Executor) SandboxEngine() *permission.Engine {
+	e.fnMu.Lock()
+	defer e.fnMu.Unlock()
+	return e.permEngine
+}
+
 type escalationApproval struct {
 	remember bool
 }
@@ -248,6 +256,7 @@ func (e *Executor) addSessionGrant(toolName string, req core.PermissionRequest) 
 	if toolName == "" || len(req.Capabilities) == 0 {
 		return
 	}
+	toolName = canonicalPermissionTool(toolName)
 	for _, c := range req.Capabilities {
 		if c == core.CapProcessHost {
 			return
@@ -271,10 +280,11 @@ func (e *Executor) matchSessionGrant(toolName string, req core.PermissionRequest
 	if len(req.Capabilities) == 0 {
 		return false
 	}
+	aliases := permissionToolAliases(toolName)
 	e.sessionGrantsMu.RLock()
 	defer e.sessionGrantsMu.RUnlock()
 	for _, g := range e.sessionGrants {
-		if g.tool != toolName {
+		if !slices.Contains(aliases, g.tool) {
 			continue
 		}
 		if sessionGrantMatches(g, req) {

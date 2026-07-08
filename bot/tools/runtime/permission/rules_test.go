@@ -166,7 +166,7 @@ func TestSandboxRulesMatchBashProfiles(t *testing.T) {
 	e := NewEngine(DefaultMatchers())
 	e.SetSandboxRules(rules)
 
-	profile, ok := e.SandboxFor("bash", BuildCallInfo("bash", map[string]any{
+	profile, ok := e.SandboxFor("shell", BuildCallInfo("shell", map[string]any{
 		"command": "git status --short",
 	}, "/repo", "/home/user"))
 	if !ok {
@@ -188,7 +188,7 @@ func TestSandboxRulesPreferMostSpecificMatch(t *testing.T) {
 	e := NewEngine(DefaultMatchers())
 	e.SetSandboxRules(rules)
 
-	profile, ok := e.SandboxFor("bash", BuildCallInfo("bash", map[string]any{
+	profile, ok := e.SandboxFor("shell", BuildCallInfo("shell", map[string]any{
 		"command": "npm install",
 	}, "/repo", "/home/user"))
 	if !ok {

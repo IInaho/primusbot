@@ -9,6 +9,7 @@ import (
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
 	"nekocode/common"
+	"nekocode/common/ui"
 )
 
 type sessionFacade struct {
@@ -122,13 +123,16 @@ func (s *sessionFacade) DisplayMessages() []common.DisplayMessage {
 
 func (b *Bot) CWD() string              { return b.sess.CWD() }
 func (b *Bot) CurrentSessionID() string { return b.sess.CurrentID() }
-func (b *Bot) SetSession(sess *session.Snapshot) {
-	b.sess.Set(sess)
-	if sess != nil {
-		b.restoreLedger(sess.Ledger)
+
+// SetSession loads the session with the given id and makes it current.
+func (b *Bot) SetSession(id string) error {
+	if err := b.sess.Resume(id); err != nil {
+		return err
 	}
 	b.syncHookSessionID()
+	return nil
 }
+
 func (b *Bot) ClearContext() { b.sess.ClearContext() }
 func (b *Bot) SessionMessages() []common.DisplayMessage {
 	return b.sess.DisplayMessages()
@@ -140,6 +144,52 @@ func (b *Bot) ResumeSession(id string) error {
 		b.syncHookSessionID()
 	}
 	return err
+}
+
+// ListSessions returns metadata for all persisted sessions.
+func (b *Bot) ListSessions() []ui.SessionMeta {
+	list := session.List()
+	out := make([]ui.SessionMeta, 0, len(list))
+	for _, m := range list {
+		out = append(out, ui.SessionMeta{
+			ID:        m.ID,
+			CWD:       m.CWD,
+			CreatedAt: m.CreatedAt,
+			UpdatedAt: m.UpdatedAt,
+			MsgCount:  m.MsgCount,
+		})
+	}
+	return out
+}
+
+// NewSession creates a fresh session and makes it current.
+func (b *Bot) NewSession() (ui.SessionMeta, error) {
+	sess, err := session.New(b.cwd)
+	if err != nil {
+		return ui.SessionMeta{}, err
+	}
+	b.sess.Set(sess)
+	b.syncHookSessionID()
+	return ui.SessionMeta{
+		ID:        sess.ID,
+		CWD:       sess.CWD,
+		CreatedAt: sess.CreatedAt,
+		UpdatedAt: sess.UpdatedAt,
+		MsgCount:  0,
+	}, nil
+}
+
+// DeleteSession removes a persisted session by id. If it was the current
+// session, clears context so the next message starts fresh.
+func (b *Bot) DeleteSession(id string) error {
+	if err := session.Delete(id); err != nil {
+		return err
+	}
+	if b.sess.CurrentID() == id {
+		b.sess.ClearContext()
+		b.syncHookSessionID()
+	}
+	return nil
 }
 
 func (b *Bot) syncHookSessionID() {

@@ -31,7 +31,7 @@ func newPermTestExecutor(t *testing.T) *Executor {
 	workspace.Configure("/repo", nil)
 	t.Cleanup(func() { workspace.Configure(cwd, nil) })
 	e := NewExecutor(fakeRegistry{
-		"bash":  fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 		"write": fakeToolForPerm{name: "write"},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -43,7 +43,7 @@ func TestPermEngine_DeniesSudo(t *testing.T) {
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "sudo rm -rf /"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "sudo rm -rf /"}},
 	})[0]
 	if r.Error == "" {
 		t.Fatal("expected sudo to be denied by builtin rule")
@@ -59,7 +59,7 @@ func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "git add ."}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "git add ."}},
 	})[0]
 	if r.Error != "" {
 		t.Fatalf("git add should ask and run, got error: %v", r.Error)
@@ -77,14 +77,14 @@ func TestPermEngine_DeniesDdCommand(t *testing.T) {
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "dd if=/dev/zero of=/tmp/x bs=1 count=1"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "dd if=/dev/zero of=/tmp/x bs=1 count=1"}},
 	})[0]
 	if r.Error == "" {
 		t.Fatal("dd should be denied by builtin rule")
 	}
 }
 
-func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
+func TestPermEngine_AsksForUnrememberedShellCommand(t *testing.T) {
 	e := newPermTestExecutor(t)
 	asked := false
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
@@ -93,13 +93,13 @@ func TestPermEngine_AsksForUnrememberedBash(t *testing.T) {
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "go test ./..."}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "go test ./..."}},
 	})[0]
 	if r.Error != "" {
-		t.Fatalf("approved bash should run, got error: %v", r.Error)
+		t.Fatalf("approved shell command should run, got error: %v", r.Error)
 	}
 	if !asked {
-		t.Fatal("unremembered bash command should ask")
+		t.Fatal("unremembered shell command should ask")
 	}
 }
 
@@ -112,7 +112,7 @@ func TestPermEngine_AsksForRm(t *testing.T) {
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})[0]
 	if !asked {
 		t.Fatal("rm should trigger an ask prompt (builtin ask rule)")
@@ -127,7 +127,7 @@ func TestPermEngine_AskDeniedCancels(t *testing.T) {
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})[0]
 	if r.Error == "" {
 		t.Fatal("denied rm should return cancelled error")
@@ -155,7 +155,7 @@ func TestPermEngine_WriteToolNoPrompt(t *testing.T) {
 
 func TestPermEngine_DeclaredDenyOverridesBuiltinAllow(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 	})
 	// User declares: deny Bash(git push *). Builtin has no git-push rule, so
 	// without the deny it would fall to default (ask). The deny must block it.
@@ -165,7 +165,7 @@ func TestPermEngine_DeclaredDenyOverridesBuiltinAllow(t *testing.T) {
 	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "git push origin main"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "git push origin main"}},
 	})[0]
 	if r.Error == "" {
 		t.Fatal("declared deny should block git push")
@@ -176,7 +176,7 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -192,12 +192,12 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 
 	// First rm call: asks, user allows + remember → rule persisted.
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})
 
 	// Same rm call: exact remembered allow rule should skip the prompt.
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "2", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/x"}},
+		{ID: "2", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/x"}},
 	})
 
 	mu.Lock()
@@ -208,7 +208,7 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 
 	// A different rm target is covered by the remembered command-level rule.
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "3", Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/y"}},
+		{ID: "3", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/y"}},
 	})
 	mu.Lock()
 	defer mu.Unlock()
@@ -221,7 +221,7 @@ func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -234,10 +234,10 @@ func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
 
 	cmd := `echo "喵~ 你好！" && date && uname -a`
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": cmd}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": cmd}},
 	})
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "2", Name: "bash", Args: map[string]any{"command": cmd}},
+		{ID: "2", Name: "shell", Args: map[string]any{"command": cmd}},
 	})
 
 	if askCount != 1 {
@@ -249,7 +249,7 @@ func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -261,10 +261,10 @@ func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
 	})
 
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": `echo "喵~ 第一次！当前目录: $(pwd)" && date`}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": `echo "喵~ 第一次！当前目录: $(pwd)" && date`}},
 	})
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "2", Name: "bash", Args: map[string]any{"command": `echo "喵~ 第二次！当前目录: $(pwd)" && date`}},
+		{ID: "2", Name: "shell", Args: map[string]any{"command": `echo "喵~ 第二次！当前目录: $(pwd)" && date`}},
 	})
 
 	if askCount != 1 {
@@ -281,7 +281,7 @@ func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
 		}
 	}
 	e := NewExecutor(fakeRegistry{
-		"bash": fakeToolForPerm{name: "bash"},
+		"shell": fakeToolForPerm{name: "shell"},
 	})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
@@ -294,9 +294,9 @@ func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
 
 	cmd := `echo "=== 测试 ===" && go test ./... && echo "" && echo "=== 项目模块 ===" && head -5 go.mod && echo "" && echo "=== 最近 git 日志 ===" && git log --oneline -5`
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
-		{ID: "1", Name: "bash", Args: map[string]any{"command": cmd}},
+		{ID: "1", Name: "shell", Args: map[string]any{"command": cmd}},
 	})
 	if !asked {
-		t.Fatal("compound bash with unremembered go/head/git subcommands should ask")
+		t.Fatal("compound shell command with unremembered go/head/git subcommands should ask")
 	}
 }

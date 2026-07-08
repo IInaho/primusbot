@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 // Registry manages plugin lifecycle.
@@ -22,7 +22,7 @@ type Registry struct {
 
 // DefaultDirs returns plugin search paths (project > user).
 func DefaultDirs() []string {
-	return common.NekocodeDirs("plugins")
+	return fs.NekocodeDirs("plugins")
 }
 
 // NewRegistry creates a plugin registry scanning baseDirs.

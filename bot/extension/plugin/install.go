@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/util/text"
 )
 
 // PreviewFromPath creates a Plugin from a local path without installing.
@@ -63,7 +63,7 @@ func (r *Registry) installToUserDir(userDir, source string) (string, error) {
 		}
 		return pluginDir, nil
 	}
-	if common.LooksLikeGit(source) {
+	if text.LooksLikeGit(source) {
 		url := "https://github.com/" + source
 		pluginDir := filepath.Join(userDir, strings.ReplaceAll(source, "/", "-"))
 		if err := r.gitClone(url, pluginDir); err != nil {

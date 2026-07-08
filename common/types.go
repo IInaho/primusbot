@@ -1,60 +1,31 @@
-// types.go — shared types used by both bot and tui.
+// types.go — shared protocol types used by both bot and UI layers.
+//
+// UI data types (DisplayMessage, BotStats, ContextSnapshot, CmdResult, ...)
+// live in github.com/nekocode/common/ui. This file keeps type aliases so
+// existing consumers continue to compile; new code should import common/ui
+// directly.
 package common
 
+import "nekocode/common/ui"
+
 // CmdResult tells the TUI what to do after a command is executed.
-type CmdResult int
+type CmdResult = ui.CmdResult
 
 const (
-	CmdNone           CmdResult = iota // no command matched, start agent
-	CmdHandled                         // command handled, no further action
-	CmdConfirming                      // command handled, wait for confirmation
-	CmdSessionResumed                  // session resumed, TUI should reload messages
+	CmdNone           = ui.CmdNone
+	CmdHandled        = ui.CmdHandled
+	CmdConfirming     = ui.CmdConfirming
+	CmdSessionResumed = ui.CmdSessionResumed
 )
 
-// BotStats carries runtime statistics from the bot to the TUI.
-type BotStats struct {
-	PromptTokens, CompletionTokens int
-	TurnPrompt, TurnCompletion     int
-	ContextTokens, CompactCount    int
-	Duration                       string
-}
+// BotStats carries runtime statistics from the bot to the UI.
+type BotStats = ui.BotStats
 
 // ContextSegment describes one visible part of the active context window.
-type ContextSegment struct {
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Tokens int    `json:"tokens"`
-	Tone   string `json:"tone"`
-}
+type ContextSegment = ui.ContextSegment
 
-// ContextSnapshot is the structured context status consumed by GUI surfaces.
-type ContextSnapshot struct {
-	Budget          int              `json:"budget"`
-	Used            int              `json:"used"`
-	Free            int              `json:"free"`
-	PercentUsed     float64          `json:"percentUsed"`
-	SystemPrompt    int              `json:"systemPrompt"`
-	ToolDefTokens   int              `json:"toolDefTokens"`
-	TodoText        int              `json:"todoText"`
-	SkillList       int              `json:"skillList"`
-	MessageTokens   int              `json:"messageTokens"`
-	ToolDefCount    int              `json:"toolDefCount"`
-	MessageCount    int              `json:"messageCount"`
-	UserMessages    int              `json:"userMessages"`
-	AssistantMsgs   int              `json:"assistantMsgs"`
-	ToolResults     int              `json:"toolResults"`
-	Archived        int              `json:"archived"`
-	CompactCount    int              `json:"compactCount"`
-	TrimCount       int              `json:"trimCount"`
-	CacheHitTokens  int              `json:"cacheHitTokens"`
-	CacheMissTokens int              `json:"cacheMissTokens"`
-	CacheHitRatio   float64          `json:"cacheHitRatio"`
-	SubCount        int              `json:"subCount"`
-	SubTokens       int              `json:"subTokens"`
-	SubCacheHit     int              `json:"subCacheHit"`
-	SubCacheMiss    int              `json:"subCacheMiss"`
-	Segments        []ContextSegment `json:"segments"`
-}
+// ContextSnapshot is the structured context status consumed by UI surfaces.
+type ContextSnapshot = ui.ContextSnapshot
 
 type RunCallbacks struct {
 	Text   func(delta string)
@@ -95,39 +66,13 @@ func TodoStatusIcon(status string) string {
 }
 
 // SubSlot tracks an active sub-agent for rendering and slot management.
-type SubSlot struct {
-	ID       string
-	SubType  string
-	ColorIdx int
-}
+type SubSlot = ui.SubSlot
 
-// DisplayBlock carries a persistent tool result for TUI/GUI rendering.
-// Args holds the raw tool-call arguments JSON (e.g. bash command payload),
-// so GUI history views can render the actual command instead of only output.
-type DisplayBlock struct {
-	ToolName string
-	Args     string
-	Content  string
-	IsError  bool
-}
+// DisplayBlock carries a persistent tool result for UI rendering.
+type DisplayBlock = ui.DisplayBlock
 
-// ImageRef carries a generated image reference for GUI rendering.
-type ImageRef struct {
-	Path   string
-	URL    string
-	Width  int
-	Height int
-}
+// ImageRef carries a generated image reference for UI rendering.
+type ImageRef = ui.ImageRef
 
-// DisplayMessage is a lightweight message representation for the UI layer
-// to reconstruct chat history from a restored session. Assistant messages
-// with tool calls carry their persistent tool results (edit/write/bash) as
-// Blocks. Reloaded turns may combine multiple tool-call messages and the final
-// assistant text into one DisplayMessage.
-// Images holds any generated image references (from image_gen etc.).
-type DisplayMessage struct {
-	Role    string
-	Content string
-	Blocks  []DisplayBlock
-	Images  []ImageRef
-}
+// DisplayMessage is a lightweight message representation for the UI layer.
+type DisplayMessage = ui.DisplayMessage

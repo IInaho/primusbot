@@ -66,7 +66,7 @@ func TestBudgetResult_GrepExactLimit(t *testing.T) {
 }
 
 func TestBudgetResult_NonGrep(t *testing.T) {
-	for _, tool := range []string{"read", "bash", "write", "edit"} {
+	for _, tool := range []string{"read", "shell", "write", "edit"} {
 		content := strings.Repeat("x\n", 1000)
 		c, truncated := BudgetResult(content, tool)
 		if truncated {

@@ -3,7 +3,7 @@ package token
 import (
 	"testing"
 
-	"nekocode/bot/llm/types"
+	"nekocode/bot/provider/types"
 )
 
 func TestEstimateString_Empty(t *testing.T) {

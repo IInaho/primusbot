@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	"nekocode/bot/config"
-	"nekocode/bot/tools/builtin/toolhelpers"
+	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common"
+	"nekocode/util/fs"
 )
 
 func (t *ImageGenTool) resolveModel(args map[string]any) config.ImageGenConfig {
@@ -28,7 +28,7 @@ func (t *ImageGenTool) resolveModel(args map[string]any) config.ImageGenConfig {
 func resolveOutputDir(args map[string]any) (string, error) {
 	outputDir := toolhelpers.OptStringArg(args, "output_dir", "")
 	if outputDir == "" {
-		outputDir = filepath.Join(common.NekocodeHome(), "images")
+		outputDir = filepath.Join(fs.NekocodeHome(), "images")
 	}
 	safeOutputDir, err := toolutil.ValidatePath(outputDir)
 	if err != nil {

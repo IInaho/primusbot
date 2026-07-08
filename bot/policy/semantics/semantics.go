@@ -31,7 +31,7 @@ func ClassifyToolCall(name string, args map[string]any) Semantics {
 		return Semantics{}
 	case "task":
 		return Semantics{Delegating: true, Exploratory: taskLooksExploratory(args)}
-	case "bash":
+	case "bash", "shell":
 		return classifyBash(args)
 	default:
 		return Semantics{}

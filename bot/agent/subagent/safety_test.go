@@ -6,9 +6,9 @@ import (
 	"nekocode/bot/tools/runtime/core"
 )
 
-func TestIsSensitiveCallDetectsDangerousBash(t *testing.T) {
-	if !isSensitiveCall(core.ToolCallItem{Name: "bash", Args: map[string]any{"command": "rm -rf /tmp/build"}}) {
-		t.Fatal("dangerous bash command should be sensitive")
+func TestIsSensitiveCallDetectsDangerousShell(t *testing.T) {
+	if !isSensitiveCall(core.ToolCallItem{Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/build"}}) {
+		t.Fatal("dangerous shell command should be sensitive")
 	}
 }
 
