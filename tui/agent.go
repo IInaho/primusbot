@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"nekocode/common"
-	"nekocode/util/runtime"
 	"nekocode/tui/components/block"
 	"nekocode/tui/components/message"
+	"nekocode/util/runtime"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -122,12 +122,13 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			// toolName = actual tool name, toolArgs = args, output = subID:colorIdx
 			subID, colorIdx := parseSubEvent(output)
 			m.Messages.ProcessToolBlock(block.ContentBlock{
-				Type:     block.BlockTool,
-				ToolName: toolName,
-				ToolArgs: formatBriefArgs(toolName, toolArgs),
-				Content:  "",
-				SubID:    subID,
-				SubColor: colorIdx,
+				Type:       block.BlockTool,
+				ToolName:   toolName,
+				ToolArgs:   formatBriefArgs(toolName, toolArgs),
+				ToolAction: toolAction(toolName, toolArgs),
+				Content:    "",
+				SubID:      subID,
+				SubColor:   colorIdx,
 			})
 		case action == "sub_execute_tool":
 			if interactiveTool(toolName) {
@@ -141,10 +142,11 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 				return
 			}
 			m.Messages.ProcessToolBlock(block.ContentBlock{
-				Type:     block.BlockTool,
-				ToolName: toolName,
-				ToolArgs: formatBriefArgs(toolName, toolArgs),
-				Content:  output,
+				Type:       block.BlockTool,
+				ToolName:   toolName,
+				ToolArgs:   formatBriefArgs(toolName, toolArgs),
+				ToolAction: toolAction(toolName, toolArgs),
+				Content:    output,
 			})
 		case action == "tool_blocked":
 			if interactiveTool(toolName) {
@@ -152,12 +154,13 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			}
 			// Blocked by policy — create a completed error block showing the rejection reason.
 			m.Messages.ProcessToolBlock(block.ContentBlock{
-				Type:     block.BlockTool,
-				ToolName: toolName,
-				ToolArgs: formatBriefArgs(toolName, toolArgs),
-				Content:  output,
-				Done:     true,
-				IsError:  true,
+				Type:       block.BlockTool,
+				ToolName:   toolName,
+				ToolArgs:   formatBriefArgs(toolName, toolArgs),
+				ToolAction: toolAction(toolName, toolArgs),
+				Content:    output,
+				Done:       true,
+				IsError:    true,
 			})
 		case action == "tool_preview":
 			if interactiveTool(toolName) {
@@ -199,12 +202,13 @@ func (m *Model) loadSessionMessages() {
 		var blocks []block.ContentBlock
 		for _, b := range dm.Blocks {
 			blocks = append(blocks, block.ContentBlock{
-				Type:     block.BlockTool,
-				ToolName: b.ToolName,
-				ToolArgs: formatBriefArgs(b.ToolName, b.Args),
-				Content:  b.Content,
-				Done:     true,
-				IsError:  b.IsError,
+				Type:       block.BlockTool,
+				ToolName:   b.ToolName,
+				ToolArgs:   formatBriefArgs(b.ToolName, b.Args),
+				ToolAction: toolAction(b.ToolName, b.Args),
+				Content:    b.Content,
+				Done:       true,
+				IsError:    b.IsError,
 			})
 		}
 		m.Messages.AddMessage(message.ChatMessage{

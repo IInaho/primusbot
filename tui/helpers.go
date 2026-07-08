@@ -12,31 +12,7 @@ import (
 )
 
 func formatBriefArgs(toolName, toolArgs string) string {
-	parse := func(s string) map[string]string {
-		m := make(map[string]string)
-		if strings.HasPrefix(strings.TrimSpace(s), "{") {
-			var raw map[string]any
-			if err := json.Unmarshal([]byte(s), &raw); err == nil {
-				for k, v := range raw {
-					switch t := v.(type) {
-					case string:
-						m[k] = t
-					default:
-						m[k] = fmt.Sprint(t)
-					}
-				}
-				return m
-			}
-		}
-		for _, pair := range text.SplitPairs(s) {
-			kv := strings.SplitN(pair, "=", 2)
-			if len(kv) == 2 {
-				m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
-			}
-		}
-		return m
-	}
-	args := parse(toolArgs)
+	args := parseToolArgs(toolArgs)
 
 	switch toolName {
 	case "read":
@@ -50,7 +26,7 @@ func formatBriefArgs(toolName, toolArgs string) string {
 	case "write", "list", "tree", "edit":
 		return args["path"]
 	case "shell":
-		return cleanShellPreview(args["command"])
+		return formatShellArgs(args)
 	case "glob":
 		return args["pattern"]
 	case "grep":
@@ -83,6 +59,67 @@ func formatBriefArgs(toolName, toolArgs string) string {
 			return text.TruncateByRune(v, 50)
 		}
 		return ""
+	}
+}
+
+func parseToolArgs(s string) map[string]string {
+	m := make(map[string]string)
+	if strings.HasPrefix(strings.TrimSpace(s), "{") {
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(s), &raw); err == nil {
+			for k, v := range raw {
+				switch t := v.(type) {
+				case string:
+					m[k] = t
+				default:
+					m[k] = fmt.Sprint(t)
+				}
+			}
+			return m
+		}
+	}
+	for _, pair := range text.SplitPairs(s) {
+		kv := strings.SplitN(pair, "=", 2)
+		if len(kv) == 2 {
+			m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		}
+	}
+	return m
+}
+
+func toolAction(toolName, toolArgs string) string {
+	if toolName != "shell" {
+		return ""
+	}
+	action := strings.ToLower(strings.TrimSpace(parseToolArgs(toolArgs)["action"]))
+	if action == "logs" {
+		return "poll"
+	}
+	return action
+}
+
+func formatShellArgs(args map[string]string) string {
+	action := strings.ToLower(strings.TrimSpace(args["action"]))
+	if action == "" || action == "run" {
+		return cleanShellPreview(args["command"])
+	}
+	if action == "logs" {
+		action = "poll"
+	}
+	switch action {
+	case "list":
+		return "shell sessions"
+	case "wait", "poll", "stop":
+		id := args["session_id"]
+		if id == "" {
+			id = args["id"]
+		}
+		if id != "" {
+			return "session " + id
+		}
+		return "shell session"
+	default:
+		return action + " shell"
 	}
 }
 

@@ -11,6 +11,18 @@ func TestFormatBriefArgsParsesJSONToolArgs(t *testing.T) {
 	}
 }
 
+func TestFormatBriefArgsShellSessionActions(t *testing.T) {
+	if got := formatBriefArgs("shell", `{"action":"list"}`); got != "shell sessions" {
+		t.Fatalf("shell list args = %q, want shell sessions", got)
+	}
+	if got := formatBriefArgs("shell", `{"action":"wait","session_id":3}`); got != "session 3" {
+		t.Fatalf("shell wait args = %q, want session 3", got)
+	}
+	if got := toolAction("shell", `{"action":"logs","session_id":3}`); got != "poll" {
+		t.Fatalf("shell logs action = %q, want poll", got)
+	}
+}
+
 func TestFormatBriefArgsKeepsPairSyntax(t *testing.T) {
 	if got := formatBriefArgs("edit", `path=/tmp/a.go,oldString=a,newString=b`); got != "/tmp/a.go" {
 		t.Fatalf("edit args = %q, want path", got)

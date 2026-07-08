@@ -13,6 +13,16 @@ gui/dist/
 !gui/dist/
 !gui/dist/embed.txt
 gui/node_modules/
+
+# Official website build artifacts
+official/.next/
+official/node_modules/
+official/out/
+official/build/
+official/dist/
+official/next-env.d.ts
+official/*.tsbuildinfo
+
 build/libsigwrap.so
 build-flatpak/
 nekocode.flatpak

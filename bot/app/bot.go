@@ -12,8 +12,8 @@ import (
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/provider"
 	systemprompt "nekocode/bot/prompt/system"
+	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/bot/tools/builtin/shell"
@@ -131,12 +131,14 @@ func (b *Bot) initSummarizer() {
 }
 
 func (b *Bot) initToolRegistry() {
-	if b.shellTool != nil {
-		b.shellTool.Shutdown()
-		b.shellTool = nil
-	}
+	existingShell := b.shellTool
 	b.toolRegistry = tools.NewRegistry()
 	catalog.RegisterAll(b.toolRegistry, b.cfg.ImageGenModels)
+	if existingShell != nil {
+		b.toolRegistry.Register(existingShell)
+		b.shellTool = existingShell
+		return
+	}
 	if t, err := b.toolRegistry.Get("shell"); err == nil {
 		if sh, ok := t.(*shell.ShellTool); ok {
 			b.shellTool = sh

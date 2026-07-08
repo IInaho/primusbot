@@ -17,10 +17,13 @@ type ContentBlock struct {
 	Content  string
 	ToolName string
 	ToolArgs string
-	Done     bool
-	IsError  bool   // true when the tool returned an error (used for rendering)
-	SubID    string // "" = main agent; non-empty = sub-agent UUID
-	SubColor int    // -1 = main agent; 0-7 = sub-agent color index
+	// ToolAction preserves action-like tool args that affect display wording.
+	// For shell this distinguishes run/list/wait/poll/stop.
+	ToolAction string
+	Done       bool
+	IsError    bool   // true when the tool returned an error (used for rendering)
+	SubID      string // "" = main agent; non-empty = sub-agent UUID
+	SubColor   int    // -1 = main agent; 0-7 = sub-agent color index
 }
 
 // FilterFinalBlocks returns persistent tool blocks.

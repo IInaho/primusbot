@@ -195,3 +195,26 @@ func TestRenderToolLineDoesNotShowCollapseToggle(t *testing.T) {
 		t.Fatalf("tool render should not show collapse toggles:\n%s", clean)
 	}
 }
+
+func TestRenderShellListUsesActionWording(t *testing.T) {
+	sty := styles.DefaultStyles()
+	got := renderToolLine(ContentBlock{
+		Type:       BlockTool,
+		ToolName:   "shell",
+		ToolAction: "list",
+		ToolArgs:   "shell sessions",
+		Content:    "(no shell sessions)",
+		Done:       true,
+	}, 80, &sty)
+	clean := ansi.Strip(got)
+
+	if strings.Contains(clean, "Ran") {
+		t.Fatalf("shell list should not render as Ran:\n%s", clean)
+	}
+	if !strings.Contains(clean, "Listed shell sessions") {
+		t.Fatalf("shell list should describe the action:\n%s", clean)
+	}
+	if !strings.Contains(clean, "No active shell sessions") {
+		t.Fatalf("empty shell list should be user-facing:\n%s", clean)
+	}
+}

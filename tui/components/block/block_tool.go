@@ -21,7 +21,7 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 	if b.IsError {
 		nameStyle = sty.Red.Bold(true)
 	}
-	headPrefix := fmt.Sprintf("%s %s", bulletStyle.Render(bullet), nameStyle.Render(toolDisplayName(b.ToolName)))
+	headPrefix := fmt.Sprintf("%s %s", bulletStyle.Render(bullet), nameStyle.Render(toolDisplayName(b)))
 	accentLine := renderToolHeader(headPrefix, summary, width, sty)
 
 	contentW := width - 12
@@ -30,11 +30,21 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 	return lipgloss.JoinVertical(lipgloss.Left, accentLine, renderToolBody(rendered, sty))
 }
 
-func toolDisplayName(toolName string) string {
-	if toolName == "shell" {
+func toolDisplayName(b ContentBlock) string {
+	if b.ToolName == "shell" {
+		switch strings.ToLower(strings.TrimSpace(b.ToolAction)) {
+		case "list":
+			return "Listed"
+		case "wait":
+			return "Waited"
+		case "poll", "logs":
+			return "Polled"
+		case "stop":
+			return "Stopped"
+		}
 		return "Ran"
 	}
-	return toolName
+	return b.ToolName
 }
 
 func renderToolHeader(headPrefix, summary string, width int, sty *styles.Styles) string {
@@ -422,6 +432,9 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 	case "shell":
 		if strings.TrimSpace(b.Content) == "" {
 			return sty.Subtle.Render("(No output)")
+		}
+		if strings.TrimSpace(b.Content) == "(no shell sessions)" {
+			return sty.Subtle.Render("No active shell sessions")
 		}
 		c := strings.TrimRight(b.Content, "\r\n")
 		lines := strings.Split(c, "\n")
