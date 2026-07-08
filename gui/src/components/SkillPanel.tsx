@@ -154,8 +154,8 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
         className="flex h-full w-full max-w-[980px] flex-col border-l border-border/70 bg-surface-2 surface-shadow animate-slide-in"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="flex min-h-[62px] items-center gap-3 border-b border-border/60 px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+        <header className="flex min-h-[64px] items-center gap-3 border-b border-border/60 bg-surface/35 px-5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/12 text-primary">
             <SparkIcon />
           </div>
           <div className="min-w-0 flex-1">
@@ -167,74 +167,79 @@ export function SkillPanel({ open, onClose, onConfigureMcp }: SkillPanelProps) {
               <HeaderStat label="MCP" value={`${readyMcpCount}/${mcpServers.length}`} />
             </div>
           </div>
-          <button className="secondary-button gap-1.5" type="button" disabled={refreshing || loading} onClick={refresh} title="重新扫描技能、插件和 MCP">
+          <button className="secondary-button tooltip-anchor gap-1.5" type="button" disabled={refreshing || loading} onClick={refresh} data-tooltip="重新扫描技能、插件和 MCP">
             <RefreshIcon spinning={refreshing} />
             刷新
           </button>
-          <button className="icon-button" type="button" title="关闭" aria-label="关闭技能管理" onClick={onClose}>
+          <button className="icon-button tooltip-anchor" type="button" data-tooltip="关闭" data-tooltip-align="end" aria-label="关闭技能管理" onClick={onClose}>
             <CloseIcon />
           </button>
         </header>
 
-        <nav className="flex gap-1 border-b border-border/60 bg-surface/45 px-5 py-2">
-          {tabOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={cn(
-                'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-all active:scale-95',
-                tab === option.value ? 'bg-primary text-black shadow-sm' : 'bg-surface-3/70 text-text-2 hover:bg-surface-3 hover:text-text',
-              )}
-              onClick={() => setTab(option.value)}
-            >
-              {option.label}
-              <span className={cn('rounded-sm px-1 text-[10px]', tab === option.value ? 'bg-black/15' : 'bg-surface')}>
-                {tabCounts[option.value]}
-              </span>
-            </button>
-          ))}
-        </nav>
+        <div className="grid min-h-0 flex-1 grid-cols-[168px_minmax(0,1fr)] overflow-hidden">
+          <nav className="border-r border-border/60 bg-surface px-3 py-4">
+            <div className="mb-2 px-2 text-[10px] font-semibold uppercase text-text-3">分类</div>
+            <div className="space-y-1">
+              {tabOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={cn(
+                    'flex h-10 w-full items-center justify-between rounded-md px-2.5 text-left text-xs transition-all active:scale-[0.98]',
+                    tab === option.value ? 'bg-primary text-black' : 'text-text-2 hover:bg-surface-3 hover:text-text',
+                  )}
+                  onClick={() => setTab(option.value)}
+                >
+                  <span className="font-medium">{option.label}</span>
+                  <span className={cn('min-w-6 rounded-sm px-1 text-center font-mono text-[10px] tabular-nums', tab === option.value ? 'bg-black/15' : 'bg-surface-3 text-text-3')}>
+                    {tabCounts[option.value]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </nav>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {loading && <div className="text-sm text-text-2">正在扫描注册表...</div>}
-          {!loading && tab === 'skills' && (
-            <SkillsView
-              filteredSkills={filteredSkills}
-              plugins={plugins}
-              query={query}
-              setQuery={setQuery}
-              filter={filter}
-              setFilter={setFilter}
-              metrics={{ total: skills.length, loaded: loadedCount, plugin: pluginSkillCount, local: localSkillCount }}
-            />
-          )}
-          {!loading && tab === 'plugins' && (
-            <PluginsView
-              plugins={filteredPlugins}
-              query={query}
-              setQuery={setQuery}
-              mutating={mutating}
-              onToggle={togglePlugin}
-              filter={pluginFilter}
-              setFilter={setPluginFilter}
-              totalCount={plugins.length}
-              enabledCount={enabledPluginCount}
-            />
-          )}
-          {!loading && tab === 'mcp' && (
-            <McpView
-              servers={filteredMcp}
-              allServers={mcpServers}
-              query={query}
-              setQuery={setQuery}
-              filter={mcpFilter}
-              setFilter={setMcpFilter}
-              onConfigure={onConfigureMcp}
-            />
-          )}
+          <div className="min-h-0 overflow-hidden px-5 py-4">
+            {loading && <div className="rounded-md border border-border/45 bg-surface px-4 py-3 text-sm text-text-2">正在扫描注册表...</div>}
+            {!loading && tab === 'skills' && (
+              <SkillsView
+                filteredSkills={filteredSkills}
+                plugins={plugins}
+                query={query}
+                setQuery={setQuery}
+                filter={filter}
+                setFilter={setFilter}
+                metrics={{ total: skills.length, loaded: loadedCount, plugin: pluginSkillCount, local: localSkillCount }}
+              />
+            )}
+            {!loading && tab === 'plugins' && (
+              <PluginsView
+                plugins={filteredPlugins}
+                query={query}
+                setQuery={setQuery}
+                mutating={mutating}
+                onToggle={togglePlugin}
+                filter={pluginFilter}
+                setFilter={setPluginFilter}
+                totalCount={plugins.length}
+                enabledCount={enabledPluginCount}
+              />
+            )}
+            {!loading && tab === 'mcp' && (
+              <McpView
+                servers={filteredMcp}
+                allServers={mcpServers}
+                query={query}
+                setQuery={setQuery}
+                filter={mcpFilter}
+                setFilter={setMcpFilter}
+                onConfigure={onConfigureMcp}
+              />
+            )}
+          </div>
         </div>
 
-        <footer className="flex min-h-[48px] items-center border-t border-border/60 bg-surface/35 px-5">
+        <footer className="flex min-h-[42px] items-center border-t border-border/60 bg-surface/35 px-5">
           <div className="min-w-0 flex-1 text-xs">
             {error ? <span className="text-danger">{error}</span> : <span className="text-text-3">管理技能、插件和 MCP 来源。</span>}
           </div>
@@ -272,11 +277,6 @@ function SkillsView(props: {
   const enabledPlugins = plugins.filter((p) => p.enabled)
   const builtinSkills = filteredSkills.filter((s) => s.sourceKind === 'builtin')
   const localSkills = filteredSkills.filter((s) => s.sourceKind === 'local')
-  const groupCount = [
-    builtinSkills.length,
-    localSkills.length,
-    ...enabledPlugins.map((plugin) => pluginSkillsCount(filteredSkills, plugin.name)),
-  ].filter((count) => count > 0).length
   const pluginSkillsByPlugin = useMemo(() => {
     const map = new Map<string, SkillView[]>()
     for (const s of filteredSkills) {
@@ -289,16 +289,18 @@ function SkillsView(props: {
   }, [filteredSkills])
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-2 md:grid-cols-4">
-        <Metric label="全部技能" value={metrics.total} tone="primary" />
-        <Metric label="本会话已加载" value={metrics.loaded} tone="success" />
-        <Metric label="本地独立" value={metrics.local} tone="accent" />
-        <Metric label="插件带来" value={metrics.plugin} tone="warning" />
-      </section>
-
-      <section className="rounded-md border border-border/50 bg-surface">
-        <div className="flex flex-col gap-2 border-b border-border/50 p-3 md:flex-row md:items-center">
+    <section className="overflow-hidden rounded-md border border-border/50 bg-surface">
+      <div className="border-b border-border/45 px-4 py-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-text">技能</h3>
+            <p className="mt-0.5 text-[11px] text-text-3">
+              共 {metrics.total} 个，已加载 {metrics.loaded} 个，本地 {metrics.local} 个，插件 {metrics.plugin} 个
+            </p>
+          </div>
+          <span className="font-mono text-[11px] tabular-nums text-text-3">{filteredSkills.length}/{metrics.total}</span>
+        </div>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <SearchIcon />
             <input
@@ -324,27 +326,26 @@ function SkillsView(props: {
             ))}
           </div>
         </div>
-
-        <ResultStrip shown={filteredSkills.length} total={metrics.total} query={query} extra={groupCount > 0 ? `${groupCount} 组` : ''} onClear={() => setQuery('')} />
-        <div className="max-h-[58vh] overflow-y-auto scrollbar-gutter-stable">
-          {builtinSkills.length > 0 && <SkillGroup title="内置" skills={builtinSkills} />}
-          {localSkills.length > 0 && <SkillGroup title="本地技能（独立安装）" skills={localSkills} />}
-          {enabledPlugins.map((plugin) => {
-            const groupSkills = pluginSkillsByPlugin.get(plugin.name) ?? []
-            if (groupSkills.length === 0) return null
-            return (
-              <SkillGroup
-                key={plugin.name}
-                title={`插件 · ${plugin.name}`}
-                subtitle={plugin.version ? `v${plugin.version}` : undefined}
-                skills={groupSkills}
-              />
-            )
-          })}
-          {filteredSkills.length === 0 && <EmptyRows title="没有匹配的 skill" detail="换个关键词或清除搜索条件。" onClear={() => setQuery('')} />}
-        </div>
-      </section>
-    </div>
+      </div>
+      <ResultStrip shown={filteredSkills.length} total={metrics.total} query={query} extra={`${metrics.loaded} 已加载`} onClear={() => setQuery('')} />
+      <div className="max-h-[calc(100vh-250px)] min-h-[360px] overflow-y-auto scrollbar-gutter-stable">
+        {builtinSkills.length > 0 && <SkillGroup title="内置" skills={builtinSkills} />}
+        {localSkills.length > 0 && <SkillGroup title="本地技能" skills={localSkills} />}
+        {enabledPlugins.map((plugin) => {
+          const groupSkills = pluginSkillsByPlugin.get(plugin.name) ?? []
+          if (groupSkills.length === 0) return null
+          return (
+            <SkillGroup
+              key={plugin.name}
+              title={`插件 · ${plugin.name}`}
+              subtitle={plugin.version ? `v${plugin.version}` : undefined}
+              skills={groupSkills}
+            />
+          )
+        })}
+        {filteredSkills.length === 0 && <EmptyRows title="没有匹配的 skill" detail="换个关键词或清除搜索条件。" onClear={() => setQuery('')} />}
+      </div>
+    </section>
   )
 }
 
@@ -427,14 +428,16 @@ function PluginsView(props: {
 }) {
   const { plugins, query, setQuery, mutating, onToggle, filter, setFilter, totalCount, enabledCount } = props
   return (
-    <div className="space-y-4">
-      <section className="grid gap-2 md:grid-cols-3">
-        <Metric label="全部插件" value={totalCount} tone="primary" />
-        <Metric label="已启用" value={enabledCount} tone="success" />
-        <Metric label="已停用" value={totalCount - enabledCount} tone="warning" />
-      </section>
-      <section className="rounded-md border border-border/50 bg-surface">
-        <div className="flex flex-col gap-2 border-b border-border/50 p-3 md:flex-row md:items-center">
+    <section className="overflow-hidden rounded-md border border-border/50 bg-surface">
+      <div className="border-b border-border/45 px-4 py-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-text">插件</h3>
+            <p className="mt-0.5 text-[11px] text-text-3">共 {totalCount} 个，启用 {enabledCount} 个，停用 {totalCount - enabledCount} 个</p>
+          </div>
+          <span className="font-mono text-[11px] tabular-nums text-text-3">{plugins.length}/{totalCount}</span>
+        </div>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <SearchIcon />
             <input
@@ -444,25 +447,27 @@ function PluginsView(props: {
               placeholder="搜索插件名称、描述或路径"
             />
           </div>
-          <SegmentedFilter
-            value={filter}
-            options={[
-              { value: 'all', label: '全部' },
-              { value: 'enabled', label: '启用' },
-              { value: 'disabled', label: '停用' },
-            ]}
-            onChange={(value) => setFilter(value as PluginFilter)}
-          />
+          <div className="shrink-0">
+            <SegmentedFilter
+              value={filter}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'enabled', label: '启用' },
+                { value: 'disabled', label: '停用' },
+              ]}
+              onChange={(value) => setFilter(value as PluginFilter)}
+            />
+          </div>
         </div>
-        <ResultStrip shown={plugins.length} total={totalCount} query={query} extra={`${enabledCount} 已启用`} onClear={() => setQuery('')} />
-        <div className="divide-y divide-border/40">
-          {plugins.map((plugin) => (
-            <PluginRow key={plugin.name} plugin={plugin} mutating={mutating} onToggle={onToggle} />
-          ))}
-          {plugins.length === 0 && <EmptyRows title="没有匹配的插件" detail="清除搜索或切换启用状态过滤。" onClear={() => setQuery('')} />}
-        </div>
-      </section>
-    </div>
+      </div>
+      <ResultStrip shown={plugins.length} total={totalCount} query={query} extra={`${enabledCount} 已启用`} onClear={() => setQuery('')} />
+      <div className="max-h-[calc(100vh-250px)] min-h-[360px] divide-y divide-border/40 overflow-y-auto scrollbar-gutter-stable">
+        {plugins.map((plugin) => (
+          <PluginRow key={plugin.name} plugin={plugin} mutating={mutating} onToggle={onToggle} />
+        ))}
+        {plugins.length === 0 && <EmptyRows title="没有匹配的插件" detail="清除搜索或切换启用状态过滤。" onClear={() => setQuery('')} />}
+      </div>
+    </section>
   )
 }
 
@@ -501,19 +506,11 @@ function PluginRow(props: { plugin: PluginView; mutating: string; onToggle: (plu
             </div>
           )}
         </div>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex h-8 w-[92px] items-center justify-center gap-1.5 rounded-md border text-xs font-semibold transition-all active:scale-95 disabled:opacity-50',
-            p.enabled ? 'border-success/30 bg-success/12 text-success hover:bg-success/18' : 'border-border/60 bg-surface-3 text-text-2 hover:text-text',
-          )}
-          disabled={mutating === p.name}
+        <PluginSwitch
+          enabled={p.enabled}
+          busy={mutating === p.name}
           onClick={() => onToggle(p)}
-          aria-pressed={p.enabled}
-        >
-          <ToggleDot on={p.enabled} busy={mutating === p.name} />
-          {mutating === p.name ? '处理中' : p.enabled ? '启用' : '停用'}
-        </button>
+        />
       </div>
       {expanded && hasBundle && (
         <div className="mt-3 grid gap-2 rounded-md bg-surface-3/60 px-3 py-2 text-[11px] text-text-2 md:grid-cols-2">
@@ -574,25 +571,21 @@ function McpView(props: {
   const readyCount = allServers.filter((s) => s.status === 'ready').length
   const errorCount = allServers.filter((s) => s.status === 'error').length
   return (
-    <div className="space-y-4">
-      <section className="grid gap-2 md:grid-cols-4">
-        <Metric label="全部 MCP" value={allServers.length} tone="primary" />
-        <Metric label="Ready" value={readyCount} tone="success" />
-        <Metric label="异常" value={errorCount} tone="warning" />
-        <Metric label="配置来源" value={configCount} tone="accent" />
-      </section>
-      <section className="flex flex-col gap-2 rounded-md border border-border/50 bg-surface px-4 py-3 md:flex-row md:items-center">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-xs font-semibold text-text">运行态 MCP 服务</h3>
-          <p className="mt-1 text-[11px] text-text-3">插件服务和配置服务。</p>
+    <section className="overflow-hidden rounded-md border border-border/50 bg-surface">
+      <div className="border-b border-border/45 px-4 py-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-text">MCP</h3>
+            <p className="mt-0.5 text-[11px] text-text-3">
+              共 {allServers.length} 个，可用 {readyCount} 个，异常 {errorCount} 个，配置来源 {configCount} 个
+            </p>
+          </div>
+          <button type="button" className="primary-button gap-1.5" onClick={onConfigure}>
+            <GearIcon />
+            配置
+          </button>
         </div>
-        <button type="button" className="primary-button gap-1.5" onClick={onConfigure}>
-          <GearIcon />
-          配置 MCP 服务
-        </button>
-      </section>
-      <section className="rounded-md border border-border/50 bg-surface">
-        <div className="flex flex-col gap-2 border-b border-border/50 p-3 md:flex-row md:items-center">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
           <div className="relative min-w-0 flex-1">
             <SearchIcon />
             <input
@@ -602,27 +595,29 @@ function McpView(props: {
               placeholder="搜索 server 名称、来源插件或命令"
             />
           </div>
-          <SegmentedFilter
-            value={filter}
-            options={[
-              { value: 'all', label: '全部' },
-              { value: 'enabled', label: '可用' },
-              { value: 'disabled', label: '停用' },
-              { value: 'config', label: '配置' },
-              { value: 'plugin', label: '插件' },
-            ]}
-            onChange={(value) => setFilter(value as McpFilter)}
-          />
+          <div className="shrink-0">
+            <SegmentedFilter
+              value={filter}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'enabled', label: '可用' },
+                { value: 'disabled', label: '停用' },
+                { value: 'config', label: '配置' },
+                { value: 'plugin', label: '插件' },
+              ]}
+              onChange={(value) => setFilter(value as McpFilter)}
+            />
+          </div>
         </div>
-        <ResultStrip shown={servers.length} total={allServers.length} query={query} extra={`${readyCount} 可用`} onClear={() => setQuery('')} />
-        <div className="divide-y divide-border/40">
-          {servers.map((srv) => (
-            <McpRow key={`${srv.plugin}/${srv.name}`} server={srv} />
-          ))}
-          {servers.length === 0 && <EmptyRows title="没有匹配的 MCP server" detail="清除搜索或切换来源过滤。" onClear={() => setQuery('')} />}
-        </div>
-      </section>
-    </div>
+      </div>
+      <ResultStrip shown={servers.length} total={allServers.length} query={query} extra={`${readyCount} 可用`} onClear={() => setQuery('')} />
+      <div className="max-h-[calc(100vh-250px)] min-h-[360px] divide-y divide-border/40 overflow-y-auto scrollbar-gutter-stable">
+        {servers.map((srv) => (
+          <McpRow key={`${srv.plugin}/${srv.name}`} server={srv} />
+        ))}
+        {servers.length === 0 && <EmptyRows title="没有匹配的 MCP server" detail="清除搜索或切换来源过滤。" onClear={() => setQuery('')} />}
+      </div>
+    </section>
   )
 }
 
@@ -666,24 +661,6 @@ function statusTone(status: string): string {
   if (status === 'starting') return 'bg-primary/12 text-primary'
   if (status === 'disabled') return 'bg-surface-3 text-text-3'
   return 'bg-warning/12 text-warning'
-}
-
-function Metric({ label, value, tone }: { label: string; value: number | string; tone: 'primary' | 'success' | 'accent' | 'warning' }) {
-  const toneClass = {
-    primary: 'text-primary bg-primary/10',
-    success: 'text-success bg-success/10',
-    accent: 'text-accent bg-accent/10',
-    warning: 'text-warning bg-warning/10',
-  }[tone]
-  return (
-    <div className="rounded-md border border-border/50 bg-surface px-3 py-2.5 transition-colors hover:border-border">
-      <div className="flex items-center justify-between gap-2">
-        <div className={cn('inline-flex rounded-sm px-1.5 py-0.5 text-[10px]', toneClass)}>{label}</div>
-        <span className={cn('h-1.5 w-1.5 rounded-full', toneClass)} />
-      </div>
-      <div className="mt-2 text-xl font-semibold leading-none text-text">{value}</div>
-    </div>
-  )
 }
 
 function ResultStrip({ shown, total, query, extra, onClear }: { shown: number; total: number; query: string; extra?: string; onClear: () => void }) {
@@ -737,22 +714,36 @@ function KeyValue({ label, value, mono }: { label: string; value: string; mono?:
   )
 }
 
-function ToggleDot({ on, busy }: { on: boolean; busy: boolean }) {
+function PluginSwitch({ enabled, busy, onClick }: { enabled: boolean; busy: boolean; onClick: () => void }) {
   return (
-    <span className={cn('relative h-3.5 w-6 rounded-full transition-colors', on ? 'bg-success/35' : 'bg-border')}>
+    <button
+      type="button"
+      className={cn(
+        'inline-flex h-8 w-[112px] shrink-0 items-center justify-between rounded-md border px-2 text-xs font-semibold transition-all active:scale-95 disabled:cursor-wait disabled:opacity-65 disabled:active:scale-100',
+        enabled ? 'border-success/25 bg-success/10 text-success hover:bg-success/15' : 'border-border/60 bg-surface-3 text-text-3 hover:text-text-2',
+      )}
+      disabled={busy}
+      onClick={onClick}
+      aria-pressed={enabled}
+    >
+      <span className="w-11 text-left">{busy ? '处理中' : enabled ? '已启用' : '已停用'}</span>
       <span
         className={cn(
-          'absolute top-0.5 h-2.5 w-2.5 rounded-full bg-current transition-transform',
-          on ? 'translate-x-3 text-success' : 'translate-x-0.5 text-text-3',
+          'relative h-4 w-8 shrink-0 overflow-hidden rounded-full transition-colors',
+          enabled ? 'bg-success/30' : 'bg-border',
           busy && 'animate-pulse-soft',
         )}
-      />
-    </span>
+        aria-hidden
+      >
+        <span
+          className={cn(
+            'absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-current transition-transform',
+            enabled ? 'translate-x-4 text-success' : 'translate-x-0 text-text-3',
+          )}
+        />
+      </span>
+    </button>
   )
-}
-
-function pluginSkillsCount(skills: SkillView[], pluginName: string): number {
-  return skills.filter((skill) => skill.sourceKind === 'plugin' && skill.plugin === pluginName).length
 }
 
 function SegmentedFilter({

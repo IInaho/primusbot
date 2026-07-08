@@ -32,8 +32,8 @@ export function SessionSidebar({
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          title="展开会话列表"
-          className="rounded-md p-1.5 text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
+          data-tooltip="展开会话列表"
+          className="tooltip-anchor rounded-md p-1.5 text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
         >
           <ChevronRightIcon />
         </button>
@@ -50,8 +50,8 @@ export function SessionSidebar({
           <button
             type="button"
             onClick={() => setCollapsed(true)}
-            title="收起会话列表"
-            className="rounded-md p-1.5 text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
+            data-tooltip="收起会话列表"
+            className="tooltip-anchor rounded-md p-1.5 text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
           >
             <ChevronLeftIcon />
           </button>

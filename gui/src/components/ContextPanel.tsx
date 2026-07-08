@@ -37,7 +37,7 @@ export function ContextPanel({ open, snapshot, loading, onClose }: ContextPanelP
               {snapshot ? `${formatTokens(snapshot.used)} / ${formatTokens(snapshot.budget)} · ${percent}% 已用` : '读取上下文...'}
             </p>
           </div>
-          <button className="icon-button" type="button" title="关闭" aria-label="关闭上下文状态" onClick={onClose}>
+          <button className="icon-button tooltip-anchor" type="button" data-tooltip="关闭" data-tooltip-align="end" aria-label="关闭上下文状态" onClick={onClose}>
             <CloseIcon />
           </button>
         </header>

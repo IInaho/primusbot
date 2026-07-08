@@ -2,8 +2,11 @@
 // Build appicon.icns from icon_<size>.png files.
 // ICNS = 'icns' magic + total length, then per-icon blocks:
 //   OSType (4) + block length (4, inclusive) + image data.
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Map: ICNS OSType -> PNG side length.
 const entries = [

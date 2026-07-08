@@ -42,7 +42,7 @@ export const RunCard = memo(function RunCard({ msg, toggleStep }: RunCardProps) 
   const statusLabel = streaming ? PHASE_LABEL[phase] : '完成'
 
   return (
-    <div className="card-radius flex flex-col gap-2 border border-border/60 bg-surface p-4">
+    <div className="card-radius flex w-full flex-col gap-2 border border-border/60 bg-surface p-4">
       {/* —— Header —— */}
       <header className="flex min-w-0 flex-col gap-2 border-b border-border/40 pb-2 text-[12px] text-text-2" aria-live="polite">
         <div className="flex min-w-0 items-center gap-2">
@@ -90,11 +90,18 @@ export const RunCard = memo(function RunCard({ msg, toggleStep }: RunCardProps) 
 
       {/* —— 工具步骤 —— */}
       {visibleToolCount > 0 && (
-        <div className="flex flex-col gap-1">
-          {steps.map((s) => (
-            <ActivityRow key={s.id} step={s} toggleStep={toggleStep} />
-          ))}
-        </div>
+        <section className="w-full overflow-hidden rounded-md border border-border/45 bg-surface-2/35">
+          <div className="flex min-h-8 items-center gap-2 border-b border-border/35 px-3 text-[11px] text-text-3">
+            <span className="font-semibold text-text-2">工具调用</span>
+            <span className="font-mono tabular-nums">{visibleToolCount}</span>
+            {hiddenToolCount > 0 && <span className="ml-auto font-mono tabular-nums">已归档 {hiddenToolCount}</span>}
+          </div>
+          <div className="flex w-full min-w-0 flex-col gap-2 p-2">
+            {steps.map((s) => (
+              <ActivityRow key={s.id} step={s} toggleStep={toggleStep} />
+            ))}
+          </div>
+        </section>
       )}
 
       {/* —— 生成图片 —— */}

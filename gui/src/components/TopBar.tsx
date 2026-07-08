@@ -50,27 +50,27 @@ export function TopBar({ model, models = [], busy, theme, onToggleTheme, onSwitc
       <button
         type="button"
         onClick={onOpenContext}
-        title="上下文状态"
+        data-tooltip="上下文状态"
         aria-label="上下文状态"
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
+        className="toolbar-button tooltip-anchor"
       >
         <ContextIcon />
       </button>
       <button
         type="button"
         onClick={onOpenSkills}
-        title="技能管理"
+        data-tooltip="技能管理"
         aria-label="技能管理"
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
+        className="toolbar-button tooltip-anchor"
       >
         <SparkIcon />
       </button>
       <button
         type="button"
         onClick={onOpenConfig}
-        title="配置管理"
+        data-tooltip="配置管理"
         aria-label="配置管理"
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-surface-3 hover:text-text active:scale-95"
+        className="toolbar-button tooltip-anchor"
       >
         <GearIcon />
       </button>
@@ -87,9 +87,10 @@ export function TopBar({ model, models = [], busy, theme, onToggleTheme, onSwitc
       <button
         type="button"
         onClick={onClose}
-        title="关闭"
+        data-tooltip="关闭"
+        data-tooltip-align="end"
         aria-label="关闭窗口"
-        className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-danger/15 hover:text-danger active:scale-95"
+        className="tooltip-anchor ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 transition-all hover:bg-danger/15 hover:text-danger active:scale-95"
       >
         <CloseIcon />
       </button>

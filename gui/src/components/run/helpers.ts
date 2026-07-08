@@ -145,14 +145,13 @@ function isEscaped(s: string, idx: number): boolean {
 // edit summary: 从 diff preview 中抽出 "+N -M" 摘要或路径。
 export function editSummary(content?: string): string {
   if (!content) return ''
-  const lines = content.split('\n')
   let add = 0, del = 0
-  for (const l of lines) {
+  for (const l of content.split(/\r?\n/)) {
     const colon = l.indexOf(':')
     if (colon <= 0) continue
     const prefix = l.slice(0, colon).trimStart()
-    if (prefix.startsWith('+')) add++
-    else if (prefix.startsWith('-')) del++
+    if (/^\+\d+$/.test(prefix)) add++
+    else if (/^-\d+$/.test(prefix)) del++
   }
   if (add || del) return `+${add} −${del}`
   return ''

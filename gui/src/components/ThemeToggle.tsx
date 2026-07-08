@@ -15,8 +15,8 @@ export function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
       type="button"
       onClick={onToggle}
       aria-label={isDark ? '切换到明亮配色' : '切换到暗色配色'}
-      title={isDark ? '明亮' : '暗色'}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[14px] leading-none text-text-2 transition-all hover:bg-surface-3/70 hover:text-text active:scale-95"
+      data-tooltip={isDark ? '明亮' : '暗色'}
+      className="tooltip-anchor flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[14px] leading-none text-text-2 transition-all hover:bg-surface-3/70 hover:text-text active:scale-95"
     >
       <span className="transition-transform duration-300" style={{ display: 'inline-block' }}>
         {isDark ? '☾' : '☀'}

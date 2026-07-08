@@ -141,4 +141,5 @@ describe('ActivityRow', () => {
     expect(screen.getByText('next')).toBeInTheDocument()
     expect(screen.queryByText('[write /tmp/file.go]')).toBeNull()
   })
+
 })

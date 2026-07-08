@@ -290,7 +290,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
             <h2 className="text-sm font-semibold leading-tight text-text">配置管理</h2>
             <p className="mt-0.5 truncate text-[11px] text-text-3">{cfg?.path || '读取配置文件...'}</p>
           </div>
-          <button className="icon-button" type="button" title="关闭" aria-label="关闭配置" onClick={onClose}>
+          <button className="icon-button tooltip-anchor" type="button" data-tooltip="关闭" data-tooltip-align="end" aria-label="关闭配置" onClick={onClose}>
             <CloseIcon />
           </button>
         </header>

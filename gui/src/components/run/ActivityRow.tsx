@@ -1,26 +1,15 @@
-// ActivityRow: 一行工具步骤。
-// 颜色胶带左侧细条标识状态, 内容区与工具行同列对齐, 不产生独立子框。
+// ActivityRow: one tool call with a compact call header and an explicit result body.
 import { memo, useCallback, useId, useMemo, useRef } from 'react'
 import type { ToolStep } from '../../types/events'
 import { useScrollContainer } from '../MessageList'
 import { isUnifiedDiffContent } from '../../lib/diffFormat'
+import { cn } from '../../lib/classnames'
 import { compactArgs, editSummary, isMCPTool, pathFromArgs, prettyTool, toolDetail } from './helpers'
 import { UnifiedDiff } from './UnifiedDiff'
 
 interface ActivityRowProps {
   step: ToolStep
   toggleStep: (stepId: string) => void
-}
-
-// 状态 → 左侧细条颜色 (2px 胶带, 不占满全高)
-function statusTape(s: ToolStep): string {
-  if (s.status === 'blocked') return 'bg-warning/70'
-  if (s.isError) return 'bg-danger/70'
-  switch (s.status) {
-    case 'running': return 'bg-primary'
-    case 'done':    return 'bg-success/70'
-    default:        return 'bg-text-3/30'
-  }
 }
 
 export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: ActivityRowProps) {
@@ -70,70 +59,62 @@ export const ActivityRow = memo(function ActivityRow({ step, toggleStep }: Activ
         ? 'text-success'
         : 'text-text-3'
 
-  const tape = statusTape(step)
   const statusText = statusLabel(step)
 
   return (
     <div
       ref={rowRef}
-      className={`card-radius flex flex-col overflow-hidden ${expanded ? 'bg-surface-2' : 'bg-surface-2/50'}`}
+      className={cn(
+        'w-full min-w-0 rounded-md border bg-surface transition-colors',
+        expanded ? 'border-border/60' : 'border-border/35 hover:border-border/60',
+        isBlocked ? 'border-warning/30' : isExecutionError ? 'border-danger/30' : '',
+      )}
     >
-      {/* 状态胶带 + 工具行 */}
-      <div className="flex items-stretch">
-        <span className={`w-[2px] shrink-0 ${tape}`} aria-hidden />
-        <button
-          type="button"
-          onClick={handleToggle}
-          disabled={!canExpand}
-          aria-expanded={canExpand ? expanded : undefined}
-          aria-controls={canExpand ? bodyId : undefined}
-          className={`group flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-left text-[12px] ${
-            canExpand ? 'hover:bg-surface-3/50 active:bg-surface-3/70' : 'cursor-default'
-          }`}
-        >
-          {/* 展开指示器 或 占位 */}
-          <span className="w-3 shrink-0 text-center leading-none text-text-3 text-[10px]">
+      <button
+        type="button"
+        onClick={handleToggle}
+        disabled={!canExpand}
+        aria-expanded={canExpand ? expanded : undefined}
+        aria-controls={canExpand ? bodyId : undefined}
+        className={cn(
+          'group flex w-full min-w-0 flex-col gap-1.5 px-3 py-2 text-left text-[12px] transition-colors',
+          canExpand ? 'hover:bg-surface-3/35 active:bg-surface-3/55' : 'cursor-default',
+        )}
+      >
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span className="w-3 shrink-0 text-center text-[10px] leading-none text-text-3">
             {canExpand ? (expanded ? '▾' : '▸') : ' '}
           </span>
-          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface text-[13px] leading-none ${badgeCls}`}>
+          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-2 text-[13px] leading-none ${badgeCls}`}>
             <ToolGlyph name={step.toolName} />
           </span>
-          <span
-            title={prettyTool(step.toolName)}
-            className={`min-w-0 max-w-[9rem] shrink truncate font-medium ${isExecutionError ? 'text-danger' : 'text-text-2'}`}
-          >
+          <span className={`min-w-0 truncate font-semibold ${isExecutionError ? 'text-danger' : 'text-text'}`}>
             {prettyTool(step.toolName)}
           </span>
           {detailLabel && (
-            <span title={detailLabel} className="max-w-[12rem] shrink truncate font-mono text-[11px] text-text-2">
+            <span className="min-w-0 max-w-[14rem] truncate rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-text-2">
               {detailLabel}
-            </span>
-          )}
-          {argsLabel && (
-            <span
-              title={argsLabel}
-              className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
-                step.toolName === 'bash' ? 'text-text-2' : 'text-text-3'
-              }`}
-            >
-              {argsLabel}
             </span>
           )}
           {step.toolName === 'edit' && editSum && (
             <span className="shrink-0 font-mono text-[11px] text-success">{editSum}</span>
           )}
           {statusText && (
-            <span
-              className={`ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${badgeCls}`}
-            >
+            <span className={`ml-auto shrink-0 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] tabular-nums ${badgeCls}`}>
               {statusText}
             </span>
           )}
-          {canExpand && !expanded && (
-            <span className="sr-only">展开查看工具输出</span>
-          )}
-        </button>
-      </div>
+        </span>
+        {argsLabel && (
+          <span className="grid w-full min-w-0 grid-cols-[34px_minmax(0,1fr)] items-start gap-2 pl-5">
+            <span className="text-[10px] font-medium text-text-3">调用</span>
+            <span className={cn('min-w-0 truncate font-mono text-[11px]', step.toolName === 'bash' ? 'text-text-2' : 'text-text-3')}>
+              {argsLabel}
+            </span>
+          </span>
+        )}
+        {canExpand && !expanded && <span className="sr-only">展开查看工具输出</span>}
+      </button>
       {expanded && content && <RowBody id={bodyId} step={step} />}
     </div>
   )
@@ -185,47 +166,74 @@ function RowBody({ id, step }: { id: string; step: ToolStep }) {
   const isDiffTool = isDiffPreviewTool(step.toolName)
   const content = contentForStep(step)
   if (step.toolName === 'edit' && step.isError) {
-    return (
-      <div id={id} className={`border-t px-3 pb-2 pt-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:break-word] ${step.status === 'blocked' ? 'border-warning/20 text-warning' : 'border-danger/20 text-danger'}`}>
-        {content || 'edit failed'}
-      </div>
-    )
+    return <TextResult id={id} step={step} text={content || 'edit failed'} />
   }
   if (step.toolName === 'diff' && step.isError) {
-    return (
-      <div id={id} className={`border-t px-3 pb-2 pt-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:break-word] ${step.status === 'blocked' ? 'border-warning/20 text-warning' : 'border-danger/20 text-danger'}`}>
-        {content || 'diff failed'}
-      </div>
-    )
+    return <TextResult id={id} step={step} text={content || 'diff failed'} />
   }
   if (step.toolName === 'write' && step.isError) {
-    return (
-      <div id={id} className={`border-t px-3 pb-2 pt-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:break-word] ${step.status === 'blocked' ? 'border-warning/20 text-warning' : 'border-danger/20 text-danger'}`}>
-        {content || 'write failed'}
-      </div>
-    )
+    return <TextResult id={id} step={step} text={content || 'write failed'} />
   }
   if (isDiffTool && isUnifiedDiffContent(content)) {
-    return <div id={id}><UnifiedDiff content={content} filePath={pathFromArgs(step.args)} defaultCollapsed={false} skipHeader /></div>
-  }
-  if (step.isError) {
     return (
-      <div id={id} className={`border-t px-3 pb-2 pt-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap [overflow-wrap:break-word] ${step.status === 'blocked' ? 'border-warning/20 text-warning' : 'border-danger/20 text-danger'}`}>
-        {content}
+      <div id={id} className="w-full min-w-0 border-t border-border/35 bg-surface-2/25 px-3 pb-3 pt-2">
+        <ResultHeader label="变更结果" step={step} />
+        <div className="mt-2 w-full min-w-0 overflow-hidden rounded-md border border-border/35 bg-surface">
+          <UnifiedDiff content={content} filePath={pathFromArgs(step.args)} defaultCollapsed={false} skipHeader />
+        </div>
       </div>
     )
   }
+  if (step.isError) {
+    return <TextResult id={id} step={step} text={content} />
+  }
+  return <TextResult id={id} step={step} text={content} />
+}
+
+function TextResult({ id, step, text }: { id: string; step: ToolStep; text: string }) {
   const scrollable = step.toolName !== 'write'
+  const isBlocked = step.status === 'blocked'
+  const isExecutionError = step.isError && !isBlocked
   return (
-    <pre
-      id={id}
-      className={`min-w-0 whitespace-pre-wrap break-words border-t border-border/30 px-3 pb-2 pt-2 font-mono text-[11.5px] leading-relaxed text-text-2 ${
-        scrollable ? 'max-h-[320px] overflow-y-auto overflow-x-hidden' : ''
-      }`}
-    >
-      {content}
-    </pre>
+    <div id={id} className="w-full min-w-0 border-t border-border/35 bg-surface-2/25 px-3 pb-3 pt-2">
+      <ResultHeader label={isBlocked ? '阻止原因' : isExecutionError ? '错误结果' : '工具结果'} step={step} />
+      <pre
+        className={cn(
+          'mt-2 min-w-0 whitespace-pre-wrap break-words rounded-md border px-3 py-2 font-mono text-[11.5px] leading-relaxed [overflow-wrap:break-word]',
+          isBlocked
+            ? 'border-warning/25 bg-warning/8 text-warning'
+            : isExecutionError
+              ? 'border-danger/25 bg-danger/8 text-danger'
+              : 'border-border/35 bg-surface text-text-2',
+          scrollable ? 'max-h-[320px] overflow-y-auto overflow-x-hidden' : '',
+        )}
+      >
+        {text}
+      </pre>
+    </div>
   )
+}
+
+function ResultHeader({ label, step }: { label: string; step: ToolStep }) {
+  const content = contentForStep(step)
+  const lines = resultLineCount(content)
+  return (
+    <div className="flex items-center gap-2 text-[10.5px] text-text-3">
+      <span className="font-semibold text-text-2">{label}</span>
+      {lines > 0 ? (
+        <span className="font-mono tabular-nums">{lines} 行</span>
+      ) : null}
+    </div>
+  )
+}
+
+function resultLineCount(content: string): number {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .length
 }
 
 function contentForStep(step: ToolStep): string {

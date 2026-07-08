@@ -77,8 +77,9 @@ export function SessionItem({ session, active, onClick, onDelete }: SessionItemP
         <button
           type="button"
           onClick={handleDelete}
-          title="删除会话"
-          className="shrink-0 rounded-md p-1 text-text-3 opacity-0 transition-all group-hover:opacity-100 hover:bg-danger/10 hover:text-danger active:scale-95"
+          data-tooltip="删除会话"
+          data-tooltip-align="end"
+          className="tooltip-anchor shrink-0 rounded-md p-1 text-text-3 opacity-0 transition-all group-hover:opacity-100 hover:bg-danger/10 hover:text-danger active:scale-95"
         >
           <TrashIcon />
         </button>
