@@ -125,9 +125,15 @@ func (t *shellTask) scheduleRemoval(now time.Time) {
 }
 
 // shouldRemove reports whether the task's retention TTL has elapsed.
+// Running tasks are never eligible for auto-removal — access via
+// Logs/Wait/summaryByID may have set removeAt while the task was
+// still alive, but the process must keep its registry entry.
 func (t *shellTask) shouldRemove(now time.Time) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.status == taskRunning {
+		return false
+	}
 	return !t.removeAt.IsZero() && now.After(t.removeAt)
 }
 
