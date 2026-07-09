@@ -91,7 +91,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 	})
 
 	p.Register("summarize", func(cmd *Command) (string, bool) {
-		result, err := ForceSummarize(deps.CtxMgr)
+		result, err := ForceSummarize(deps.CtxMgr, true)
 		if err != nil {
 			return "Summarize failed: " + err.Error(), true
 		}

@@ -109,13 +109,14 @@ func SummarizeIfNeeded(ctxMgr *ctxmgr.Manager) {
 	}
 }
 
-// ForceSummarize compacts context now.
-func ForceSummarize(ctxMgr *ctxmgr.Manager) (string, error) {
+// ForceSummarize compacts context now. When force is true, bypasses
+// the NeedsSummarization token-budget check (for explicit user invocation).
+func ForceSummarize(ctxMgr *ctxmgr.Manager, force bool) (string, error) {
 	count, tokens, hasSummary := ctxMgr.Stats()
 	if count <= 2 {
 		return "Conversation too short, nothing to compact.", nil
 	}
-	if !ctxMgr.NeedsSummarization() {
+	if !force && !ctxMgr.NeedsSummarization() {
 		return fmt.Sprintf("Not needed: %d messages, ~%d tokens", count, tokens), nil
 	}
 	if err := ctxMgr.Summarize(); err != nil {

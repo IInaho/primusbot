@@ -65,10 +65,11 @@ func (t *ShellTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 }
 
 func (t *ShellTool) Description() string {
-	return "Execute shell commands in an isolated sandbox with Codex-like sessions. " +
+	return "Execute shell commands in a session-based sandbox. " +
 		"Default action is run. A run waits up to yield_time_ms (default 10000ms); if the command is still running, it returns session_id and the process continues until timeout_ms (default 120000ms, max 600000ms). " +
 		"Use action=\"wait\" to wait for a session, action=\"poll\" to read recent output without waiting, action=\"stop\" to terminate a session, and action=\"list\" to list sessions. " +
-		"Sandbox defaults to workspace-write with network disabled (loopback only). Set network=true for any command that uses the network stack — outbound (curl, npm install, git clone) OR inbound (listening on a port, dev servers). Builtin rules auto-enable network for known commands (pnpm dev, npm install, etc.); override only when a command fails without it."
+		"Sandbox defaults to workspace-write with network disabled (loopback only). Set network=true for any command that uses the network stack — outbound (curl, npm install, git clone) OR inbound (listening on a port, dev servers). Builtin rules auto-enable network for known commands (pnpm dev, npm install, etc.); override only when a command fails without it. " +
+		"Each shell run creates an independent sandbox instance. Only the workspace, writable_roots directories (bind-mounted from host), and system dirs (/usr, /bin, /lib, /etc, /nix/store, read-only) are visible. Other paths (/home subdirs, ~/.local, $GOPATH, etc.) are not accessible. Use host mode to bypass sandbox isolation."
 }
 
 func (t *ShellTool) Parameters() []core.Parameter {
