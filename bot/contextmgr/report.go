@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/bot/contextmgr/compact"
+	"nekocode/bot/contextmgr/compression"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/util/text"
 
@@ -55,7 +55,7 @@ func (m *Manager) Report() ContextReport {
 
 	for i := m.ctx.CompactBoundary; i < len(m.ctx.Messages); i++ {
 		msg := m.ctx.Messages[i]
-		if msg.Content == compact.ClearedMarker {
+		if msg.Content == compression.ClearedMarker {
 			r.ClearedMarkers++
 			continue
 		}

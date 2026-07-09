@@ -1,8 +1,8 @@
-package compact
+package legacy
 
 import (
-	"nekocode/common/debug"
 	"nekocode/bot/provider/types"
+	"nekocode/common/debug"
 )
 
 // Layer 2: History Sniping.

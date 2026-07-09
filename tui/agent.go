@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"nekocode/common"
 	"nekocode/tui/components/block"
@@ -13,6 +14,13 @@ import (
 )
 
 func (m *Model) startChat(value string) tea.Cmd {
+	// /summarize involves a synchronous LLM call that can take 10+ seconds.
+	// Show the command immediately and run the summarization in background
+	// so the TUI stays responsive with a spinner.
+	if isSummarizeCommand(value) {
+		return m.startSummarize(value)
+	}
+
 	resp, cr := m.Bot.ExecuteCommand(value)
 	if cr != common.CmdNone && resp != "" {
 		m.Messages.AddMessage(message.ChatMessage{
@@ -37,6 +45,33 @@ func (m *Model) startChat(value string) tea.Cmd {
 		return nil
 	}
 	return m.startAgent(value)
+}
+
+func isSummarizeCommand(value string) bool {
+	return strings.TrimSpace(value) == "/summarize"
+}
+
+func (m *Model) startSummarize(value string) tea.Cmd {
+	m.transitionTo(stateProcessing)
+	m.setPhase(phaseSummarizing)
+	m.Messages.SetSpinnerView(m.Spinner.View())
+	m.Messages.SetProcessingStatus(phaseSummarizing)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				runtime.WritePanicLog(r)
+				m.summarizeCh <- summarizeDoneMsg{content: fmt.Sprintf("Summarize failed: internal panic: %v", r)}
+			}
+		}()
+		resp, _ := m.Bot.ExecuteCommand(value)
+		m.summarizeCh <- summarizeDoneMsg{content: resp}
+	}()
+
+	return tea.Batch(
+		spinnerTick(),
+		listenSummarize(m.summarizeCh),
+	)
 }
 
 func (m *Model) startAgent(value string) tea.Cmd {

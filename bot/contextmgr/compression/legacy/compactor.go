@@ -1,4 +1,4 @@
-package compact
+package legacy
 
 import (
 	"context"
@@ -8,14 +8,10 @@ import (
 
 	ctxctx "nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/provider/types"
 )
 
 // defaultBudget is the fallback context window size when not configured.
 const defaultBudget = 64000
-
-// Summarizer is the function signature for LLM summarization.
-type Summarizer func(msgs []types.Message, prevSummary string) (string, error)
 
 // Tracker provides token estimates for compaction decisions.
 type Tracker interface {
@@ -146,6 +142,14 @@ func (m *Compactor) MicroCompactIfNeeded() int {
 		return 0
 	}
 	return m.microCompact()
+}
+
+func (m *Compactor) Summarize() error {
+	return m.FullCompact()
+}
+
+func (m *Compactor) SetSummarizer(s Summarizer) {
+	m.Summarizer = s
 }
 
 // effectiveBudget returns the token budget, defaulting to defaultBudget if unset.

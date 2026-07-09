@@ -10,7 +10,7 @@ func (m *Manager) Build() []types.Message {
 	out := m.ctx.BuildLayer0()
 	out = append(out, m.ctx.BuildLayer0Mem()...)
 	out = append(out, m.ctx.BuildLayer05()...)
-	out = append(out, m.filterValidMessages(m.ctx.Messages)...)
+	out = append(out, m.filterValidMessages(m.visibleHistory())...)
 	out = append(out, m.ctx.BuildLayer2()...)
 
 	// Strip internal Source field; LLM APIs may reject unknown fields.
@@ -18,6 +18,16 @@ func (m *Manager) Build() []types.Message {
 		out[i].Source = ""
 	}
 	return out
+}
+
+func (m *Manager) visibleHistory() []types.Message {
+	if m.ctx.CompactBoundary <= 0 {
+		return m.ctx.Messages
+	}
+	if m.ctx.CompactBoundary >= len(m.ctx.Messages) {
+		return nil
+	}
+	return m.ctx.Messages[m.ctx.CompactBoundary:]
 }
 
 func (m *Manager) filterValidMessages(kept []types.Message) []types.Message {

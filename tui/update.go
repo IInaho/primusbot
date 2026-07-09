@@ -2,9 +2,9 @@
 package tui
 
 import (
-	"nekocode/util/runtime"
 	"nekocode/tui/components"
 	"nekocode/tui/components/message"
+	"nekocode/util/runtime"
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/spinner"
@@ -36,6 +36,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case doneMsg:
 		return m, m.handleDone(msg)
+
+	case summarizeDoneMsg:
+		return m, m.handleSummarizeDone(msg)
 
 	case notifyMsg:
 		m.Messages.AddMessage(message.ChatMessage{

@@ -42,6 +42,11 @@ func (b *Bot) ExecuteCommand(input string) (string, common.CmdResult) {
 	}
 	resp, _ := b.cmdParser.Execute(cmd)
 
+	// Commands like /summarize, /clear, /new modify context state
+	// (Archive, CompactBoundary, Messages). Save the session so those
+	// changes are persisted — RunAgent already does this after each turn.
+	b.sess.Save()
+
 	resumed := b.sess.DrainResumed()
 	if resumed {
 		b.syncHookSessionID()

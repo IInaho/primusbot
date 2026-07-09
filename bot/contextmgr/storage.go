@@ -1,7 +1,7 @@
 package contextmgr
 
 import (
-	"nekocode/bot/contextmgr/compact"
+	"nekocode/bot/contextmgr/compression"
 	"nekocode/bot/provider/types"
 )
 
@@ -56,7 +56,7 @@ func (m *Manager) AddToolResultsBatch(results []ToolResultMsg) {
 		if r.Message.ToolCallID == "" {
 			role = "user"
 		}
-		content, _ := compact.BudgetResult(r.Message.Content, r.ToolName)
+		content, _ := compression.BudgetResult(r.Message.Content, r.ToolName)
 		m.ctx.Messages = append(m.ctx.Messages, types.Message{
 			Role:       role,
 			Content:    content,

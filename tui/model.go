@@ -39,6 +39,7 @@ type Model struct {
 	confirmCh       chan common.ConfirmRequest
 	questionCh      chan common.QuestionRequest
 	notifyCh        chan string
+	summarizeCh     chan summarizeDoneMsg
 }
 
 const version = "0.3.2"
@@ -66,6 +67,7 @@ func NewModel(b bot.UI) *Model {
 		confirmCh:   make(chan common.ConfirmRequest),
 		questionCh:  make(chan common.QuestionRequest),
 		notifyCh:    make(chan string, 8),
+		summarizeCh: make(chan summarizeDoneMsg, 1),
 	}
 	m.Input.SetHistory(loadInputHistory())
 
@@ -171,11 +173,22 @@ func listenNotify(ch <-chan string) tea.Cmd {
 	}
 }
 
+func listenSummarize(ch <-chan summarizeDoneMsg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
+}
+
 // Processing phases displayed in the status line during agent execution.
 const (
-	phaseSteer   = "Processing new input..."
-	PhaseReady   = common.PhaseReady
-	PhaseWaiting = common.PhaseWaiting
+	phaseSteer       = "Processing new input..."
+	phaseSummarizing = "Summarizing context..."
+	PhaseReady       = common.PhaseReady
+	PhaseWaiting     = common.PhaseWaiting
 )
 
 func (m *Model) setPhase(p string) {

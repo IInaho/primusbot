@@ -1,4 +1,4 @@
-package compact
+package legacy
 
 import (
 	"nekocode/common/debug"
@@ -17,8 +17,6 @@ const (
 	priorityMedium        // clear second: valuable but time-sensitive
 	priorityHigh          // clear last: file content referenced across turns
 )
-
-const ClearedMarker = "[Old tool result cleared]"
 
 func compactableToolPriority(toolName, content string) int {
 	switch toolName {

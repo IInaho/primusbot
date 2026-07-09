@@ -1,6 +1,7 @@
 package contextmgr
 
 import (
+	"strings"
 	"testing"
 
 	"nekocode/bot/provider/types"
@@ -65,10 +66,48 @@ func TestFilterValidMessages_EmptyContent(t *testing.T) {
 	}
 }
 
+func TestBuild_UsesCompactBoundary(t *testing.T) {
+	m := newManager()
+	m.ctx.Archive = "summary of old context"
+	m.ctx.Messages = []types.Message{
+		{Role: "user", Content: "old user"},
+		{Role: "assistant", Content: "old assistant"},
+		{Role: "user", Content: "visible user"},
+		{Role: "assistant", Content: "visible assistant"},
+	}
+	m.ctx.CompactBoundary = 2
+
+	msgs := m.Build()
+	foundArchive := false
+	for _, msg := range msgs {
+		if strings.Contains(msg.Content, "old user") || strings.Contains(msg.Content, "old assistant") {
+			t.Fatalf("Build exported compacted history message: %+v", msg)
+		}
+		if strings.Contains(msg.Content, "[Archive]") && strings.Contains(msg.Content, "summary of old context") {
+			foundArchive = true
+		}
+	}
+	if !foundArchive {
+		t.Fatal("Build should include archive summary after compaction")
+	}
+	if !containsContent(msgs, "visible user") || !containsContent(msgs, "visible assistant") {
+		t.Fatalf("Build should include visible history, got %+v", msgs)
+	}
+}
+
 func TestBuild_EmptyManager(t *testing.T) {
 	m := newManager()
 	msgs := m.Build()
 	if len(msgs) == 0 {
 		t.Error("Build should return at least system prompt")
 	}
+}
+
+func containsContent(msgs []types.Message, content string) bool {
+	for _, msg := range msgs {
+		if msg.Content == content {
+			return true
+		}
+	}
+	return false
 }

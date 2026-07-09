@@ -127,7 +127,7 @@ func (b *Bot) configuredWorkspaceRoots() []workspace.Root {
 }
 
 func (b *Bot) initSummarizer() {
-	b.ctxMgr.CM.Summarizer = ctxmgr.MakeSummarizer(b.ctxMgr.CM.CancelCtx, b.ctxMgr.MergeClient)
+	b.ctxMgr.SetSummarizer(ctxmgr.MakeSummarizer(context.Background(), b.ctxMgr.MergeClient))
 }
 
 func (b *Bot) initToolRegistry() {

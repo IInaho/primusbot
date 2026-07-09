@@ -1,4 +1,4 @@
-package compact
+package legacy
 
 import "testing"
 

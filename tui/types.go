@@ -32,3 +32,7 @@ type confirmMsg struct {
 type questionMsg struct {
 	req common.QuestionRequest
 }
+
+type summarizeDoneMsg struct {
+	content string
+}

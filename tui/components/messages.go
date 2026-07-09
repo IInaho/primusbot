@@ -157,10 +157,20 @@ func (m *Messages) invalidateProcessing() {
 }
 
 func (m *Messages) AddMessage(msg message.ChatMessage) {
-	var item Item
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item := m.messageItem(msg)
+	m.AppendItems(item)
+	if m.Follow {
+		m.ScrollToBottom()
+	}
+}
+
+func (m *Messages) messageItem(msg message.ChatMessage) Item {
 	switch msg.Role {
 	case "user":
-		item = message.NewUserMessageItem(m.sty, msg.Content)
+		return message.NewUserMessageItem(m.sty, msg.Content)
 	case "assistant":
 		a := message.NewAssistantMessageItem(m.sty, msg.Content)
 		if msg.RenderedContent != "" {
@@ -170,7 +180,7 @@ func (m *Messages) AddMessage(msg message.ChatMessage) {
 		if msg.Footer != "" {
 			a.SetFooter(msg.Footer)
 		}
-		item = a
+		return a
 	case "system":
 		s := message.NewSystemMessageItem(m.sty, msg.Content)
 		if msg.Title != "" {
@@ -179,15 +189,11 @@ func (m *Messages) AddMessage(msg message.ChatMessage) {
 		if msg.RenderedContent != "" {
 			s.SetRenderedContent(msg.RenderedContent)
 		}
-		item = s
+		return s
 	case "error":
-		item = message.NewErrorMessageItem(m.sty, msg.Content)
+		return message.NewErrorMessageItem(m.sty, msg.Content)
 	default:
-		item = message.NewUserMessageItem(m.sty, msg.Content)
-	}
-	m.AppendItems(item)
-	if m.Follow {
-		m.ScrollToBottom()
+		return message.NewUserMessageItem(m.sty, msg.Content)
 	}
 }
 

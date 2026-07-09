@@ -20,6 +20,26 @@ const (
 
 // --- done ---
 
+func (m *Model) handleSummarizeDone(msg summarizeDoneMsg) tea.Cmd {
+	m.transitionTo(stateReady)
+
+	content := msg.content
+	if strings.TrimSpace(content) == "" {
+		content = "Summarize completed with no output."
+	}
+	m.Messages.AddMessage(message.ChatMessage{
+		Role: "system", Title: "/summarize",
+		Content: content, RenderedContent: content,
+	})
+
+	st := m.Bot.Stats()
+	m.Header.SetTokens(st.PromptTokens + st.CompletionTokens)
+	if m.Messages.Follow {
+		m.Messages.GotoBottom()
+	}
+	return nil
+}
+
 func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 	finalBlocks := block.FilterFinalBlocks(m.Messages.ProcessingBlocks())
 
@@ -293,18 +313,21 @@ func (m *Model) handleSpinnerTick(msg spinner.TickMsg) tea.Cmd {
 	if m.state == stateProcessing {
 		elapsed := time.Since(m.processingStart)
 		statusText := fmt.Sprintf("%s (%.1fs)", m.processingPhase, elapsed.Seconds())
-		st := m.Bot.Stats()
-		if st.PromptTokens == 0 {
-			st.PromptTokens = st.ContextTokens
-		}
 		spinnerView := m.Spinner.View()
 		m.Messages.UpdateProcessing(func(p *processing.ProcessingItem) {
 			p.SetSpinnerView(spinnerView)
 			p.SetStatusText(statusText)
-			p.SetTokens(st.TurnPrompt, st.TurnCompletion)
-			p.SetCompactCount(st.CompactCount)
 		})
-
+		if m.processingPhase != phaseSummarizing {
+			st := m.Bot.Stats()
+			if st.PromptTokens == 0 {
+				st.PromptTokens = st.ContextTokens
+			}
+			m.Messages.UpdateProcessing(func(p *processing.ProcessingItem) {
+				p.SetTokens(st.TurnPrompt, st.TurnCompletion)
+				p.SetCompactCount(st.CompactCount)
+			})
+		}
 		return spinnerTick()
 	}
 

@@ -12,7 +12,8 @@ import (
 	"fmt"
 	"sync"
 
-	"nekocode/bot/contextmgr/compact"
+	"nekocode/bot/contextmgr/compression"
+	"nekocode/bot/contextmgr/compression/replacement"
 	ctxctx "nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/contextmgr/token"
@@ -28,19 +29,19 @@ type Manager struct {
 	CompactCount  int
 	TrimCount     int
 	mem           *memory.File
-	CM            *compact.Compactor
+	Compressor    compression.Strategy
 	MergeClient   provider.LLM // for independent merge archive sessions
 }
 
 type Config struct {
 	SystemPrompt string
 	Memory       *memory.File
-	Summarizer   compact.Summarizer
+	Summarizer   compression.Summarizer
 	MergeClient  provider.LLM
 }
 
 // NewSub creates a lightweight Manager for subagents.
-// A Compactor is only created when mergeClient is non-nil (for archive merging).
+// Compression is only enabled when mergeClient is non-nil.
 func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *Manager {
 	ctx := ctxctx.New(systemPrompt)
 	m := &Manager{
@@ -50,25 +51,16 @@ func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *M
 	}
 	if mergeClient != nil {
 		mergeCtx := context.Background()
-		m.CM = &compact.Compactor{
-			Ctx:           &m.ctx,
-			ContextWindow: &m.ContextWindow,
-			Tracker:       m.Tracker,
-			CompactCount:  &m.CompactCount,
-			TrimCount:     &m.TrimCount,
-			Summarizer:    MakeSummarizer(mergeCtx, mergeClient),
-			CancelCtx:     mergeCtx,
-			Cfg:           compact.DefaultConfig,
-		}
+		m.initCompressor(MakeSummarizer(mergeCtx, mergeClient))
 	}
 	return m
 }
 
 // MakeSummarizer creates a Summarizer func from an LLM client.
 // The provided context is used for LLM calls, enabling cancellation.
-func MakeSummarizer(ctx context.Context, client provider.LLM) compact.Summarizer {
+func MakeSummarizer(ctx context.Context, client provider.LLM) compression.Summarizer {
 	return func(msgs []types.Message, prevSummary string) (string, error) {
-		prompt := compact.BuildPrompt(msgs, prevSummary)
+		prompt := compression.BuildPrompt(msgs, prevSummary)
 		resp, err := client.Chat(ctx, []types.Message{{Role: "user", Content: prompt}}, nil)
 		if err != nil {
 			return "", err
@@ -91,15 +83,17 @@ func New(cfg Config) *Manager {
 		mem:         cfg.Memory,
 		MergeClient: cfg.MergeClient,
 	}
-	m.CM = &compact.Compactor{
+	m.initCompressor(cfg.Summarizer)
+	return m
+}
+
+func (m *Manager) initCompressor(summarizer compression.Summarizer) {
+	m.Compressor = replacement.New(replacement.Options{
 		Ctx:           &m.ctx,
 		ContextWindow: &m.ContextWindow,
 		Tracker:       m.Tracker,
-		CompactCount:  &m.CompactCount,
 		TrimCount:     &m.TrimCount,
-		Summarizer:    cfg.Summarizer,
-		CancelCtx:     context.Background(),
-		Cfg:           compact.DefaultConfig,
-	}
-	return m
+		Summarizer:    summarizer,
+		Cfg:           compression.DefaultConfig,
+	})
 }

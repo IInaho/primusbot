@@ -49,6 +49,8 @@ func (m *Manager) Restore(s ManagerSnapshot) {
 	m.ctx.CompactBoundary = s.CompactBoundary
 	m.ctx.Messages = s.Messages
 	m.ContextWindow = s.Budget
-	m.Tracker = &token.Tracker{}
+	if m.Tracker == nil {
+		m.Tracker = &token.Tracker{}
+	}
 	m.Tracker.Restore(s.Tracker)
 }
