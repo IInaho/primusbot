@@ -4,18 +4,18 @@ import (
 	"strings"
 	"sync"
 
-	"nekocode/common"
+	"nekocode/util/registry"
 )
 
 // Registry manages loaded skills, thread-safe.
 type Registry struct {
-	*common.Registry[*Skill]
+	*registry.Registry[*Skill]
 	loaded sync.Map
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		Registry: common.NewRegistry[*Skill](func(s *Skill) string { return s.Name }),
+		Registry: registry.New[*Skill](func(s *Skill) string { return s.Name }),
 	}
 }
 

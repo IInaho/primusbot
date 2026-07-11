@@ -2,11 +2,11 @@ package context
 
 import (
 	"fmt"
+	"nekocode/bot/todo"
 	"strconv"
 	"strings"
 
 	"nekocode/bot/provider/types"
-	"nekocode/common"
 )
 
 // Content is the single source of truth for everything sent to the LLM
@@ -36,8 +36,8 @@ type Content struct {
 
 	// Layer 2 — volatile suffix. ALL variable content goes HERE, after history.
 	Todo      string
-	TodoItems []common.TodoItem // structured copy, kept in sync with Todo
-	Hints     string            // per-turn system hints (quota, exploration status, etc.)
+	TodoItems []todo.Item // structured copy, kept in sync with Todo
+	Hints     string      // per-turn system hints (quota, exploration status, etc.)
 
 }
 
@@ -50,7 +50,7 @@ func New(systemPrompt string) Content {
 
 // -- setters ------------------------------------------------------------
 
-func (c *Content) LoadTodos(items []common.TodoItem) {
+func (c *Content) LoadTodos(items []todo.Item) {
 	c.TodoItems = items
 	c.Todo = formatTodoItems(items)
 }
@@ -70,11 +70,11 @@ func (c *Content) HasTasks() bool {
 	return len(c.TodoItems) > 0
 }
 
-func formatTodoItems(items []common.TodoItem) string {
+func formatTodoItems(items []todo.Item) string {
 	if len(items) == 0 {
 		return ""
 	}
-	done := common.CountCompleted(items)
+	done := todo.CountCompleted(items)
 	if done == len(items) {
 		return "All " + strconv.Itoa(done) + " tasks complete"
 	}

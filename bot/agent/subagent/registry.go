@@ -2,9 +2,10 @@ package subagent
 
 import (
 	_ "embed"
+	"nekocode/bot/view"
 
 	"nekocode/bot/tools/runtime/execution"
-	"nekocode/common"
+	"nekocode/util/registry"
 )
 
 //go:embed prompts/executor.md
@@ -38,15 +39,15 @@ type RunConfig struct {
 	ContextWindow int
 	OnPhase       func(phase string)
 	AddTokens     func(prompt, compl int)
-	ConfirmFn     common.ConfirmFunc
+	ConfirmFn     view.ConfirmFunc
 	Handoff       string                 // injected into system prompt for cross-agent context
 	OnToolCall    func(ev ToolCallEvent) // sub-agent tool execution callback
 	ToolState     *execution.ExecutionState
 }
 
 var (
-	builtins = common.NewRegistry[AgentType](func(a AgentType) string { return a.Name })
-	plugins  = common.NewRegistry[AgentType](func(a AgentType) string { return a.Name })
+	builtins = registry.New[AgentType](func(a AgentType) string { return a.Name })
+	plugins  = registry.New[AgentType](func(a AgentType) string { return a.Name })
 )
 
 func register(a AgentType) { builtins.Register(a) }
@@ -61,7 +62,7 @@ func init() {
 		Tools: []string{"read", "grep", "glob", "list", "shell"},
 	})
 	register(AgentType{
-		Name:  "researcher", SystemPrompt: researcherPrompt,
+		Name: "researcher", SystemPrompt: researcherPrompt,
 		Tools: []string{"read", "grep", "glob", "list", "web_search", "web_fetch"},
 	})
 }

@@ -7,16 +7,16 @@ import (
 	"nekocode/bot/config"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/tools/runtime/permission"
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 type callbackBus struct {
-	confirmFn  common.ConfirmFunc
-	phaseFn    common.PhaseFunc
-	todoFn     common.TodoFunc
+	confirmFn  view.ConfirmFunc
+	phaseFn    view.PhaseFunc
+	todoFn     view.TodoFunc
 	notifyFn   func(string)
-	confirmCh  chan common.ConfirmRequest
-	questionFn common.QuestionFunc
+	confirmCh  chan view.ConfirmRequest
+	questionFn view.QuestionFunc
 
 	// Permission policy source: the config-declared allow/ask/deny rules
 	// plus workspace/home for path-anchor resolution. Injected by the Bot
@@ -29,7 +29,7 @@ type callbackBus struct {
 	pendingConfirm bool
 }
 
-func (c *callbackBus) Configure(confirmFn common.ConfirmFunc, phaseFn common.PhaseFunc, todoFn common.TodoFunc, notifyFn func(string), confirmCh chan common.ConfirmRequest, questionFn common.QuestionFunc) {
+func (c *callbackBus) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
 	c.confirmFn = confirmFn
 	c.phaseFn = phaseFn
 	c.todoFn = todoFn
@@ -77,8 +77,8 @@ func toSandboxDecl(in map[string]config.SandboxConfig) map[string]permission.San
 	return out
 }
 
-func (c *callbackBus) todoWriter() func([]common.TodoItem) {
-	return func(items []common.TodoItem) {
+func (c *callbackBus) todoWriter() func([]view.TodoItem) {
+	return func(items []view.TodoItem) {
 		if c.todoFn != nil {
 			c.todoFn(items)
 		}
@@ -113,7 +113,7 @@ func (c *callbackBus) UnblockConfirm() {
 	c.setPendingConfirmation(false)
 	if c.confirmCh != nil {
 		select {
-		case c.confirmCh <- common.ConfirmRequest{Response: nil}:
+		case c.confirmCh <- view.ConfirmRequest{Response: nil}:
 		default:
 		}
 	}
@@ -125,7 +125,7 @@ func (c *callbackBus) ConfirmInstall(source string, p *plugin.Plugin, isRemote b
 		c.UnblockConfirm()
 		return false
 	}
-	result := c.confirmFn(common.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, common.ConfirmKindInstall))
+	result := c.confirmFn(view.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, view.ConfirmKindInstall))
 	c.setPendingConfirmation(false)
 	if !result.Allowed && c.notifyFn != nil {
 		c.notifyFn("Install cancelled: " + source)
@@ -142,7 +142,7 @@ func (c *callbackBus) InstallCallbacks() plugin.InstallCallbacks {
 	}
 }
 
-func (b *Bot) Configure(confirmFn common.ConfirmFunc, phaseFn common.PhaseFunc, todoFn common.TodoFunc, notifyFn func(string), confirmCh chan common.ConfirmRequest, questionFn common.QuestionFunc) {
+func (b *Bot) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
 	b.cb.Configure(confirmFn, phaseFn, todoFn, notifyFn, confirmCh, questionFn)
 	b.applyCallbacks()
 }

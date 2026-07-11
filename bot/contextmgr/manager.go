@@ -10,11 +10,18 @@ package contextmgr
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"nekocode/bot/contextmgr/compression"
 	"nekocode/bot/contextmgr/compression/replacement"
 	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/internal/builder"
+	compactctl "nekocode/bot/contextmgr/internal/compaction"
+	"nekocode/bot/contextmgr/internal/history"
+	"nekocode/bot/contextmgr/internal/report"
+	"nekocode/bot/contextmgr/internal/settings"
+	"nekocode/bot/contextmgr/internal/snapshot"
+	"nekocode/bot/contextmgr/internal/state"
+	"nekocode/bot/contextmgr/internal/usage"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider"
@@ -22,15 +29,14 @@ import (
 )
 
 type Manager struct {
-	mu            sync.RWMutex
-	ctx           ctxctx.Content
-	ContextWindow int
-	Tracker       *token.Tracker
-	CompactCount  int
-	TrimCount     int
-	mem           *memory.File
-	Compressor    compression.Strategy
-	MergeClient   provider.LLM // for independent merge archive sessions
+	state      *state.State
+	history    *history.Store
+	builder    *builder.Builder
+	usage      *usage.Meter
+	settings   *settings.Store
+	snapshots  *snapshot.Store
+	reports    *report.Builder
+	compaction *compactctl.Controller
 }
 
 type Config struct {
@@ -44,11 +50,12 @@ type Config struct {
 // Compression is only enabled when mergeClient is non-nil.
 func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *Manager {
 	ctx := ctxctx.New(systemPrompt)
-	m := &Manager{
-		ctx:           ctx,
+	m := assembleManager(&state.State{
+		Ctx:           ctx,
 		Tracker:       &token.Tracker{},
 		ContextWindow: contextWindow,
-	}
+		MergeClient:   mergeClient,
+	})
 	if mergeClient != nil {
 		mergeCtx := context.Background()
 		m.initCompressor(MakeSummarizer(mergeCtx, mergeClient))
@@ -77,22 +84,33 @@ func New(cfg Config) *Manager {
 	if cfg.Memory != nil {
 		ctx.Memory = cfg.Memory.Build()
 	}
-	m := &Manager{
-		ctx:         ctx,
+	m := assembleManager(&state.State{
+		Ctx:         ctx,
 		Tracker:     &token.Tracker{},
-		mem:         cfg.Memory,
 		MergeClient: cfg.MergeClient,
-	}
+	})
 	m.initCompressor(cfg.Summarizer)
 	return m
 }
 
+func assembleManager(state *state.State) *Manager {
+	m := &Manager{state: state}
+	m.history = &history.Store{State: state}
+	m.builder = &builder.Builder{State: state}
+	m.usage = &usage.Meter{State: state}
+	m.settings = &settings.Store{State: state}
+	m.snapshots = &snapshot.Store{State: state}
+	m.reports = &report.Builder{State: state}
+	m.compaction = &compactctl.Controller{State: state}
+	return m
+}
+
 func (m *Manager) initCompressor(summarizer compression.Summarizer) {
-	m.Compressor = replacement.New(replacement.Options{
-		Ctx:           &m.ctx,
-		ContextWindow: &m.ContextWindow,
-		Tracker:       m.Tracker,
-		TrimCount:     &m.TrimCount,
+	m.state.Compressor = replacement.New(replacement.Options{
+		Ctx:           &m.state.Ctx,
+		ContextWindow: &m.state.ContextWindow,
+		Tracker:       m.state.Tracker,
+		TrimCount:     &m.state.TrimCount,
 		Summarizer:    summarizer,
 		Cfg:           compression.DefaultConfig,
 	})

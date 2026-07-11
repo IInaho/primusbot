@@ -3,12 +3,12 @@ package app
 import (
 	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/extension/skill"
 	"nekocode/bot/hooks"
 	"nekocode/bot/tools"
-	"nekocode/bot/extension"
 	"nekocode/common/debug"
 )
 
@@ -16,19 +16,13 @@ type extensionFacade struct {
 	skills     *skill.Manager
 	plugins    *plugin.Manager
 	mcpClients map[string]*mcp.Client
-	mcpHealth  map[string]mcpHealth
+	mcpHealth  map[string]extension.MCPHealth
 	configMCP  []extension.MCPServerView
 
 	ctxMgr        *ctxmgr.Manager
 	toolRegistry  *tools.Registry
 	hookReg       *hooks.Registry
 	contextWindow int
-}
-
-type mcpHealth struct {
-	Status    string
-	Error     string
-	ToolCount int
 }
 
 func newExtensionFacade(ctxMgr *ctxmgr.Manager, toolRegistry *tools.Registry, hookReg *hooks.Registry, contextWindow int) *extensionFacade {
@@ -38,7 +32,7 @@ func newExtensionFacade(ctxMgr *ctxmgr.Manager, toolRegistry *tools.Registry, ho
 		hookReg:       hookReg,
 		contextWindow: contextWindow,
 		mcpClients:    make(map[string]*mcp.Client),
-		mcpHealth:     make(map[string]mcpHealth),
+		mcpHealth:     make(map[string]extension.MCPHealth),
 	}
 }
 
@@ -77,25 +71,8 @@ func (e *extensionFacade) RefreshSkillList() {
 func (e *extensionFacade) SkillManagementView() extension.SkillManagementView {
 	mcpServers := e.plugins.MCPServers()
 	mcpServers = append(mcpServers, e.configMCP...)
-	e.applyMCPHealth(mcpServers)
+	extension.ApplyMCPHealth(mcpServers, e.mcpHealth)
 	return e.skills.ManagementView(e.plugins.Views(), mcpServers)
-}
-
-func (e *extensionFacade) applyMCPHealth(servers []extension.MCPServerView) {
-	for i := range servers {
-		if !servers[i].PluginEnabled {
-			servers[i].Status = "disabled"
-			continue
-		}
-		health, ok := e.mcpHealth[servers[i].Name]
-		if !ok {
-			servers[i].Status = "unknown"
-			continue
-		}
-		servers[i].Status = health.Status
-		servers[i].Error = health.Error
-		servers[i].ToolCount = health.ToolCount
-	}
 }
 
 func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {

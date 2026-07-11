@@ -9,11 +9,7 @@ import (
 	"strings"
 
 	"nekocode/util/fs"
-	uitype "nekocode/common/ui"
 )
-
-// ModelConfig is re-exported from common/ui for backward compatibility.
-type ModelConfig = uitype.ModelConfig
 
 func Path() string {
 	return filepath.Join(fs.NekocodeHome(), "config.json")
@@ -24,8 +20,48 @@ func Exists() bool {
 	return err == nil
 }
 
-type ImageGenConfig = uitype.ImageGenConfig
-type MCPServerConfig = uitype.MCPServerConfig
+type ModelConfig struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	APIKey   string `json:"api_key"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+}
+
+type ImageGenConfig struct {
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	APIKey    string `json:"api_key"`
+	SecretKey string `json:"secret_key"`
+	BaseURL   string `json:"base_url,omitempty"`
+	Model     string `json:"model,omitempty"`
+}
+
+type MCPServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+type PermissionsConfig struct {
+	Allow   []string                 `json:"allow,omitempty"`
+	Ask     []string                 `json:"ask,omitempty"`
+	Deny    []string                 `json:"deny,omitempty"`
+	Sandbox map[string]SandboxConfig `json:"sandbox,omitempty"`
+}
+
+type SandboxConfig struct {
+	SandboxMode   string   `json:"sandbox_mode,omitempty"`
+	Network       bool     `json:"network,omitempty"`
+	WritableRoots []string `json:"writable_roots,omitempty"`
+}
+
+type WorkspaceConfig struct {
+	Path   string `json:"path"`
+	Access string `json:"access,omitempty"`
+}
 
 type Config struct {
 	Active         string                     `json:"active"` // name of the active model
@@ -37,8 +73,6 @@ type Config struct {
 	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
 	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
 }
-
-type WorkspaceConfig = uitype.WorkspaceConfig
 
 var Default = Config{
 	Active:        "default",

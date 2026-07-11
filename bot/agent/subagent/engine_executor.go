@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"nekocode/bot/view"
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
@@ -10,13 +11,12 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common"
 )
 
 func (e *Engine) newExecutor(cfg RunConfig) (*runner.Executor, func()) {
 	executor := runner.NewExecutor(e.toolRegistry)
-	executor.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
-		return common.Deny()
+	executor.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
+		return view.Deny()
 	})
 	if cfg.ConfirmFn != nil {
 		executor.SetConfirmFn(cfg.ConfirmFn)

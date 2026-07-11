@@ -19,7 +19,7 @@ import (
 	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 type Bot struct {
@@ -127,7 +127,7 @@ func (b *Bot) configuredWorkspaceRoots() []workspace.Root {
 }
 
 func (b *Bot) initSummarizer() {
-	b.ctxMgr.SetSummarizer(ctxmgr.MakeSummarizer(context.Background(), b.ctxMgr.MergeClient))
+	b.ctxMgr.SetSummarizer(ctxmgr.MakeSummarizer(context.Background(), b.ctxMgr.MergeClient()))
 }
 
 func (b *Bot) initToolRegistry() {
@@ -162,7 +162,7 @@ func (b *Bot) initAgent() {
 	mergeClient := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 	mergeClient.SetDisableThinking(true)
 	mergeClient.SetMaxTokens(2000)
-	b.ctxMgr.MergeClient = mergeClient
+	b.ctxMgr.SetMergeClient(mergeClient)
 
 	b.ag = runtime.New(context.Background(), b.ctxMgr, llmClient, b.toolRegistry)
 	b.ag.SetHookRegistry(b.hookReg)
@@ -179,14 +179,14 @@ func (b *Bot) initAgent() {
 
 func (b *Bot) applyCallbacks() {
 	b.cb.applyAgentControlCallbacksTo(b.ag)
-	b.ag.WireTodoWrite(func(items []common.TodoItem) {
+	b.ag.WireTodoWrite(func(items []view.TodoItem) {
 		b.ctxMgr.SetTodos(items)
 		b.cb.todoWriter()(items)
 	})
 	b.setQuestionFunc(b.cb.questionFn)
 }
 
-func (b *Bot) setQuestionFunc(fn common.QuestionFunc) {
+func (b *Bot) setQuestionFunc(fn view.QuestionFunc) {
 	if fn == nil || b.toolRegistry == nil {
 		return
 	}
@@ -194,7 +194,7 @@ func (b *Bot) setQuestionFunc(fn common.QuestionFunc) {
 	if err != nil {
 		return
 	}
-	if qt, ok := t.(interface{ SetQuestionFunc(common.QuestionFunc) }); ok {
+	if qt, ok := t.(interface{ SetQuestionFunc(view.QuestionFunc) }); ok {
 		qt.SetQuestionFunc(fn)
 	}
 }

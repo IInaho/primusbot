@@ -2,17 +2,16 @@ package bot
 
 import (
 	"nekocode/bot/extension"
-	"nekocode/common"
-	"nekocode/common/ui"
+	"nekocode/bot/view"
 )
 
 type UI interface {
-	Run(input string, callbacks common.RunCallbacks) (string, error)
-	ExecuteCommand(input string) (string, common.CmdResult)
+	Run(input string, callbacks view.RunCallbacks) (string, error)
+	ExecuteCommand(input string) (string, view.CmdResult)
 	SkillHint() (string, bool)
-	Stats() common.BotStats
+	Stats() view.BotStats
 	CommandNames() []string
-	Configure(confirmFn common.ConfirmFunc, phaseFn common.PhaseFunc, todoFn common.TodoFunc, notifyFn func(string), confirmCh chan common.ConfirmRequest, questionFn common.QuestionFunc)
+	Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc)
 	Steer(msg string)
 	Abort()
 	Close()
@@ -20,16 +19,16 @@ type UI interface {
 	SwitchModel(name string) (model, provider string, err error)
 	ContextStatus() string
 	ContextReport() string
-	ContextSnapshot() common.ContextSnapshot
+	ContextSnapshot() view.ContextSnapshot
 	SelectSkill(name string) error
 	ClearSelectedSkill()
-	SessionMessages() []common.DisplayMessage
+	SessionMessages() []view.DisplayMessage
 }
 
 type GUI interface {
 	UI
-	ConfigView() ui.ConfigView
-	ApplyConfig(view ui.ConfigView) (ui.ConfigView, error)
+	ConfigView() view.ConfigView
+	ApplyConfig(view view.ConfigView) (view.ConfigView, error)
 	SkillManagementView() extension.SkillManagementView
 	RefreshSkillManagement() extension.SkillManagementView
 	SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error)
@@ -38,7 +37,7 @@ type GUI interface {
 	CurrentSessionID() string
 	SetSession(id string) error
 	ResumeSession(id string) error
-	ListSessions() []ui.SessionMeta
-	NewSession() (ui.SessionMeta, error)
+	ListSessions() []view.SessionMeta
+	NewSession() (view.SessionMeta, error)
 	DeleteSession(id string) error
 }

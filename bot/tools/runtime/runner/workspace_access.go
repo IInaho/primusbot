@@ -2,14 +2,14 @@ package runner
 
 import (
 	"fmt"
+	"nekocode/bot/view"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
-	"nekocode/common"
 )
 
-func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn common.ConfirmFunc) (core.ToolCallItem, string, bool) {
+func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn view.ConfirmFunc) (core.ToolCallItem, string, bool) {
 	access, ok := fileToolAccess(tc.Name)
 	if !ok {
 		return tc, "", true
@@ -42,12 +42,12 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn common.
 	if err != nil {
 		return tc, err.Error(), false
 	}
-	req := common.NewConfirmRequest("workspace", map[string]any{
+	req := view.NewConfirmRequest("workspace", map[string]any{
 		"path":              rootPath,
 		"access":            string(access),
 		"requested_path":    safePath,
 		"permission_reason": fmt.Sprintf("add %s workspace for %s", access, tc.Name),
-	}, common.ConfirmKindPermission)
+	}, view.ConfirmKindPermission)
 	reply := confirmFn(req)
 	if !reply.Allowed {
 		return tc, "cancelled", false

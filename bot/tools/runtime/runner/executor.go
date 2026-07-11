@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"nekocode/bot/view"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,6 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
-	"nekocode/common"
 )
 
 // ToolRegistry is the minimal registry contract required by the executor.
@@ -27,8 +27,8 @@ type Previewer interface {
 type Executor struct {
 	registry  ToolRegistry
 	state     *execution.ExecutionState
-	confirmFn common.ConfirmFunc
-	phaseFn   common.PhaseFunc
+	confirmFn view.ConfirmFunc
+	phaseFn   view.PhaseFunc
 	planMode  bool
 	previewFn func(toolName string, args map[string]any, preview string)
 	permStore *permission.Store
@@ -80,19 +80,19 @@ func NewExecutor(r ToolRegistry) *Executor {
 
 func (e *Executor) ExecutionState() *execution.ExecutionState { return e.state }
 
-func (e *Executor) SetConfirmFn(fn common.ConfirmFunc) {
+func (e *Executor) SetConfirmFn(fn view.ConfirmFunc) {
 	e.fnMu.Lock()
 	e.confirmFn = fn
 	e.fnMu.Unlock()
 }
 
-func (e *Executor) ConfirmFn() common.ConfirmFunc {
+func (e *Executor) ConfirmFn() view.ConfirmFunc {
 	e.fnMu.RLock()
 	defer e.fnMu.RUnlock()
 	return e.confirmFn
 }
 
-func (e *Executor) SetPhaseFn(fn common.PhaseFunc) {
+func (e *Executor) SetPhaseFn(fn view.PhaseFunc) {
 	e.fnMu.Lock()
 	e.phaseFn = fn
 	e.fnMu.Unlock()

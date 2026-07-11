@@ -1,21 +1,20 @@
 package guiapp
 
 import (
+	"nekocode/bot/view"
 	"strings"
 	"testing"
-
-	"nekocode/common"
 )
 
 func TestCompactConfirmArgsEditUsesV2Fields(t *testing.T) {
-	req := common.NewConfirmRequest("edit", map[string]any{
+	req := view.NewConfirmRequest("edit", map[string]any{
 		"path":       "/tmp/file.go",
 		"oldString":  strings.Repeat("a", 250),
 		"newString":  "next",
 		"replaceAll": true,
 		"patch":      "legacy",
 		"_preview":   "diff",
-	}, common.ConfirmKindPermission)
+	}, view.ConfirmKindPermission)
 
 	got := compactConfirmArgs(req)
 	if got["path"] != "/tmp/file.go" {
@@ -40,7 +39,7 @@ func TestReplyConfirmDecisionNoLongerAutoEscalates(t *testing.T) {
 	// 并授权" button. Allow-with-permission now requires an explicit call
 	// to ReplyConfirmWithPermission.
 	app := NewApp()
-	req := common.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
+	req := view.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, view.ConfirmKindPermission)
 	req.CanEscalatePermission = true
 
 	app.confirmMu.Lock()
@@ -59,7 +58,7 @@ func TestReplyConfirmDecisionNoLongerAutoEscalates(t *testing.T) {
 
 func TestReplyConfirmWithPermission(t *testing.T) {
 	app := NewApp()
-	req := common.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, common.ConfirmKindPermission)
+	req := view.NewConfirmRequest("shell", map[string]any{"command": "go get example.com/pkg"}, view.ConfirmKindPermission)
 	req.CanEscalatePermission = true
 
 	app.confirmMu.Lock()
@@ -77,7 +76,7 @@ func TestReplyConfirmWithPermissionIgnoredWhenCannotEscalate(t *testing.T) {
 	app := NewApp()
 	// A non-privileged tool's confirm request must not silently gain
 	// AllowWithPermission even if the frontend mistakenly passes true.
-	req := common.NewConfirmRequest("read", map[string]any{"path": "/tmp/x"}, common.ConfirmKindPermission)
+	req := view.NewConfirmRequest("read", map[string]any{"path": "/tmp/x"}, view.ConfirmKindPermission)
 	req.CanEscalatePermission = false
 
 	app.confirmMu.Lock()

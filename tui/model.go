@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"nekocode/bot"
+	"nekocode/bot/view"
 	"nekocode/tui/components"
 	"nekocode/tui/styles"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
-	"nekocode/common"
 )
 
 type Model struct {
@@ -36,8 +36,8 @@ type Model struct {
 	ConfirmBar      *components.ConfirmBar
 	QuestionBar     *components.QuestionBar
 	Scrollbar       *components.Scrollbar
-	confirmCh       chan common.ConfirmRequest
-	questionCh      chan common.QuestionRequest
+	confirmCh       chan view.ConfirmRequest
+	questionCh      chan view.QuestionRequest
 	notifyCh        chan string
 	summarizeCh     chan summarizeDoneMsg
 }
@@ -64,20 +64,20 @@ func NewModel(b bot.UI) *Model {
 		Width:       80,
 		Height:      24,
 		state:       stateReady,
-		confirmCh:   make(chan common.ConfirmRequest),
-		questionCh:  make(chan common.QuestionRequest),
+		confirmCh:   make(chan view.ConfirmRequest),
+		questionCh:  make(chan view.QuestionRequest),
 		notifyCh:    make(chan string, 8),
 		summarizeCh: make(chan summarizeDoneMsg, 1),
 	}
 	m.Input.SetHistory(loadInputHistory())
 
 	b.Configure(
-		func(req common.ConfirmRequest) common.ConfirmReply {
+		func(req view.ConfirmRequest) view.ConfirmReply {
 			m.confirmCh <- req
 			return <-req.Response
 		},
 		func(phase string) { m.setPhase(phase) },
-		func(items []common.TodoItem) { m.Messages.SetTodos(todoItemsText(items)) },
+		func(items []view.TodoItem) { m.Messages.SetTodos(todoItemsText(items)) },
 		func(msg string) {
 			select {
 			case m.notifyCh <- msg:
@@ -85,7 +85,7 @@ func NewModel(b bot.UI) *Model {
 			}
 		},
 		m.confirmCh,
-		func(req common.QuestionRequest) common.QuestionReply {
+		func(req view.QuestionRequest) view.QuestionReply {
 			m.questionCh <- req
 			return <-req.Response
 		},
@@ -143,7 +143,7 @@ func (m *Model) transitionTo(state chatState) {
 	m.resizeMessages()
 }
 
-func listenConfirm(ch <-chan common.ConfirmRequest) tea.Cmd {
+func listenConfirm(ch <-chan view.ConfirmRequest) tea.Cmd {
 	return func() tea.Msg {
 		req, ok := <-ch
 		if !ok {
@@ -153,7 +153,7 @@ func listenConfirm(ch <-chan common.ConfirmRequest) tea.Cmd {
 	}
 }
 
-func listenQuestion(ch <-chan common.QuestionRequest) tea.Cmd {
+func listenQuestion(ch <-chan view.QuestionRequest) tea.Cmd {
 	return func() tea.Msg {
 		req, ok := <-ch
 		if !ok {
@@ -187,8 +187,8 @@ func listenSummarize(ch <-chan summarizeDoneMsg) tea.Cmd {
 const (
 	phaseSteer       = "Processing new input..."
 	phaseSummarizing = "Summarizing context..."
-	PhaseReady       = common.PhaseReady
-	PhaseWaiting     = common.PhaseWaiting
+	PhaseReady       = view.PhaseReady
+	PhaseWaiting     = view.PhaseWaiting
 )
 
 func (m *Model) setPhase(p string) {
@@ -198,18 +198,18 @@ func (m *Model) setPhase(p string) {
 	m.processingPhase = p
 }
 
-func todoItemsText(items []common.TodoItem) string {
+func todoItemsText(items []view.TodoItem) string {
 	if len(items) == 0 {
 		return ""
 	}
-	done := common.CountCompleted(items)
+	done := view.CountCompleted(items)
 	if done == len(items) {
 		return fmt.Sprintf("✓ All %d tasks complete", done)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Tasks %d/%d", done, len(items))
 	for _, it := range items {
-		fmt.Fprintf(&b, "\n%s %s", common.TodoStatusIcon(it.Status), it.Content)
+		fmt.Fprintf(&b, "\n%s %s", view.TodoStatusIcon(it.Status), it.Content)
 	}
 	return b.String()
 }

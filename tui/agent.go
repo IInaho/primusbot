@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/bot/view"
 	"nekocode/tui/components/block"
 	"nekocode/tui/components/message"
 	"nekocode/util/runtime"
@@ -22,7 +22,7 @@ func (m *Model) startChat(value string) tea.Cmd {
 	}
 
 	resp, cr := m.Bot.ExecuteCommand(value)
-	if cr != common.CmdNone && resp != "" {
+	if cr != view.CmdNone && resp != "" {
 		m.Messages.AddMessage(message.ChatMessage{
 			Role: "system", Title: value, Content: resp, RenderedContent: resp,
 		})
@@ -36,12 +36,12 @@ func (m *Model) startChat(value string) tea.Cmd {
 	}
 	m.activeSkill = ""
 	switch cr {
-	case common.CmdConfirming:
+	case view.CmdConfirming:
 		return listenConfirm(m.confirmCh)
-	case common.CmdSessionResumed:
+	case view.CmdSessionResumed:
 		m.loadSessionMessages()
 		return nil
-	case common.CmdHandled:
+	case view.CmdHandled:
 		return nil
 	}
 	return m.startAgent(value)
@@ -108,7 +108,7 @@ func (m *Model) runAgent(value string) func() tea.Msg {
 
 		var finalResponse string
 
-		result, err := m.Bot.Run(value, common.RunCallbacks{
+		result, err := m.Bot.Run(value, view.RunCallbacks{
 			Text:   func(delta string) { m.Messages.ProcessStreamText(delta) },
 			Reason: func(delta string) { m.Messages.ProcessThinkingText(delta) },
 			Step:   m.onAgentStep(&finalResponse),

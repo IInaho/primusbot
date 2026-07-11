@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 const maxSubSlots = 8
@@ -12,7 +12,7 @@ const maxSubSlots = 8
 type SlotManager struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
-	slots  [maxSubSlots]*common.SubSlot
+	slots  [maxSubSlots]*view.SubSlot
 	active int
 }
 
@@ -32,7 +32,7 @@ func (m *SlotManager) Acquire(id, subType string) (colorIdx int, ok bool) {
 
 	for i := range m.slots {
 		if m.slots[i] == nil {
-			m.slots[i] = &common.SubSlot{ID: id, SubType: subType, ColorIdx: i}
+			m.slots[i] = &view.SubSlot{ID: id, SubType: subType, ColorIdx: i}
 			m.active++
 			return i, true
 		}

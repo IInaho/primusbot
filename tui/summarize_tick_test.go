@@ -7,8 +7,7 @@ import (
 	"time"
 
 	"nekocode/bot/extension"
-	"nekocode/common"
-	"nekocode/common/ui"
+	"nekocode/bot/view"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -16,15 +15,15 @@ import (
 
 type tickFakeBot struct{}
 
-func (tickFakeBot) Run(string, common.RunCallbacks) (string, error) { return "", nil }
-func (tickFakeBot) ExecuteCommand(string) (string, common.CmdResult) {
+func (tickFakeBot) Run(string, view.RunCallbacks) (string, error) { return "", nil }
+func (tickFakeBot) ExecuteCommand(string) (string, view.CmdResult) {
 	time.Sleep(100 * time.Millisecond)
-	return "summary done", common.CmdHandled
+	return "summary done", view.CmdHandled
 }
 func (tickFakeBot) SkillHint() (string, bool) { return "", false }
-func (tickFakeBot) Stats() common.BotStats    { return common.BotStats{} }
+func (tickFakeBot) Stats() view.BotStats      { return view.BotStats{} }
 func (tickFakeBot) CommandNames() []string    { return nil }
-func (tickFakeBot) Configure(common.ConfirmFunc, common.PhaseFunc, common.TodoFunc, func(string), chan common.ConfirmRequest, common.QuestionFunc) {
+func (tickFakeBot) Configure(view.ConfirmFunc, view.PhaseFunc, view.TodoFunc, func(string), chan view.ConfirmRequest, view.QuestionFunc) {
 }
 func (tickFakeBot) Steer(string)                    {}
 func (tickFakeBot) Abort()                          {}
@@ -33,14 +32,16 @@ func (tickFakeBot) ProviderModel() (string, string) { return "test", "test" }
 func (tickFakeBot) SwitchModel(string) (string, string, error) {
 	return "", "", nil
 }
-func (tickFakeBot) ContextStatus() string                            { return "" }
-func (tickFakeBot) ContextReport() string                            { return "" }
-func (tickFakeBot) ContextSnapshot() common.ContextSnapshot          { return common.ContextSnapshot{} }
-func (tickFakeBot) SelectSkill(string) error                         { return nil }
-func (tickFakeBot) ClearSelectedSkill()                              {}
-func (tickFakeBot) SessionMessages() []common.DisplayMessage         { return nil }
-func (tickFakeBot) ConfigView() ui.ConfigView                        { return ui.ConfigView{} }
-func (tickFakeBot) ApplyConfig(ui.ConfigView) (ui.ConfigView, error) { return ui.ConfigView{}, nil }
+func (tickFakeBot) ContextStatus() string                  { return "" }
+func (tickFakeBot) ContextReport() string                  { return "" }
+func (tickFakeBot) ContextSnapshot() view.ContextSnapshot  { return view.ContextSnapshot{} }
+func (tickFakeBot) SelectSkill(string) error               { return nil }
+func (tickFakeBot) ClearSelectedSkill()                    {}
+func (tickFakeBot) SessionMessages() []view.DisplayMessage { return nil }
+func (tickFakeBot) ConfigView() view.ConfigView            { return view.ConfigView{} }
+func (tickFakeBot) ApplyConfig(view.ConfigView) (view.ConfigView, error) {
+	return view.ConfigView{}, nil
+}
 func (tickFakeBot) SkillManagementView() extension.SkillManagementView {
 	return extension.SkillManagementView{}
 }
@@ -50,21 +51,21 @@ func (tickFakeBot) RefreshSkillManagement() extension.SkillManagementView {
 func (tickFakeBot) SetPluginEnabled(string, bool) (extension.SkillManagementView, error) {
 	return extension.SkillManagementView{}, nil
 }
-func (tickFakeBot) CWD() string                         { return "" }
-func (tickFakeBot) ClearContext()                       {}
-func (tickFakeBot) CurrentSessionID() string            { return "" }
-func (tickFakeBot) SetSession(string) error             { return nil }
-func (tickFakeBot) ResumeSession(string) error          { return nil }
-func (tickFakeBot) ListSessions() []ui.SessionMeta      { return nil }
-func (tickFakeBot) NewSession() (ui.SessionMeta, error) { return ui.SessionMeta{}, nil }
-func (tickFakeBot) DeleteSession(string) error          { return nil }
+func (tickFakeBot) CWD() string                           { return "" }
+func (tickFakeBot) ClearContext()                         {}
+func (tickFakeBot) CurrentSessionID() string              { return "" }
+func (tickFakeBot) SetSession(string) error               { return nil }
+func (tickFakeBot) ResumeSession(string) error            { return nil }
+func (tickFakeBot) ListSessions() []view.SessionMeta      { return nil }
+func (tickFakeBot) NewSession() (view.SessionMeta, error) { return view.SessionMeta{}, nil }
+func (tickFakeBot) DeleteSession(string) error            { return nil }
 
 type blockingStatsBot struct {
 	tickFakeBot
 	statsCalled chan struct{}
 }
 
-func (b blockingStatsBot) Stats() common.BotStats {
+func (b blockingStatsBot) Stats() view.BotStats {
 	close(b.statsCalled)
 	select {}
 }

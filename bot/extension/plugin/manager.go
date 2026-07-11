@@ -4,18 +4,18 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common/debug"
-	"nekocode/bot/hooks"
 	"nekocode/bot/extension"
+	"nekocode/bot/hooks"
+	"nekocode/common/debug"
 )
 
 const InstallUsage = "Usage: /plugin install <source>\n  source: GitHub URL | user/repo | ./local-path"
 
 type Manager struct {
-	reg       *Registry
+	reg           *Registry
 	pluginRuntime pluginRuntime
-	onInstall func(*Plugin)
-	onChanged func()
+	onInstall     func(*Plugin)
+	onChanged     func()
 }
 
 type ManagerOptions struct {

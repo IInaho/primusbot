@@ -2,20 +2,21 @@ package runtime
 
 import (
 	"context"
+	"nekocode/bot/todo"
+	"nekocode/bot/view"
 	"time"
 
 	"nekocode/bot/agent/runtime/model"
 	"nekocode/bot/agent/runtime/toolrun"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/provider"
 	aggov "nekocode/bot/policy"
+	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/runner"
-	"nekocode/common"
 	"nekocode/common/debug"
 )
 
@@ -159,12 +160,12 @@ func (a *Agent) SetReasoningStreamFn(fn ReasoningCallback) {
 	a.stream.reasoning = fn
 }
 
-func (a *Agent) SetPhaseFn(fn common.PhaseFunc) {
+func (a *Agent) SetPhaseFn(fn view.PhaseFunc) {
 	a.stream.phase = fn
 	a.deps.executor.SetPhaseFn(fn)
 }
 
-func (a *Agent) PhaseFn() common.PhaseFunc {
+func (a *Agent) PhaseFn() view.PhaseFunc {
 	return a.stream.phase
 }
 
@@ -203,11 +204,11 @@ func (a *Agent) ContextTokens() int {
 	return tokens
 }
 
-func (a *Agent) SetConfirmFn(fn common.ConfirmFunc) {
+func (a *Agent) SetConfirmFn(fn view.ConfirmFunc) {
 	a.deps.executor.SetConfirmFn(fn)
 }
 
-func (a *Agent) ConfirmFn() common.ConfirmFunc {
+func (a *Agent) ConfirmFn() view.ConfirmFunc {
 	return a.deps.executor.ConfirmFn()
 }
 
@@ -245,9 +246,9 @@ func (a *Agent) ToolExecutionState() *execution.ExecutionState {
 	return a.deps.executor.ExecutionState()
 }
 
-func (a *Agent) WireTodoWrite(fn common.TodoFunc) {
+func (a *Agent) WireTodoWrite(fn todo.Func) {
 	if t, err := a.deps.toolRegistry.Get("todo_write"); err == nil {
-		if updater, ok := t.(interface{ SetUpdateFn(common.TodoFunc) }); ok {
+		if updater, ok := t.(interface{ SetUpdateFn(todo.Func) }); ok {
 			updater.SetUpdateFn(fn)
 		}
 	}

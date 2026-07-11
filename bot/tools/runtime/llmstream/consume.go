@@ -2,10 +2,10 @@ package llmstream
 
 import (
 	"fmt"
+	"nekocode/bot/view"
 	"time"
 
 	"nekocode/bot/provider/types"
-	"nekocode/common"
 )
 
 // ConsumeStream reads tokens from tokenCh and populates s.
@@ -40,14 +40,14 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 			if token.ReasoningContent != "" && firstReasoning {
 				firstReasoning = false
 				if cb.OnPhase != nil {
-					cb.OnPhase(common.PhaseThinking)
+					cb.OnPhase(view.PhaseThinking)
 				}
 			}
 			if token.Content != "" {
 				if firstContent {
 					firstContent = false
 					if cb.OnPhase != nil {
-						cb.OnPhase(common.PhaseReasoning)
+						cb.OnPhase(view.PhaseReasoning)
 					}
 				}
 				s.TextBuf.WriteString(token.Content)
@@ -84,7 +84,7 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 				if firstContent {
 					firstContent = false
 					if cb.OnPhase != nil {
-						cb.OnPhase(common.PhaseReasoning)
+						cb.OnPhase(view.PhaseReasoning)
 					}
 				}
 				if s.TcAccum == nil {

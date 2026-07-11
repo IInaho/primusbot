@@ -3,17 +3,16 @@ package components
 
 import (
 	"fmt"
+	"nekocode/bot/view"
 	"strings"
 
 	"nekocode/tui/styles"
 
 	"charm.land/lipgloss/v2"
-
-	"nekocode/common"
 )
 
 type ConfirmBar struct {
-	req      *common.ConfirmRequest
+	req      *view.ConfirmRequest
 	sty      *styles.Styles
 	selected int
 }
@@ -22,7 +21,7 @@ func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
 	return &ConfirmBar{sty: sty, selected: 0}
 }
 
-func (c *ConfirmBar) SetRequest(req *common.ConfirmRequest) {
+func (c *ConfirmBar) SetRequest(req *view.ConfirmRequest) {
 	c.req = req
 	c.selected = 0
 }
@@ -59,7 +58,7 @@ func (c *ConfirmBar) Submit() {
 }
 
 func (c *ConfirmBar) Respond(ok bool, remember bool) {
-	c.req.Response <- common.ConfirmReply{Allowed: ok, Remember: ok && remember}
+	c.req.Response <- view.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	c.req = nil
 }
 
@@ -207,7 +206,7 @@ func (c *ConfirmBar) titleText() string {
 	if c.isPermissionConfirm() {
 		return "权限确认"
 	}
-	if c.req.Kind == common.ConfirmKindInstall {
+	if c.req.Kind == view.ConfirmKindInstall {
 		return "安装确认"
 	}
 	return "Confirm"
@@ -221,7 +220,7 @@ func (c *ConfirmBar) levelText() string {
 		}
 		return c.sty.Yellow.Render("可记住")
 	}
-	if c.req.Kind == common.ConfirmKindInstall {
+	if c.req.Kind == view.ConfirmKindInstall {
 		return c.sty.Yellow.Render("插件")
 	}
 	return c.sty.Yellow.Render("确认")
@@ -242,7 +241,7 @@ func (c *ConfirmBar) formatDesc() string {
 	switch c.req.ToolName {
 	case "shell":
 		if cmd, ok := c.req.Args["command"].(string); ok && cmd != "" {
-			return common.FormatCommandPreview(cmd, 600)
+			return formatCommandPreview(cmd, 600)
 		}
 	case "write":
 		if p, ok := c.req.Args["path"].(string); ok && p != "" {
@@ -287,7 +286,7 @@ func (c *ConfirmBar) formatPermissionDesc() string {
 	return strings.Join(lines, "\n")
 }
 
-func permissionSummary(req *common.ConfirmRequest) string {
+func permissionSummary(req *view.ConfirmRequest) string {
 	if req == nil {
 		return "需要确认权限"
 	}

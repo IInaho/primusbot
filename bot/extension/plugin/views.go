@@ -38,14 +38,13 @@ func MCPServersFor(p *Plugin) []extension.MCPServerView {
 	out := make([]extension.MCPServerView, 0, len(servers))
 	for name, cfg := range servers {
 		cfg = ExpandPluginMCPConfig(cfg, p.Dir)
-		args := append([]string(nil), cfg.Args...)
-		out = append(out, extension.MCPServerView{
-			Name:          name,
-			Plugin:        p.Name,
-			Command:       cfg.Command,
-			Args:          args,
-			PluginEnabled: p.Enabled,
-		})
+		out = append(out, extension.NewMCPServerView(extension.MCPServerViewInput{
+			Name:    name,
+			Plugin:  p.Name,
+			Command: cfg.Command,
+			Args:    cfg.Args,
+			Enabled: p.Enabled,
+		}))
 	}
 	return out
 }

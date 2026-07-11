@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"nekocode/bot/view"
 
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
@@ -11,7 +12,6 @@ import (
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/taskbridge"
-	"nekocode/common"
 )
 
 type subagentWiring struct {
@@ -42,23 +42,23 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
 		subLLM := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 		subLLM.SetDisableThinking(true)
-		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient)
+		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient())
 		cfg, ok := w.buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, ag)
 		if !ok {
 			return nil, fmt.Errorf("unknown sub-agent type: %s", agentType)
 		}
 		result, err := engine.Run(ctx, cfg)
 		if result != nil && (result.CacheHitTokens > 0 || result.CacheMissTokens > 0) {
-			w.ctxMgr.Tracker.RecordSubagent(result.TotalTokens, result.CacheHitTokens, result.CacheMissTokens)
+			w.ctxMgr.RecordSubagent(result.TotalTokens, result.CacheHitTokens, result.CacheMissTokens)
 		}
 		return subagentTaskResult(result), err
 	})
 }
 
 type agentCallbacks interface {
-	ConfirmFn() common.ConfirmFunc
+	ConfirmFn() view.ConfirmFunc
 	ToolExecutionState() *execution.ExecutionState
-	PhaseFn() common.PhaseFunc
+	PhaseFn() view.PhaseFunc
 	AddTokens(prompt, completion int)
 }
 
@@ -84,7 +84,7 @@ type subagentRunConfigInput struct {
 	Thoroughness  string
 	Cwd           string
 	ContextWindow int
-	ConfirmFn     common.ConfirmFunc
+	ConfirmFn     view.ConfirmFunc
 	ToolState     *execution.ExecutionState
 	PhaseFn       func(string)
 	AddTokens     func(prompt, completion int)

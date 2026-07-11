@@ -4,7 +4,7 @@ package processing
 import (
 	"strings"
 
-	"nekocode/common"
+	"nekocode/bot/view"
 	"nekocode/tui/components/block"
 	"nekocode/tui/styles"
 )
@@ -44,7 +44,7 @@ type ProcessingItem struct {
 	cachedTodos  string
 	cachedTodosW int
 
-	subSlots []common.SubSlot // active sub-agents for header rendering
+	subSlots []view.SubSlot // active sub-agents for header rendering
 }
 
 func (p *ProcessingItem) SetSkill(s string) { p.skill = s; p.invalidate() }
@@ -156,7 +156,7 @@ func (p *ProcessingItem) ThinkingText() string { return p.thinkingText.String() 
 
 // AddSubAgent registers a new active sub-agent for header display.
 func (p *ProcessingItem) AddSubAgent(id, subType string, colorIdx int) {
-	p.subSlots = append(p.subSlots, common.SubSlot{ID: id, SubType: subType, ColorIdx: colorIdx})
+	p.subSlots = append(p.subSlots, view.SubSlot{ID: id, SubType: subType, ColorIdx: colorIdx})
 	p.invalidateLight()
 }
 
@@ -207,4 +207,4 @@ func (p *ProcessingItem) finishToolBlock(subID, toolName, output string) {
 }
 
 // SubSlots returns the current active sub-agent slots.
-func (p *ProcessingItem) SubSlots() []common.SubSlot { return p.subSlots }
+func (p *ProcessingItem) SubSlots() []view.SubSlot { return p.subSlots }

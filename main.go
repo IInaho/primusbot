@@ -5,10 +5,8 @@ import (
 	"embed"
 	"log"
 
-	botconfig "nekocode/bot/config"
 	"nekocode/bot/extension"
-	"nekocode/common"
-	"nekocode/common/ui"
+	"nekocode/bot/view"
 	"nekocode/guiapp"
 
 	"github.com/wailsapp/wails/v2"
@@ -65,7 +63,7 @@ func (a *App) ContextReport() string {
 	return a.impl.ContextReport()
 }
 
-func (a *App) ContextSnapshot() common.ContextSnapshot {
+func (a *App) ContextSnapshot() view.ContextSnapshot {
 	return a.impl.ContextSnapshot()
 }
 
@@ -77,11 +75,11 @@ func (a *App) ClearSelectedSkill() {
 	a.impl.ClearSelectedSkill()
 }
 
-func (a *App) GetConfig() botconfig.View {
+func (a *App) GetConfig() view.ConfigView {
 	return a.impl.GetConfig()
 }
 
-func (a *App) SaveConfig(cfg botconfig.View) (botconfig.View, error) {
+func (a *App) SaveConfig(cfg view.ConfigView) (view.ConfigView, error) {
 	return a.impl.SaveConfig(cfg)
 }
 
@@ -97,15 +95,15 @@ func (a *App) SetPluginEnabled(name string, enabled bool) (extension.SkillManage
 	return a.impl.SetPluginEnabled(name, enabled)
 }
 
-func (a *App) ListSessions() []ui.SessionMeta {
+func (a *App) ListSessions() []view.SessionMeta {
 	return a.impl.ListSessions()
 }
 
-func (a *App) NewSession() (ui.SessionMeta, error) {
+func (a *App) NewSession() (view.SessionMeta, error) {
 	return a.impl.NewSession()
 }
 
-func (a *App) LoadSession(id string) ([]common.DisplayMessage, error) {
+func (a *App) LoadSession(id string) ([]view.DisplayMessage, error) {
 	return a.impl.LoadSession(id)
 }
 

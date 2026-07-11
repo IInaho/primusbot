@@ -35,8 +35,7 @@ import (
 
 	"nekocode/bot"
 	"nekocode/bot/extension"
-	"nekocode/common"
-	"nekocode/common/ui"
+	"nekocode/bot/view"
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -56,11 +55,11 @@ type App struct {
 
 	// confirm 确认弹窗
 	confirmMu sync.Mutex
-	confirmCh chan common.ConfirmRequest
-	confs     map[string]common.ConfirmRequest // id -> req, 等待前端回复
+	confirmCh chan view.ConfirmRequest
+	confs     map[string]view.ConfirmRequest // id -> req, 等待前端回复
 
 	questionMu sync.Mutex
-	questions  map[string]common.QuestionRequest
+	questions  map[string]view.QuestionRequest
 }
 
 // NewApp 创建 App 实例，bot.Bot 在这里初始化以消除 startup/domReady 竞态。
@@ -68,9 +67,9 @@ func NewApp() *App {
 	return &App{
 		bot:       bot.New(),
 		pending:   make(map[string][]string),
-		confs:     make(map[string]common.ConfirmRequest),
-		questions: make(map[string]common.QuestionRequest),
-		confirmCh: make(chan common.ConfirmRequest),
+		confs:     make(map[string]view.ConfirmRequest),
+		questions: make(map[string]view.QuestionRequest),
+		confirmCh: make(chan view.ConfirmRequest),
 	}
 }
 
@@ -95,12 +94,12 @@ func (a *App) DomReady(_ context.Context) {
 	phaseFn := func(phase string) {
 		runtime.EventsEmit(a.ctx, "agent:phase", map[string]string{"phase": phase})
 	}
-	todoFn := func(items []common.TodoItem) {
+	todoFn := func(items []view.TodoItem) {
 		runtime.EventsEmit(a.ctx, "agent:todos", map[string]any{
 			"items": items,
 		})
 	}
-	confirmFn := func(req common.ConfirmRequest) common.ConfirmReply {
+	confirmFn := func(req view.ConfirmRequest) view.ConfirmReply {
 		// 用 uuid 做 key，通过 Wails event 推给前端。
 		id := uuid.NewString()
 		a.confirmMu.Lock()
@@ -117,7 +116,7 @@ func (a *App) DomReady(_ context.Context) {
 		// 阻塞等前端调 ReplyConfirm 写回。
 		return <-req.Response
 	}
-	questionFn := func(req common.QuestionRequest) common.QuestionReply {
+	questionFn := func(req view.QuestionRequest) view.QuestionReply {
 		id := uuid.NewString()
 		a.questionMu.Lock()
 		a.questions[id] = req
@@ -132,7 +131,7 @@ func (a *App) DomReady(_ context.Context) {
 }
 
 // compactConfirmArgs 提取确认弹窗需要显示的 args。
-func compactConfirmArgs(req common.ConfirmRequest) map[string]any {
+func compactConfirmArgs(req view.ConfirmRequest) map[string]any {
 	m := make(map[string]any, 4)
 	switch req.ToolName {
 	case "edit":
@@ -191,7 +190,7 @@ func truncateConfirmString(s string) string {
 	return s
 }
 
-func confirmPreview(req common.ConfirmRequest) string {
+func confirmPreview(req view.ConfirmRequest) string {
 	if p, ok := req.Args["_preview"].(string); ok {
 		return p
 	}
@@ -240,7 +239,7 @@ func (a *App) SendMessage(input string) {
 			"status": "thinking",
 		})
 
-		result, err := a.bot.Run(input, common.RunCallbacks{
+		result, err := a.bot.Run(input, view.RunCallbacks{
 			Text: func(delta string) {
 				runtime.EventsEmit(a.ctx, "agent:delta", map[string]any{
 					"id":    runID,
@@ -412,7 +411,7 @@ func (a *App) ContextReport() string {
 	return a.bot.ContextReport()
 }
 
-func (a *App) ContextSnapshot() common.ContextSnapshot {
+func (a *App) ContextSnapshot() view.ContextSnapshot {
 	return a.bot.ContextSnapshot()
 }
 
@@ -424,11 +423,11 @@ func (a *App) ClearSelectedSkill() {
 	a.bot.ClearSelectedSkill()
 }
 
-func (a *App) GetConfig() ui.ConfigView {
+func (a *App) GetConfig() view.ConfigView {
 	return a.bot.ConfigView()
 }
 
-func (a *App) SaveConfig(cfg ui.ConfigView) (ui.ConfigView, error) {
+func (a *App) SaveConfig(cfg view.ConfigView) (view.ConfigView, error) {
 	return a.bot.ApplyConfig(cfg)
 }
 
@@ -447,20 +446,20 @@ func (a *App) SetPluginEnabled(name string, enabled bool) (extension.SkillManage
 // ---------- Session 管理 ----------
 
 // ListSessions 返回所有已落盘的会话元数据。
-func (a *App) ListSessions() []ui.SessionMeta {
+func (a *App) ListSessions() []view.SessionMeta {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.bot.ListSessions()
 }
 
 // NewSession 创建一个新会话并将其设为当前会话，返回会话元数据。
-func (a *App) NewSession() (ui.SessionMeta, error) {
+func (a *App) NewSession() (view.SessionMeta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.bot.NewSession()
 }
 
-func (a *App) LoadSession(id string) ([]common.DisplayMessage, error) {
+func (a *App) LoadSession(id string) ([]view.DisplayMessage, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -550,7 +549,7 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	}
 	a.confirmMu.Unlock()
 	if found {
-		req.Response <- common.ConfirmReply{
+		req.Response <- view.ConfirmReply{
 			Allowed:             ok,
 			Remember:            ok && remember,
 			AllowWithPermission: false,
@@ -574,7 +573,7 @@ func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, with
 		if ok && withPermission && req.CanEscalatePermission {
 			grant = true
 		}
-		req.Response <- common.ConfirmReply{
+		req.Response <- view.ConfirmReply{
 			Allowed:             ok,
 			Remember:            ok && remember,
 			AllowWithPermission: grant,
@@ -595,6 +594,6 @@ func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 		if answersJSON != "" {
 			_ = json.Unmarshal([]byte(answersJSON), &answers)
 		}
-		req.Response <- common.QuestionReply{Answers: answers, Rejected: rejected}
+		req.Response <- view.QuestionReply{Answers: answers, Rejected: rejected}
 	}
 }

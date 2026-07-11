@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"nekocode/bot/view"
 	"os"
 	"sync"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
-	"nekocode/common"
 )
 
 // fakeToolForPerm is a minimal tool for permission-engine integration tests.
@@ -40,7 +40,7 @@ func newPermTestExecutor(t *testing.T) *Executor {
 
 func TestPermEngine_DeniesSudo(t *testing.T) {
 	e := newPermTestExecutor(t)
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() })
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply { return view.AllowOnce() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "shell", Args: map[string]any{"command": "sudo rm -rf /"}},
@@ -53,9 +53,9 @@ func TestPermEngine_DeniesSudo(t *testing.T) {
 func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
 	e := newPermTestExecutor(t)
 	asked := false
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		asked = true
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -71,9 +71,9 @@ func TestPermEngine_GitAddDoesNotMatchDdDeny(t *testing.T) {
 
 func TestPermEngine_DeniesDdCommand(t *testing.T) {
 	e := newPermTestExecutor(t)
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		t.Fatal("dd deny should not ask for confirmation")
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -87,9 +87,9 @@ func TestPermEngine_DeniesDdCommand(t *testing.T) {
 func TestPermEngine_AsksForUnrememberedShellCommand(t *testing.T) {
 	e := newPermTestExecutor(t)
 	asked := false
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		asked = true
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -106,9 +106,9 @@ func TestPermEngine_AsksForUnrememberedShellCommand(t *testing.T) {
 func TestPermEngine_AsksForRm(t *testing.T) {
 	e := newPermTestExecutor(t)
 	asked := false
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		asked = true
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -124,7 +124,7 @@ func TestPermEngine_AsksForRm(t *testing.T) {
 
 func TestPermEngine_AskDeniedCancels(t *testing.T) {
 	e := newPermTestExecutor(t)
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply { return view.Deny() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "shell", Args: map[string]any{"command": "rm -rf /tmp/x"}},
@@ -137,9 +137,9 @@ func TestPermEngine_AskDeniedCancels(t *testing.T) {
 func TestPermEngine_WriteToolNoPrompt(t *testing.T) {
 	e := newPermTestExecutor(t)
 	called := false
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		called = true
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -162,7 +162,7 @@ func TestPermEngine_DeclaredDenyOverridesBuiltinAllow(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{
 		Deny: []string{"Bash(git push *)"},
 	}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() })
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply { return view.AllowOnce() })
 
 	r := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "shell", Args: map[string]any{"command": "git push origin main"}},
@@ -183,11 +183,11 @@ func TestPermEngine_RememberedAllowSkipsFuturePrompt(t *testing.T) {
 
 	var mu sync.Mutex
 	askCount := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		mu.Lock()
 		askCount++
 		mu.Unlock()
-		return common.AllowRemembered()
+		return view.AllowRemembered()
 	})
 
 	// First rm call: asks, user allows + remember → rule persisted.
@@ -227,9 +227,9 @@ func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	askCount := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		askCount++
-		return common.AllowRemembered()
+		return view.AllowRemembered()
 	})
 
 	cmd := `echo "喵~ 你好！" && date && uname -a`
@@ -255,9 +255,9 @@ func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	askCount := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		askCount++
-		return common.AllowRemembered()
+		return view.AllowRemembered()
 	})
 
 	e.ExecuteBatch(context.Background(), []core.ToolCallItem{
@@ -287,9 +287,9 @@ func TestPermEngine_UnrememberedSubcommandInCompoundAsks(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	asked := false
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		asked = true
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	cmd := `echo "=== 测试 ===" && go test ./... && echo "" && echo "=== 项目模块 ===" && head -5 go.mod && echo "" && echo "=== 最近 git 日志 ===" && git log --oneline -5`

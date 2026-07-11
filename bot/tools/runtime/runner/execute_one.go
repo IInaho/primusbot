@@ -3,12 +3,12 @@ package runner
 import (
 	"context"
 	"fmt"
+	"nekocode/bot/view"
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
-	"nekocode/common"
 )
 
 func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.ToolCallResult {
@@ -20,7 +20,7 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 
 	phaseFn, confirmFn, planMode := e.callbacks()
 	if phaseFn != nil {
-		phaseFn(common.PhaseRunning + " " + tc.Name)
+		phaseFn(view.PhaseRunning + " " + tc.Name)
 	}
 	if planMode {
 		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "plan mode: blocked"}
@@ -200,9 +200,9 @@ func defaultPermissionEffect(toolName string) permission.Effect {
 // request. Offering a "允许并授权" button on a call that cannot escalate is
 // misleading and used to leave stale pre-approval tokens that could be reused
 // elsewhere.
-func (e *Executor) promptConfirm(tc core.ToolCallItem, tool core.Tool, confirmFn common.ConfirmFunc, predictedReq *core.PermissionRequest, dec permissionDecision) (common.ConfirmReply, bool) {
+func (e *Executor) promptConfirm(tc core.ToolCallItem, tool core.Tool, confirmFn view.ConfirmFunc, predictedReq *core.PermissionRequest, dec permissionDecision) (view.ConfirmReply, bool) {
 	if confirmFn == nil {
-		return common.ConfirmReply{}, false
+		return view.ConfirmReply{}, false
 	}
 	toolName := dec.promptTool
 	if toolName == "" {
@@ -212,7 +212,7 @@ func (e *Executor) promptConfirm(tc core.ToolCallItem, tool core.Tool, confirmFn
 	if args == nil {
 		args = tc.Args
 	}
-	req := common.NewConfirmRequest(toolName, args, common.ConfirmKindPermission)
+	req := view.NewConfirmRequest(toolName, args, view.ConfirmKindPermission)
 	if _, isPrivileged := tool.(core.PrivilegedTool); isPrivileged && predictedReq != nil {
 		req.CanEscalatePermission = true
 	}
@@ -260,7 +260,7 @@ func (e *Executor) rememberAllowRule(toolName string, args map[string]any, match
 	e.rebuildEngine(decl, store, ws)
 }
 
-func (e *Executor) callbacks() (common.PhaseFunc, common.ConfirmFunc, bool) {
+func (e *Executor) callbacks() (view.PhaseFunc, view.ConfirmFunc, bool) {
 	e.fnMu.RLock()
 	defer e.fnMu.RUnlock()
 	return e.phaseFn, e.confirmFn, e.planMode

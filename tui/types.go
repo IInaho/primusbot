@@ -2,7 +2,7 @@
 package tui
 
 import (
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 type notifyMsg struct {
@@ -26,11 +26,11 @@ type doneMsg struct {
 }
 
 type confirmMsg struct {
-	req common.ConfirmRequest
+	req view.ConfirmRequest
 }
 
 type questionMsg struct {
-	req common.QuestionRequest
+	req view.QuestionRequest
 }
 
 type summarizeDoneMsg struct {

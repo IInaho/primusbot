@@ -43,3 +43,48 @@ type MCPServerView struct {
 	Error         string   `json:"error,omitempty"`
 	ToolCount     int      `json:"toolCount,omitempty"`
 }
+
+type MCPServerViewInput struct {
+	Name    string
+	Plugin  string
+	Command string
+	Args    []string
+	Enabled bool
+}
+
+type MCPHealth struct {
+	Status    string
+	Error     string
+	ToolCount int
+}
+
+func NewMCPServerView(in MCPServerViewInput) MCPServerView {
+	view := MCPServerView{
+		Name:          in.Name,
+		Plugin:        in.Plugin,
+		Command:       in.Command,
+		Args:          append([]string(nil), in.Args...),
+		PluginEnabled: in.Enabled,
+	}
+	if !in.Enabled {
+		view.Status = "disabled"
+	}
+	return view
+}
+
+func ApplyMCPHealth(servers []MCPServerView, health map[string]MCPHealth) {
+	for i := range servers {
+		if !servers[i].PluginEnabled {
+			servers[i].Status = "disabled"
+			continue
+		}
+		h, ok := health[servers[i].Name]
+		if !ok {
+			servers[i].Status = "unknown"
+			continue
+		}
+		servers[i].Status = h.Status
+		servers[i].Error = h.Error
+		servers[i].ToolCount = h.ToolCount
+	}
+}

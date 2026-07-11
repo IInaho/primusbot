@@ -4,11 +4,11 @@ package main
 
 import (
 	"log"
+	"nekocode/bot/view"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"nekocode/common"
 	components "nekocode/tui/components"
 	"nekocode/tui/components/block"
 	"nekocode/tui/components/message"
@@ -60,20 +60,20 @@ func renderConfirmations() string {
 
 func renderConfirmEdit() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "edit",
 		Args: map[string]any{
 			"path": "bot/tools/builtin/tool_edit.go",
 		},
-		Kind:     common.ConfirmKindPermission,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindPermission,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
 
 func renderConfirmBashMassive() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
 			"command": `python3 << 'PYEOF'
@@ -103,15 +103,15 @@ if __name__ == "__main__":
     process_data("/tmp/input.json", "/tmp/output.json")
 PYEOF`,
 		},
-		Kind:     common.ConfirmKindPermission,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindPermission,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 80)
 }
 
 func renderConfirmPermission() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 "go test ./...",
@@ -121,15 +121,15 @@ func renderConfirmPermission() string {
 			"workspace":               "/home/user/project",
 			"sandbox":                 "native",
 		},
-		Kind:     common.ConfirmKindPermission,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindPermission,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
 
 func renderConfirmProcessHost() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
@@ -139,35 +139,35 @@ func renderConfirmProcessHost() string {
 			"workspace":               "/home/lznauy/precode/NekoCode",
 			"sandbox":                 "native",
 		},
-		Kind:     common.ConfirmKindPermission,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindPermission,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
 
 func renderConfirmWrite() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "write",
 		Args: map[string]any{
 			"path": "/tmp/nekocode/generated_report.md",
 		},
-		Kind:     common.ConfirmKindPermission,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindPermission,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }
 
 func renderConfirmPlugin() string {
 	cb := components.NewConfirmBar(&sty)
-	cb.SetRequest(&common.ConfirmRequest{
+	cb.SetRequest(&view.ConfirmRequest{
 		ToolName: "/plugin install",
 		Args: map[string]any{
 			"source":  "github.com/example/some-skill",
 			"summary": "Install github.com/example/some-skill (v1.2.3) — adds markdown linting support",
 		},
-		Kind:     common.ConfirmKindInstall,
-		Response: make(chan common.ConfirmReply, 1),
+		Kind:     view.ConfirmKindInstall,
+		Response: make(chan view.ConfirmReply, 1),
 	})
 	return cb.View(width, 40)
 }

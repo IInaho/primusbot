@@ -2,20 +2,20 @@ package model
 
 import (
 	"context"
+	"nekocode/bot/view"
 	"strings"
 	"time"
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
+	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
-	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/llmstream"
 	"nekocode/common/debug"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
 )
 
 type Host interface {
@@ -52,7 +52,7 @@ func CallLLMWithRetry(ctx context.Context, client provider.LLM, buildOptions fun
 }
 
 func (r *Runner) Reason(input string) *Result {
-	r.host.Phase(common.PhaseThinking)
+	r.host.Phase(view.PhaseThinking)
 	if strings.HasPrefix(input, "/") && !strings.Contains(input, " ") {
 		return CommandResult()
 	}

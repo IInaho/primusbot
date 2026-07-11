@@ -2,18 +2,18 @@ package tools
 
 import (
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
+	"nekocode/util/registry"
 )
 
 // Registry is a thread-safe tool registry backed by a generic registry.
 type Registry struct {
-	*common.Registry[core.Tool]
+	*registry.Registry[core.Tool]
 }
 
 // NewRegistry creates a new tool registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		Registry: common.NewRegistry[core.Tool](func(t core.Tool) string { return t.Name() }),
+		Registry: registry.New[core.Tool](func(t core.Tool) string { return t.Name() }),
 	}
 }
 

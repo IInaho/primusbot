@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"nekocode/bot/view"
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
-	"nekocode/common"
 )
 
 // escalationFailReason explains why tryPermissionEscalation could not satisfy
@@ -34,7 +34,7 @@ const (
 //     (the raw PermissionError for non-retry failures; the actual
 //     ExecuteWithPermission error for failRetryError so the model isn't told
 //     "permission required" after it already got approval)
-func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn common.ConfirmFunc, preApproved escalationApproval, hasPreApproval bool) (output string, ok bool, reason escalationFailReason, causeErr error) {
+func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, tc core.ToolCallItem, execErr error, confirmFn view.ConfirmFunc, preApproved escalationApproval, hasPreApproval bool) (output string, ok bool, reason escalationFailReason, causeErr error) {
 	causeErr = execErr
 	var permErr core.PermissionError
 	if !errors.As(execErr, &permErr) {
@@ -83,7 +83,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 		}
 		return "", false, failRetryError, err
 	}
-	confirmReq := common.NewConfirmRequest(canonicalPermissionTool(tc.Name), permissionConfirmArgs(tc.Args, req), common.ConfirmKindPermission)
+	confirmReq := view.NewConfirmRequest(canonicalPermissionTool(tc.Name), permissionConfirmArgs(tc.Args, req), view.ConfirmKindPermission)
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
 		return "", false, failUserDenied, execErr

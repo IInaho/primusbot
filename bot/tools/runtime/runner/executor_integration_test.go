@@ -2,6 +2,7 @@ package runner_test
 
 import (
 	"context"
+	"nekocode/bot/view"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,6 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/runner"
-	"nekocode/common"
 )
 
 type testTool struct{ name string }
@@ -89,7 +89,7 @@ func TestExecutorConfirm(t *testing.T) {
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"writer"}}, "/repo", "/home/user")
 
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply { return view.Deny() })
 
 	results := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "writer"},
@@ -105,9 +105,9 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	prompts := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		prompts++
-		if req.Kind != common.ConfirmKindPermission {
+		if req.Kind != view.ConfirmKindPermission {
 			t.Fatalf("unexpected confirm kind: %+v", req)
 		}
 		if req.ToolName != "shell" {
@@ -122,7 +122,7 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		if req.CanEscalatePermission {
 			t.Fatalf("plain shell command should not expose merged capability escalation: %+v", req)
 		}
-		return common.ConfirmReply{Allowed: true}
+		return view.ConfirmReply{Allowed: true}
 	})
 
 	start := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -163,9 +163,9 @@ func TestExecutorShellRunAppliesBashDenyRules(t *testing.T) {
 	r.Register(&shell.ShellTool{})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		t.Fatalf("denied shell command should not prompt: %+v", req)
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{

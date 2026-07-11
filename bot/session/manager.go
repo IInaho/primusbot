@@ -10,9 +10,8 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/common"
-	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
+	"nekocode/bot/provider/types"
 	"nekocode/util/fs"
 )
 
@@ -107,13 +106,7 @@ func (m *Manager) ClearContext() {
 	}
 }
 
-func (m *Manager) DisplayMessages() []common.DisplayMessage {
-	if m.ctx == nil {
-		return nil
-	}
-	snap := m.ctx.Snapshot()
-	return DisplayMessages(snap.Messages, snap.CompactBoundary)
-}
+func (m *Manager) Context() ContextStore { return m.ctx }
 
 func (m *Manager) Save() error {
 	sess, err := m.ensureCurrent()

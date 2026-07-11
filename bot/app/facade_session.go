@@ -8,8 +8,7 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
-	"nekocode/common"
-	"nekocode/common/ui"
+	"nekocode/bot/view"
 )
 
 type sessionFacade struct {
@@ -117,8 +116,12 @@ func (s *sessionFacade) CWD() string                { return s.mgr.CWD() }
 func (s *sessionFacade) CurrentID() string          { return s.mgr.CurrentID() }
 func (s *sessionFacade) Set(sess *session.Snapshot) { s.mgr.Set(sess) }
 func (s *sessionFacade) ClearContext()              { s.mgr.ClearContext() }
-func (s *sessionFacade) DisplayMessages() []common.DisplayMessage {
-	return s.mgr.DisplayMessages()
+func (s *sessionFacade) DisplayMessages() []view.DisplayMessage {
+	if s.mgr.Context() == nil {
+		return nil
+	}
+	snap := s.mgr.Context().Snapshot()
+	return view.DisplayMessages(snap.Messages, snap.CompactBoundary)
 }
 
 func (b *Bot) CWD() string              { return b.sess.CWD() }
@@ -134,7 +137,7 @@ func (b *Bot) SetSession(id string) error {
 }
 
 func (b *Bot) ClearContext() { b.sess.ClearContext() }
-func (b *Bot) SessionMessages() []common.DisplayMessage {
+func (b *Bot) SessionMessages() []view.DisplayMessage {
 	return b.sess.DisplayMessages()
 }
 
@@ -147,36 +150,19 @@ func (b *Bot) ResumeSession(id string) error {
 }
 
 // ListSessions returns metadata for all persisted sessions.
-func (b *Bot) ListSessions() []ui.SessionMeta {
-	list := session.List()
-	out := make([]ui.SessionMeta, 0, len(list))
-	for _, m := range list {
-		out = append(out, ui.SessionMeta{
-			ID:        m.ID,
-			CWD:       m.CWD,
-			CreatedAt: m.CreatedAt,
-			UpdatedAt: m.UpdatedAt,
-			MsgCount:  m.MsgCount,
-		})
-	}
-	return out
+func (b *Bot) ListSessions() []view.SessionMeta {
+	return view.SessionMetas(session.List())
 }
 
 // NewSession creates a fresh session and makes it current.
-func (b *Bot) NewSession() (ui.SessionMeta, error) {
+func (b *Bot) NewSession() (view.SessionMeta, error) {
 	sess, err := session.New(b.cwd)
 	if err != nil {
-		return ui.SessionMeta{}, err
+		return view.SessionMeta{}, err
 	}
 	b.sess.Set(sess)
 	b.syncHookSessionID()
-	return ui.SessionMeta{
-		ID:        sess.ID,
-		CWD:       sess.CWD,
-		CreatedAt: sess.CreatedAt,
-		UpdatedAt: sess.UpdatedAt,
-		MsgCount:  0,
-	}, nil
+	return view.NewSessionMeta(sess.ID, sess.CWD, sess.CreatedAt, sess.UpdatedAt, 0), nil
 }
 
 // DeleteSession removes a persisted session by id. If it was the current

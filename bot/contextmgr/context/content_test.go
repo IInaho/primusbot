@@ -1,11 +1,11 @@
 package context
 
 import (
+	"nekocode/bot/todo"
 	"strings"
 	"testing"
 
 	"nekocode/bot/provider/types"
-	"nekocode/common"
 )
 
 func TestNew(t *testing.T) {
@@ -20,7 +20,7 @@ func TestNew(t *testing.T) {
 
 func TestLoadTodos(t *testing.T) {
 	c := New("")
-	c.LoadTodos([]common.TodoItem{
+	c.LoadTodos([]todo.Item{
 		{Content: "task 1", Status: "pending"},
 		{Content: "task 2", Status: "completed"},
 	})
@@ -37,13 +37,13 @@ func TestAllTasksDone(t *testing.T) {
 	if !c.AllTasksDone() {
 		t.Error("empty list should be 'done'")
 	}
-	c.LoadTodos([]common.TodoItem{
+	c.LoadTodos([]todo.Item{
 		{Content: "a", Status: "completed"},
 	})
 	if !c.AllTasksDone() {
 		t.Error("all completed should be 'done'")
 	}
-	c.LoadTodos([]common.TodoItem{
+	c.LoadTodos([]todo.Item{
 		{Content: "a", Status: "pending"},
 	})
 	if c.AllTasksDone() {
@@ -116,7 +116,7 @@ func TestBuildLayer05_Empty(t *testing.T) {
 
 func TestBuildLayer2(t *testing.T) {
 	c := New("")
-	c.LoadTodos([]common.TodoItem{{Content: "x", Status: "pending"}})
+	c.LoadTodos([]todo.Item{{Content: "x", Status: "pending"}})
 	c.Hints = "<hint>"
 	msgs := c.BuildLayer2()
 	if len(msgs) != 2 {
@@ -134,7 +134,7 @@ func TestBuildLayer2_Empty(t *testing.T) {
 
 func TestFormatTodoItems_AllDone(t *testing.T) {
 	c := New("")
-	c.LoadTodos([]common.TodoItem{
+	c.LoadTodos([]todo.Item{
 		{Content: "a", Status: "completed"},
 		{Content: "b", Status: "completed"},
 	})
@@ -145,7 +145,7 @@ func TestFormatTodoItems_AllDone(t *testing.T) {
 
 func TestFormatTodoItems_Mixed(t *testing.T) {
 	c := New("")
-	c.LoadTodos([]common.TodoItem{
+	c.LoadTodos([]todo.Item{
 		{Content: "a", Status: "completed"},
 		{Content: "b", Status: "pending"},
 	})

@@ -52,7 +52,7 @@ func (s *runState) addTokens(cfg RunConfig) func(int, int) {
 }
 
 func (s *runState) meta(ctxMgr *ctxmgr.Manager) runMeta {
-	hit, miss := ctxMgr.Tracker.CacheStats()
+	hit, miss := ctxMgr.CacheStats()
 	return runMeta{
 		totalTokens:     s.totalTokens,
 		toolUseCount:    s.toolUseCount,

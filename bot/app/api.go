@@ -6,11 +6,8 @@ import (
 	"nekocode/bot/agent/runtime"
 	"nekocode/bot/command"
 	"nekocode/bot/config"
-	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/extension"
-	"nekocode/common"
-	"nekocode/common/ui"
-	"nekocode/util/duration"
+	"nekocode/bot/view"
 )
 
 func (b *Bot) Steer(msg string) { b.getAgent().Steer(msg) }
@@ -33,12 +30,12 @@ func (b *Bot) ProviderModel() (string, string) {
 
 func (b *Bot) CommandNames() []string { return b.cmdParser.Commands() }
 
-func (b *Bot) ExecuteCommand(input string) (string, common.CmdResult) {
+func (b *Bot) ExecuteCommand(input string) (string, view.CmdResult) {
 	b.skillState.WantsAgent = false
 	cmd := b.cmdParser.Parse(input)
 	if cmd.Name == "" {
 		command.ClearSkillContext(b.ctxMgr, b.skillState)
-		return "", common.CmdNone
+		return "", view.CmdNone
 	}
 	resp, _ := b.cmdParser.Execute(cmd)
 
@@ -55,14 +52,14 @@ func (b *Bot) ExecuteCommand(input string) (string, common.CmdResult) {
 	return resp, result
 }
 
-func commandResult(pendingConfirm, sessionResumed bool) common.CmdResult {
+func commandResult(pendingConfirm, sessionResumed bool) view.CmdResult {
 	switch {
 	case pendingConfirm:
-		return common.CmdConfirming
+		return view.CmdConfirming
 	case sessionResumed:
-		return common.CmdSessionResumed
+		return view.CmdSessionResumed
 	default:
-		return common.CmdHandled
+		return view.CmdHandled
 	}
 }
 
@@ -80,7 +77,7 @@ func (b *Bot) getAgent() *runtime.Agent {
 	return b.ag
 }
 
-func (b *Bot) Run(input string, callbacks common.RunCallbacks) (string, error) {
+func (b *Bot) Run(input string, callbacks view.RunCallbacks) (string, error) {
 	if callbacks.Text != nil || callbacks.Reason != nil {
 		b.SetCallbacks(callbacks.Text, callbacks.Reason)
 	}
@@ -97,19 +94,19 @@ func (b *Bot) RunAgent(input string, onStep func(action, toolName, toolArgs, out
 	return result.FinalOutput, result.Error
 }
 
-func (b *Bot) ConfigView() ui.ConfigView {
+func (b *Bot) ConfigView() view.ConfigView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return config.NewView(*b.cfg)
+	return view.NewConfigView(*b.cfg)
 }
 
-func (b *Bot) ApplyConfig(view ui.ConfigView) (ui.ConfigView, error) {
-	next := config.ToConfig(view)
+func (b *Bot) ApplyConfig(cfgView view.ConfigView) (view.ConfigView, error) {
+	next := view.ToConfig(cfgView)
 	if err := config.Validate(&next); err != nil {
-		return ui.ConfigView{}, err
+		return view.ConfigView{}, err
 	}
 	if err := config.Save(next); err != nil {
-		return ui.ConfigView{}, err
+		return view.ConfigView{}, err
 	}
 
 	b.mu.Lock()
@@ -122,7 +119,7 @@ func (b *Bot) ApplyConfig(view ui.ConfigView) (ui.ConfigView, error) {
 
 	go b.reloadRuntime(oldPrompt, oldCompl)
 
-	return config.NewView(next), nil
+	return view.NewConfigView(next), nil
 }
 
 func (b *Bot) reloadRuntime(oldPrompt, oldCompl int) {
@@ -163,58 +160,14 @@ func (b *Bot) ContextReport() string {
 	return command.ContextReport(b.ctxMgr, b.toolRegistry.Descriptors())
 }
 
-func (b *Bot) ContextSnapshot() common.ContextSnapshot {
+func (b *Bot) ContextSnapshot() view.ContextSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	r := b.ctxMgr.Report()
 	r.ToolDefCount = len(b.toolRegistry.Descriptors())
 	r.ToolDefTokens = command.EstimateToolDefTokens(b.toolRegistry.Descriptors())
-	return buildContextSnapshot(r)
-}
-
-func buildContextSnapshot(r ctxmgr.ContextReport) common.ContextSnapshot {
-	used := r.SystemPrompt + r.ToolDefTokens + r.TodoText + r.SkillList + r.Messages
-	free := max(r.Budget-used, 0)
-	percentUsed := 0.0
-	if r.Budget > 0 {
-		percentUsed = min(float64(used)/float64(r.Budget), 1)
-	}
-
-	return common.ContextSnapshot{
-		Budget:          r.Budget,
-		Used:            used,
-		Free:            free,
-		PercentUsed:     percentUsed,
-		SystemPrompt:    r.SystemPrompt,
-		ToolDefTokens:   r.ToolDefTokens,
-		TodoText:        r.TodoText,
-		SkillList:       r.SkillList,
-		MessageTokens:   r.Messages,
-		ToolDefCount:    r.ToolDefCount,
-		MessageCount:    r.UserMessages + r.AssistantMsgs + r.ToolResults,
-		UserMessages:    r.UserMessages,
-		AssistantMsgs:   r.AssistantMsgs,
-		ToolResults:     r.ToolResults,
-		Archived:        r.Archived,
-		CompactCount:    r.CompactCount,
-		TrimCount:       r.TrimCount,
-		CacheHitTokens:  r.CacheHitTokens,
-		CacheMissTokens: r.CacheMissTokens,
-		CacheHitRatio:   r.CacheHitRatio,
-		SubCount:        r.SubCount,
-		SubTokens:       r.SubTokens,
-		SubCacheHit:     r.SubCacheHit,
-		SubCacheMiss:    r.SubCacheMiss,
-		Segments: []common.ContextSegment{
-			{Key: "system", Label: "系统提示", Tokens: r.SystemPrompt, Tone: "muted"},
-			{Key: "tools", Label: "工具定义", Tokens: r.ToolDefTokens, Tone: "blue"},
-			{Key: "todo", Label: "待办", Tokens: r.TodoText, Tone: "orange"},
-			{Key: "skills", Label: "Skills", Tokens: r.SkillList, Tone: "yellow"},
-			{Key: "messages", Label: "对话消息", Tokens: r.Messages, Tone: "violet"},
-			{Key: "free", Label: "剩余", Tokens: free, Tone: "free"},
-		},
-	}
+	return view.NewContextSnapshot(r)
 }
 
 func (b *Bot) SelectSkill(name string) error {
@@ -261,20 +214,20 @@ func (b *Bot) RefreshSkillManagement() extension.SkillManagementView {
 	return b.ext.RefreshSkillManagement()
 }
 
-func (b *Bot) Stats() common.BotStats {
+func (b *Bot) Stats() view.BotStats {
 	ag := b.getAgent()
 
 	p, c := ag.TokenUsage()
 	tp, tc := ag.TurnTokenUsage()
 	d := ag.Duration()
 	compactCount, _ := b.ctxMgr.CompactStats()
-	return common.BotStats{
+	return view.NewBotStats(view.BotStatsInput{
 		PromptTokens:     p,
 		CompletionTokens: c,
 		TurnPrompt:       tp,
 		TurnCompletion:   tc,
 		ContextTokens:    ag.ContextTokens(),
 		CompactCount:     compactCount,
-		Duration:         duration.FormatDuration(d),
-	}
+		Duration:         d,
+	})
 }

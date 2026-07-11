@@ -2,12 +2,12 @@ package runtime
 
 import (
 	"context"
+	"nekocode/bot/view"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"nekocode/bot/hooks"
-	"nekocode/common"
 	"nekocode/common/debug"
 )
 
@@ -133,7 +133,7 @@ func (g *responseGate) TryRetry(reason string) (retry bool, hint string) {
 func (g *responseGate) Reset() { g.retries = 0 }
 
 type streamState struct {
-	phase      common.PhaseFunc
+	phase      view.PhaseFunc
 	text       StreamCallback
 	reasoning  ReasoningCallback
 	lastReason string

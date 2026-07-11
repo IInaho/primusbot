@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"nekocode/bot/config"
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 func TestApplyConfigReturnsWithoutSelfDeadlock(t *testing.T) {
@@ -14,7 +14,7 @@ func TestApplyConfigReturnsWithoutSelfDeadlock(t *testing.T) {
 	b := New()
 	done := make(chan error, 1)
 	go func() {
-		_, err := b.ApplyConfig(config.NewView(config.Default))
+		_, err := b.ApplyConfig(view.NewConfigView(config.Default))
 		done <- err
 	}()
 
@@ -32,12 +32,12 @@ func TestReinitPreservesConfiguredCallbacks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	b := New()
-	confirmFn := func(common.ConfirmRequest) common.ConfirmReply { return common.AllowOnce() }
+	confirmFn := func(view.ConfirmRequest) view.ConfirmReply { return view.AllowOnce() }
 	phaseFn := func(string) {}
-	todoFn := func([]common.TodoItem) {}
+	todoFn := func([]view.TodoItem) {}
 	notifyFn := func(string) {}
-	questionFn := func(common.QuestionRequest) common.QuestionReply { return common.QuestionReply{} }
-	ch := make(chan common.ConfirmRequest)
+	questionFn := func(view.QuestionRequest) view.QuestionReply { return view.QuestionReply{} }
+	ch := make(chan view.ConfirmRequest)
 
 	b.Configure(confirmFn, phaseFn, todoFn, notifyFn, ch, questionFn)
 	cb := b.cb

@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/common"
+	"nekocode/bot/view"
 	"nekocode/tui/styles"
 
 	"charm.land/lipgloss/v2"
 )
 
 type QuestionBar struct {
-	req       *common.QuestionRequest
+	req       *view.QuestionRequest
 	sty       *styles.Styles
 	activeQ   int
 	activeOpt int
@@ -23,7 +23,7 @@ func NewQuestionBar(sty *styles.Styles) *QuestionBar {
 	return &QuestionBar{sty: sty, selected: make(map[int]map[int]bool)}
 }
 
-func (q *QuestionBar) SetRequest(req *common.QuestionRequest) {
+func (q *QuestionBar) SetRequest(req *view.QuestionRequest) {
 	q.req = req
 	q.activeQ = 0
 	q.activeOpt = 0
@@ -127,7 +127,7 @@ func (q *QuestionBar) Submit() {
 			}
 		}
 	}
-	q.req.Response <- common.QuestionReply{Answers: answers}
+	q.req.Response <- view.QuestionReply{Answers: answers}
 	q.req = nil
 }
 
@@ -135,7 +135,7 @@ func (q *QuestionBar) Reject() {
 	if q.req == nil {
 		return
 	}
-	q.req.Response <- common.QuestionReply{Rejected: true}
+	q.req.Response <- view.QuestionReply{Rejected: true}
 	q.req = nil
 }
 

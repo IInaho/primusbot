@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"nekocode/bot/view"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
-	"nekocode/common"
 )
 
 type fakeRegistry map[string]core.Tool
@@ -104,9 +104,9 @@ func TestExecutorShellSessionActionsDoNotPromptByDefault(t *testing.T) {
 		"shell": fakeTool{name: "shell", mode: core.ModeParallel},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		t.Fatal("shell wait/poll/list should not prompt by default")
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -127,9 +127,9 @@ func TestExecutorShellRunDoesNotDoublePromptAfterCommandAllow(t *testing.T) {
 		"shell": fakeTool{name: "shell", mode: core.ModeSequential},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		t.Fatal("shell run should not prompt again after command-level allow")
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -150,7 +150,7 @@ func TestExecutorConfirmDenial(t *testing.T) {
 		"writer": fakeTool{name: "writer", mode: core.ModeSequential},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"writer"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply { return view.Deny() })
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "writer"}})[0]
 	if got.Error == "" {
@@ -171,7 +171,7 @@ func TestExecutorWorkspacePromptAddsReadRoot(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"read": tool})
 
 	prompts := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		prompts++
 		if req.ToolName != "workspace" {
 			t.Fatalf("workspace access should prompt as workspace, got %+v", req)
@@ -179,7 +179,7 @@ func TestExecutorWorkspacePromptAddsReadRoot(t *testing.T) {
 		if req.Args["access"] != string(workspace.AccessReadOnly) {
 			t.Fatalf("read should request read-only access, got %+v", req.Args)
 		}
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	target := filepath.Join(extra, "a.go")
@@ -209,7 +209,7 @@ func TestExecutorWorkspaceDenialBlocksBeforeExecute(t *testing.T) {
 	})
 	tool := &captureTool{fakeTool: fakeTool{name: "write", mode: core.ModeSequential}}
 	e := NewExecutor(fakeRegistry{"write": tool})
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply { return common.Deny() })
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply { return view.Deny() })
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID: "1", Name: "write", Args: map[string]any{"path": filepath.Join(extra, "a.go")},
@@ -317,9 +317,9 @@ func TestExecutorUsesPersistedGrant(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		t.Fatal("confirm should not be called when a persisted grant matches")
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -342,8 +342,8 @@ func TestExecutorPermissionAllowOnceDoesNotPersistGrant(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.AllowOnce()
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.AllowOnce()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -405,8 +405,8 @@ func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.ConfirmReply{Allowed: true, AllowWithPermission: true} // Remember: false
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.ConfirmReply{Allowed: true, AllowWithPermission: true} // Remember: false
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -449,8 +449,8 @@ func TestIssue_RetryAfterOneTimeApproval(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.ConfirmReply{Allowed: true, AllowWithPermission: true}
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.ConfirmReply{Allowed: true, AllowWithPermission: true}
 	})
 
 	first := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -477,8 +477,8 @@ func TestExecutorPreApprovedEscalationRememberPersistsGrant(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.ConfirmReply{Allowed: true, Remember: true, AllowWithPermission: true}
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.ConfirmReply{Allowed: true, Remember: true, AllowWithPermission: true}
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -504,8 +504,8 @@ func TestExecutorRecognizesWrappedPermissionError(t *testing.T) {
 	}
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.AllowOnce()
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.AllowOnce()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -523,8 +523,8 @@ func TestExecutorPermissionRememberPersistsGrant(t *testing.T) {
 	e := NewExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
-		return common.AllowRemembered()
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
+		return view.AllowRemembered()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -610,18 +610,18 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 
 	confirmCount := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		// basic prompt for call A: Allow + pre-approve escalation.
 		// basic prompt for call B: Allow (no escalation).
 		// any escalation dialog for call B: deny (so we expect a fresh dialog).
 		confirmCount++
 		switch confirmCount {
 		case 1:
-			return common.ConfirmReply{Allowed: true, AllowWithPermission: true}
+			return view.ConfirmReply{Allowed: true, AllowWithPermission: true}
 		case 2:
-			return common.ConfirmReply{Allowed: true} // no escalation
+			return view.ConfirmReply{Allowed: true} // no escalation
 		default:
-			return common.Deny()
+			return view.Deny()
 		}
 	})
 
@@ -717,9 +717,9 @@ func TestExecutor_SkipsBasicPromptWhenGrantMatches(t *testing.T) {
 	// confirmFn must NEVER fire — the basic dialog is skipped because the
 	// predicted grant already covers the declared caps; the escalation path
 	// then silently re-runs via ExecuteWithPermission.
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		t.Fatal("confirm must not be called when a grant already matches the declaration")
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -762,10 +762,10 @@ func TestExecutor_AskRuleStillPromptsDespiteGrant(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	calls := 0
-	e.SetConfirmFn(func(common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(view.ConfirmRequest) view.ConfirmReply {
 		calls++
 		// User denies the basic prompt — rm is dangerous.
-		return common.Deny()
+		return view.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -810,14 +810,14 @@ func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 	// Basic dialog: user allows (so we get to the escalation dialog).
 	// Escalation dialog: user denies.
 	promptIdx := 0
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		promptIdx++
 		// The basic prompt carries the original args (no permission_reason);
 		// the escalation prompt carries permission_reason.
 		if _, isPerm := req.Args["permission_reason"]; isPerm {
-			return common.Deny() // user dismissed the escalation dialog
+			return view.Deny() // user dismissed the escalation dialog
 		}
-		return common.AllowOnce() // basic prompt: allow
+		return view.AllowOnce() // basic prompt: allow
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -851,10 +851,10 @@ func TestExecutorShellRunPromptsCommandThenNetwork(t *testing.T) {
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
-	var prompts []common.ConfirmRequest
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	var prompts []view.ConfirmRequest
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		prompts = append(prompts, req)
-		return common.AllowOnce()
+		return view.AllowOnce()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -921,11 +921,11 @@ func TestExecutor_PermissionRetryErrorShowsRealRuntimeFailure(t *testing.T) {
 
 	// Basic dialog: user allows (no need for "并授权" since we test the
 	// escalation dialog path directly).
-	e.SetConfirmFn(func(req common.ConfirmRequest) common.ConfirmReply {
+	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
 		if _, isPerm := req.Args["permission_reason"]; isPerm {
-			return common.AllowOnce() // escalation dialog → user clicks 允许
+			return view.AllowOnce() // escalation dialog → user clicks 允许
 		}
-		return common.AllowOnce() // basic dialog → allow
+		return view.AllowOnce() // basic dialog → allow
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{

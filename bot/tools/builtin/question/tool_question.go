@@ -7,12 +7,12 @@ import (
 	"sync"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/common"
+	"nekocode/bot/view"
 )
 
 type Tool struct {
 	mu sync.RWMutex
-	fn common.QuestionFunc
+	fn view.QuestionFunc
 }
 
 func NewTool() *Tool { return &Tool{} }
@@ -35,13 +35,13 @@ func (t *Tool) Parameters() []core.Parameter {
 	}
 }
 
-func (t *Tool) SetQuestionFunc(fn common.QuestionFunc) {
+func (t *Tool) SetQuestionFunc(fn view.QuestionFunc) {
 	t.mu.Lock()
 	t.fn = fn
 	t.mu.Unlock()
 }
 
-func (t *Tool) questionFunc() common.QuestionFunc {
+func (t *Tool) questionFunc() view.QuestionFunc {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.fn
@@ -63,7 +63,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("question UI is not available")
 	}
 
-	req := common.NewQuestionRequest(questions)
+	req := view.NewQuestionRequest(questions)
 	reply := fn(req)
 	if reply.Rejected {
 		return "", fmt.Errorf("question rejected")
@@ -71,12 +71,12 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	return formatAnswers(questions, reply.Answers), nil
 }
 
-func parseQuestions(args map[string]any) ([]common.QuestionItem, error) {
+func parseQuestions(args map[string]any) ([]view.QuestionItem, error) {
 	raw, ok := args["questions"].([]any)
 	if !ok || len(raw) == 0 {
 		return nil, fmt.Errorf("questions must be a non-empty array")
 	}
-	out := make([]common.QuestionItem, 0, len(raw))
+	out := make([]view.QuestionItem, 0, len(raw))
 	for i, item := range raw {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -88,7 +88,7 @@ func parseQuestions(args map[string]any) ([]common.QuestionItem, error) {
 			return nil, fmt.Errorf("questions[%d].question is required", i)
 		}
 		header, _ := m["header"].(string)
-		out = append(out, common.QuestionItem{
+		out = append(out, view.QuestionItem{
 			Header:   strings.TrimSpace(header),
 			Question: q,
 			Options:  parseOptions(m["options"]),
@@ -99,12 +99,12 @@ func parseQuestions(args map[string]any) ([]common.QuestionItem, error) {
 	return out, nil
 }
 
-func parseOptions(raw any) []common.QuestionOption {
+func parseOptions(raw any) []view.QuestionOption {
 	items, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
-	options := make([]common.QuestionOption, 0, len(items))
+	options := make([]view.QuestionOption, 0, len(items))
 	for _, item := range items {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -116,7 +116,7 @@ func parseOptions(raw any) []common.QuestionOption {
 			continue
 		}
 		desc, _ := m["description"].(string)
-		options = append(options, common.QuestionOption{
+		options = append(options, view.QuestionOption{
 			Label:       label,
 			Description: strings.TrimSpace(desc),
 		})
@@ -137,7 +137,7 @@ func customArg(v any) bool {
 	return ok && b
 }
 
-func formatAnswers(questions []common.QuestionItem, answers [][]string) string {
+func formatAnswers(questions []view.QuestionItem, answers [][]string) string {
 	var b strings.Builder
 	b.WriteString("User answered the questions:\n")
 	for i, q := range questions {
