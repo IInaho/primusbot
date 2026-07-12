@@ -294,7 +294,7 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*shellTask,
 		sampleWait = time.Second
 	}
 	waitStartupSample(t, sampleWait)
-	waitTaskDrained(t, 50*time.Millisecond)
+	waitTaskDrained(t, 500*time.Millisecond)
 	initial := toolutil.StripAnsi(string(t.snapshot(LogsReturnBytes)))
 
 	r.mu.Lock()
@@ -370,7 +370,7 @@ func (r *TaskRegistry) Wait(id int, max time.Duration) (string, bool, error) {
 	if max > 0 {
 		waitTaskEnded(t, max)
 	}
-	waitTaskDrained(t, 50*time.Millisecond)
+	waitTaskDrained(t, 500*time.Millisecond)
 	t.scheduleRemoval(time.Now())
 	return r.Logs(id)
 }
@@ -490,12 +490,15 @@ func waitTaskDrained(t *shellTask, max time.Duration) {
 	timer := time.NewTimer(max)
 	defer timer.Stop()
 	stdoutDone, stderrDone := false, false
+	stdoutCh, stderrCh := t.stdoutDone, t.stderrDone
 	for !stdoutDone || !stderrDone {
 		select {
-		case <-t.stdoutDone:
+		case <-stdoutCh:
 			stdoutDone = true
-		case <-t.stderrDone:
+			stdoutCh = nil
+		case <-stderrCh:
 			stderrDone = true
+			stderrCh = nil
 		case <-timer.C:
 			return
 		}
