@@ -42,7 +42,7 @@ type Model struct {
 	summarizeCh     chan summarizeDoneMsg
 }
 
-const version = "0.3.2"
+const version = "0.3.3"
 
 func NewModel(b bot.UI) *Model {
 	sp := spinner.New()
