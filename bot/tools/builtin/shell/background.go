@@ -86,6 +86,9 @@ type shellTask struct {
 	logs     []byte // ring buffer
 	proc     sandbox.ProcessLike
 	removeAt time.Time // zero means no pending auto-removal
+
+	stdoutDone chan struct{}
+	stderrDone chan struct{}
 }
 
 func (t *shellTask) appendLogs(chunk []byte) {
@@ -255,10 +258,13 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*shellTask,
 		startedAt: time.Now(),
 		status:    taskRunning,
 		proc:      proc,
+
+		stdoutDone: make(chan struct{}),
+		stderrDone: make(chan struct{}),
 	}
 
-	go drainToRing(t, proc.Stdout())
-	go drainToRing(t, proc.Stderr())
+	go drainToRing(t, proc.Stdout(), t.stdoutDone)
+	go drainToRing(t, proc.Stderr(), t.stderrDone)
 
 	// Reap on exit and record status.
 	go func() {
@@ -288,6 +294,7 @@ func (r *TaskRegistry) Start(ctx context.Context, req StartRequest) (*shellTask,
 		sampleWait = time.Second
 	}
 	waitStartupSample(t, sampleWait)
+	waitTaskDrained(t, 50*time.Millisecond)
 	initial := toolutil.StripAnsi(string(t.snapshot(LogsReturnBytes)))
 
 	r.mu.Lock()
@@ -363,6 +370,7 @@ func (r *TaskRegistry) Wait(id int, max time.Duration) (string, bool, error) {
 	if max > 0 {
 		waitTaskEnded(t, max)
 	}
+	waitTaskDrained(t, 50*time.Millisecond)
 	t.scheduleRemoval(time.Now())
 	return r.Logs(id)
 }
@@ -472,6 +480,28 @@ func waitTaskEnded(t *shellTask, max time.Duration) taskStatus {
 	}
 }
 
+func waitTaskDrained(t *shellTask, max time.Duration) {
+	t.mu.Lock()
+	ended := t.status != taskRunning
+	t.mu.Unlock()
+	if !ended {
+		return
+	}
+	timer := time.NewTimer(max)
+	defer timer.Stop()
+	stdoutDone, stderrDone := false, false
+	for !stdoutDone || !stderrDone {
+		select {
+		case <-t.stdoutDone:
+			stdoutDone = true
+		case <-t.stderrDone:
+			stderrDone = true
+		case <-timer.C:
+			return
+		}
+	}
+}
+
 // evictOld drops the oldest ended task when over MaxTasks. Caller must hold mu.
 func (r *TaskRegistry) evictOld() {
 	if len(r.tasks) <= MaxTasks {
@@ -497,7 +527,8 @@ func (r *TaskRegistry) evictOld() {
 	}
 }
 
-func drainToRing(t *shellTask, r io.Reader) {
+func drainToRing(t *shellTask, r io.Reader, done chan<- struct{}) {
+	defer close(done)
 	if r == nil {
 		return
 	}

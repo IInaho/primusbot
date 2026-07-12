@@ -113,7 +113,7 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		if req.ToolName != "shell" {
 			t.Fatalf("shell command approval should display shell, got %+v", req)
 		}
-		if req.Args["command"] != "echo executor-shell" {
+		if req.Args["command"] != "sleep 0.2 && echo executor-shell" {
 			t.Fatalf("shell command approval should show actual command, got %+v", req.Args)
 		}
 		if prompts > 1 {
@@ -130,8 +130,9 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		Name: "shell",
 		Args: map[string]any{
 			"action":        "run",
-			"command":       "echo executor-shell",
-			"yield_time_ms": 1000,
+			"command":       "sleep 0.2 && echo executor-shell",
+			"yield_time_ms": 20,
+			"timeout_ms":    2000,
 		},
 	}})[0]
 	if start.Error != "" {
