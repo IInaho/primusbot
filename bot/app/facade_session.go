@@ -101,6 +101,14 @@ func (s *sessionFacade) Save() {
 	}
 }
 
+func (s *sessionFacade) SaveIfNotEmpty() error {
+	if err := s.mgr.SaveIfNotEmpty(); err != nil {
+		fmt.Fprintf(os.Stderr, "session: save error: %v\n", err)
+		return err
+	}
+	return nil
+}
+
 func (s *sessionFacade) Resume(id string) error {
 	_, err := s.mgr.Resume(id)
 	return err

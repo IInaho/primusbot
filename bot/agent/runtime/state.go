@@ -73,10 +73,11 @@ func (s *lifecycleState) start() {
 }
 
 type runState struct {
-	step       int
-	stopReason hooks.StopReason
-	lastText   string
-	finalText  string
+	step          int
+	stopReason    hooks.StopReason
+	startMsgCount int
+	lastText      string
+	finalText     string
 	// finalPersisted tracks whether finalText has already been appended to
 	// the context manager (via AddAssistantResponse). finishRun uses this to
 	// decide whether the returned FinalOutput still needs persisting — paths

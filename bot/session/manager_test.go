@@ -10,8 +10,8 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/token"
-	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
+	"nekocode/bot/provider/types"
 )
 
 func TestFormatSessionList(t *testing.T) {
@@ -155,6 +155,48 @@ func TestManagerPersistsAndRestoresLedgerSnapshot(t *testing.T) {
 	}
 	if !reflect.DeepEqual(restored.ReadFiles, want.ReadFiles) || !reflect.DeepEqual(restored.ModifiedFiles, want.ModifiedFiles) {
 		t.Fatalf("restored ledger = %+v, want %+v", restored, want)
+	}
+}
+
+func TestManagerSaveIfNotEmptyRemovesEmptySession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := &testContextStore{}
+	m := NewManager(ManagerOptions{
+		CWD:     "/tmp/work",
+		Context: ctx,
+	})
+	if err := m.Init(); err != nil {
+		t.Fatal(err)
+	}
+	id := m.CurrentID()
+
+	if err := m.SaveIfNotEmpty(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(id); !os.IsNotExist(err) {
+		t.Fatalf("empty session should be removed, load err = %v", err)
+	}
+	if got := m.CurrentID(); got != "" {
+		t.Fatalf("current id after empty session removal = %q, want empty", got)
+	}
+
+	ctx.snap.Messages = []types.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+	if err := m.SaveIfNotEmpty(); err != nil {
+		t.Fatal(err)
+	}
+	nextID := m.CurrentID()
+	if nextID == "" {
+		t.Fatal("current id after non-empty save is empty")
+	}
+	loaded, err := Load(nextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("saved messages = %d, want 2", len(loaded.Messages))
 	}
 }
 

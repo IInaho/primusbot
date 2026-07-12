@@ -97,6 +97,89 @@ func TestFilterToolCallsReadBeforeWriteBlockComesFromHook(t *testing.T) {
 	}
 }
 
+func TestFilterToolCallsAllowsWriteAfterRead(t *testing.T) {
+	host := newFakeHost()
+	path := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host.gov.RecordToolCall(ledger.ToolEvent{
+		Name: "read",
+		Args: map[string]any{"path": path},
+	})
+
+	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
+		{Name: "write", Args: map[string]any{"path": path}},
+	}, &budget.ToolQuota{MaxSlots: 8})
+
+	if len(filtered.Allowed) != 1 {
+		t.Fatalf("allowed = %d, want write allowed after read; blocked=%v", len(filtered.Allowed), filtered.Blocked)
+	}
+}
+
+func TestFilterToolCallsAllowsEditWithSufficientAnchor(t *testing.T) {
+	host := newFakeHost()
+	path := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(path, []byte("package main\n\nfunc main() {\n\tmessage := \"hello\"\n\tprintln(message)\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
+		{Name: "edit", Args: map[string]any{
+			"path": path,
+			"oldString": strings.Join([]string{
+				"package main",
+				"",
+				"func main() {",
+				"\tmessage := \"hello\"",
+				"\tprintln(message)",
+				"}",
+			}, "\n"),
+			"newString": "package main\n",
+		}},
+	}, &budget.ToolQuota{MaxSlots: 8})
+
+	if len(filtered.Allowed) != 1 {
+		t.Fatalf("allowed = %d, want sufficiently anchored edit allowed; blocked=%v", len(filtered.Allowed), filtered.Blocked)
+	}
+}
+
+func TestFilterToolCallsBlocksEditWithShortAnchor(t *testing.T) {
+	host := newFakeHost()
+	path := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
+		{Name: "edit", Args: map[string]any{
+			"path":      path,
+			"oldString": "main",
+			"newString": "app",
+		}},
+	}, &budget.ToolQuota{MaxSlots: 8})
+
+	if len(filtered.Allowed) != 0 {
+		t.Fatalf("allowed = %d, want short unread edit blocked", len(filtered.Allowed))
+	}
+	if got := filtered.Blocked[0]; !strings.Contains(got, "ledger 中没有该文件的读取记录") {
+		t.Fatalf("blocked reason = %q, want read-before-write hook reason", got)
+	}
+}
+
+func TestFilterToolCallsAllowsWriteToNewFile(t *testing.T) {
+	host := newFakeHost()
+	path := filepath.Join(t.TempDir(), "new.go")
+
+	filtered := New(host).FilterToolCalls([]core.ToolCallItem{
+		{Name: "write", Args: map[string]any{"path": path}},
+	}, &budget.ToolQuota{MaxSlots: 8})
+
+	if len(filtered.Allowed) != 1 {
+		t.Fatalf("allowed = %d, want new file write allowed; blocked=%v", len(filtered.Allowed), filtered.Blocked)
+	}
+}
+
 func TestFilterToolCallsAllowsEditAfterSuccessfulWrite(t *testing.T) {
 	host := newFakeHost()
 	path := filepath.Join(t.TempDir(), "main.go")

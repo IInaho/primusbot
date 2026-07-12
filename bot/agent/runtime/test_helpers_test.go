@@ -7,11 +7,9 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	"nekocode/bot/hooks/builtin"
-	"nekocode/bot/provider/types"
 	aggov "nekocode/bot/policy"
-	"nekocode/bot/policy/budget"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/core"
 )
 
 func newTestAgent() *Agent {
@@ -21,11 +19,6 @@ func newTestAgent() *Agent {
 	a.deps.gov = aggov.NewManager(hooks.NewRegistry())
 	builtin.Register(a.deps.gov.HookReg)
 	return a
-}
-
-func preToolBlockReasonForTest(a *Agent, tc core.ToolCallItem) string {
-	filtered := a.toolRunner.FilterToolCalls([]core.ToolCallItem{tc}, &budget.ToolQuota{MaxSlots: 8})
-	return filtered.Blocked[0]
 }
 
 func messagesContain(msgs []types.Message, substr string) bool {

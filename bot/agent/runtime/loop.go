@@ -25,6 +25,7 @@ type RunResult struct {
 	FinalOutput string
 	Error       error
 	Steps       int
+	Interrupted bool
 }
 
 type RunCallback func(action, toolName, toolArgs, output string)
@@ -94,6 +95,7 @@ func (r *loopRunner) run(input string, callback RunCallback) *RunResult {
 func (r *loopRunner) startRun(input string) {
 	a := r.agent
 	a.Reset()
+	a.run.startMsgCount = a.deps.ctxMgr.Len()
 	a.deps.ctxMgr.Add("user", input, "user")
 }
 
@@ -134,7 +136,8 @@ func (r *loopRunner) stepLimitReached() bool {
 func (r *loopRunner) finishRun(callback RunCallback) *RunResult {
 	a := r.agent
 	if a.getCtx().Err() != nil || a.run.stopReason == hooks.StopInterrupted {
-		return &RunResult{FinalOutput: msgInterrupted, Steps: a.run.step}
+		a.deps.ctxMgr.TruncateTo(a.run.startMsgCount)
+		return &RunResult{FinalOutput: msgInterrupted, Steps: a.run.step, Interrupted: true}
 	}
 	if a.run.stopReason == hooks.StopCompleted {
 		if a.run.finalText != "" {

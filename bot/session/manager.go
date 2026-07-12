@@ -109,12 +109,46 @@ func (m *Manager) ClearContext() {
 func (m *Manager) Context() ContextStore { return m.ctx }
 
 func (m *Manager) Save() error {
-	sess, err := m.ensureCurrent()
+	sess, err := m.applyCurrentSnapshot()
 	if err != nil {
 		return err
 	}
+	return sess.Save()
+}
+
+// SaveIfNotEmpty persists the current session only when it still has visible
+// conversation history. Empty aborted sessions are removed so they do not show
+// up as invalid records in session lists.
+func (m *Manager) SaveIfNotEmpty() error {
+	sess, err := m.applyCurrentSnapshot()
+	if err != nil {
+		return err
+	}
+	if len(sess.Messages) == 0 {
+		if err := Delete(sess.ID); err != nil {
+			return err
+		}
+		m.clearCurrentIfID(sess.ID)
+		return nil
+	}
+	return sess.Save()
+}
+
+func (m *Manager) clearCurrentIfID(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sess != nil && m.sess.ID == id {
+		m.sess = nil
+	}
+}
+
+func (m *Manager) applyCurrentSnapshot() (*Snapshot, error) {
+	sess, err := m.ensureCurrent()
+	if err != nil {
+		return nil, err
+	}
 	if m.ctx == nil {
-		return fmt.Errorf("session: context unavailable")
+		return nil, fmt.Errorf("session: context unavailable")
 	}
 	promptTokens, completionTokens := 0, 0
 	if m.tokenUsage != nil {
@@ -128,7 +162,7 @@ func (m *Manager) Save() error {
 	if m.ledgerSnapshot != nil {
 		sess.Ledger = m.ledgerSnapshot()
 	}
-	return sess.Save()
+	return sess, nil
 }
 
 func (m *Manager) Resume(id string) (*Snapshot, error) {

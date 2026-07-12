@@ -52,6 +52,7 @@ export function useChat(): UseChatReturn {
   const [error, setError] = useState<string | null>(null)
 
   const sidRef = useRef<string | null>(null)
+  const userSidRef = useRef<string | null>(null)
   const sendingRef = useRef(false)
   const abortedRef = useRef(false)
   const textBufferRef = useRef('')
@@ -283,6 +284,7 @@ export function useChat(): UseChatReturn {
   }, [])
 
   const onDone = useCallback((e: { output?: string; error: string }) => {
+    if (abortedRef.current) return
     flushBuffers()
     const sid = sidRef.current
     if (e.error) {
@@ -332,6 +334,7 @@ export function useChat(): UseChatReturn {
       }))
     }
     sidRef.current = null
+    userSidRef.current = null
     sendingRef.current = false
   }, [flushBuffers])
 
@@ -364,7 +367,9 @@ export function useChat(): UseChatReturn {
     sendingRef.current = true
     abortedRef.current = false
     setError(null)
-    setMsgs((prev) => [...prev, { id: genId(), role: 'user' as const, text: t, streaming: false }])
+    const userSid = genId()
+    userSidRef.current = userSid
+    setMsgs((prev) => [...prev, { id: userSid, role: 'user' as const, text: t, streaming: false }])
     setText('')
     const sid = genId()
     sidRef.current = sid
@@ -379,6 +384,7 @@ export function useChat(): UseChatReturn {
       ])
       setBusy(false)
       sidRef.current = null
+      userSidRef.current = null
       sendingRef.current = false
     })
   }, [text, busy])
@@ -388,10 +394,12 @@ export function useChat(): UseChatReturn {
     flushBuffers()
     safeAbort()
     const sid = sidRef.current
-    if (sid) {
-      setMsgs((prev) => prev.map((m) => (m.id === sid ? { ...m, streaming: false, phase: 'ready' } : m)))
+    const userSid = userSidRef.current
+    if (sid || userSid) {
+      setMsgs((prev) => prev.filter((m) => m.id !== sid && m.id !== userSid))
     }
     sidRef.current = null
+    userSidRef.current = null
     sendingRef.current = false
     setBusy(false)
   }, [flushBuffers])
@@ -408,6 +416,7 @@ export function useChat(): UseChatReturn {
     setMsgs(next)
     setError(null)
     sidRef.current = null
+    userSidRef.current = null
     sendingRef.current = false
     abortedRef.current = false
   }, [])
@@ -418,6 +427,7 @@ export function useChat(): UseChatReturn {
     setText('')
     setError(null)
     sidRef.current = null
+    userSidRef.current = null
     sendingRef.current = false
     abortedRef.current = false
   }, [setText])

@@ -68,3 +68,17 @@ func TestAssistantMessageBodyUsesSeparator(t *testing.T) {
 		t.Fatalf("later paragraphs should align with reply text:\n%s", clean)
 	}
 }
+
+func TestAssistantMessageFooterIsIndented(t *testing.T) {
+	sty := styles.DefaultStyles()
+	m := NewAssistantMessageItem(&sty, "Done")
+	m.SetFooter("Duration: 16.3s  ↑2.4k ↓126")
+
+	clean := ansi.Strip(m.Render(80))
+	if !strings.Contains(clean, "\n  Duration: 16.3s  ↑2.4k ↓126") {
+		t.Fatalf("assistant footer should be indented:\n%s", clean)
+	}
+	if strings.Contains(clean, "\nDuration: 16.3s") {
+		t.Fatalf("assistant footer should not start at column zero:\n%s", clean)
+	}
+}

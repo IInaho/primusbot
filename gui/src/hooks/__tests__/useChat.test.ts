@@ -51,6 +51,32 @@ describe('useChat', () => {
     expect(result.current.text).toBe('')
   })
 
+  it('removes the active turn when stopped', async () => {
+    const { result } = renderHook(() => useChat())
+
+    act(() => {
+      result.current.setText('stop me')
+    })
+    act(() => {
+      result.current.send()
+    })
+    await waitFor(() => expect(result.current.msgs).toHaveLength(2))
+
+    act(() => {
+      result.current.stop()
+    })
+
+    expect(result.current.msgs).toHaveLength(0)
+    expect(result.current.busy).toBe(false)
+
+    act(() => {
+      emit('agent:done', { output: 'Interrupted', error: 'request cancelled' })
+    })
+
+    expect(result.current.msgs).toHaveLength(0)
+    expect(result.current.error).toBeNull()
+  })
+
   it('appends deltas to the seeded Run message', async () => {
     const { result } = renderHook(() => useChat())
 

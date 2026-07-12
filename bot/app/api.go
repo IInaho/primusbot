@@ -90,7 +90,13 @@ func (b *Bot) RunAgent(input string, onStep func(action, toolName, toolArgs, out
 	ag.SetPlanMode(false)
 	b.ctxMgr.SetSystemPrompt(b.promptBuilder.Build())
 	command.SummarizeIfNeeded(b.ctxMgr)
-	b.sess.Save()
+	if result.Interrupted {
+		if err := b.sess.SaveIfNotEmpty(); err != nil && result.Error == nil {
+			result.Error = err
+		}
+	} else {
+		b.sess.Save()
+	}
 	return result.FinalOutput, result.Error
 }
 

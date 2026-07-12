@@ -21,7 +21,10 @@ func TestShellRunCompletesWithinYield(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if !strings.Contains(out, "session_id: 1") || !strings.Contains(out, "status: done") || !strings.Contains(out, "shell-done") {
+	if strings.Contains(out, "session_id:") || strings.Contains(out, "status:") || strings.Contains(out, "exit_code:") {
+		t.Fatalf("completed run should not include session metadata:\n%s", out)
+	}
+	if !strings.Contains(out, "shell-done") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
 }

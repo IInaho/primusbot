@@ -84,7 +84,7 @@ func (m *AssistantMessageItem) Render(width int) string {
 		msgParts = append(msgParts, renderAssistantBody(body, m.sty))
 	}
 	if m.footer != "" {
-		msgParts = append(msgParts, "", styles.SubtleStyle.Render(m.footer))
+		msgParts = append(msgParts, "", "  "+styles.SubtleStyle.Render(m.footer))
 	}
 
 	msgBlock := lipgloss.NewStyle().

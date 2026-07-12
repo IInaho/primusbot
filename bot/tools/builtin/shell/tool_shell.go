@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/sandbox"
+	"nekocode/bot/tools/runtime/toolhelpers"
 )
 
 const (
@@ -193,7 +193,7 @@ func (t *ShellTool) start(ctx context.Context, args map[string]any, registry *Ta
 		return "", fmt.Errorf("failed to start shell command: %w", err)
 	}
 	running := task.summary().Status == taskRunning.String()
-	return formatShellSession(registry, task.id, string(initial), running), nil
+	return formatShellRun(registry, task.id, string(initial), running), nil
 }
 
 // sandboxProfileFor consults the injected permission engine for a sandbox rule
@@ -315,6 +315,20 @@ func formatShellSession(registry *TaskRegistry, id int, output string, running b
 		}
 	}
 	return sb.String()
+}
+
+func formatShellRun(registry *TaskRegistry, id int, output string, running bool) string {
+	if running {
+		return formatShellSession(registry, id, output, true)
+	}
+	info := registry.summaryByID(id)
+	if info == nil {
+		return output
+	}
+	if info.ExitCode == 0 && info.Status == "done" {
+		return output
+	}
+	return formatShellSession(registry, id, output, false)
 }
 
 func formatShellList(tasks []TaskInfo) string {
