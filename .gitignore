@@ -9,10 +9,12 @@
 /.build/
 /.flatpak-builder/
 /node_modules/
+node_modules/
 gui/dist/
 !gui/dist/
 !gui/dist/embed.txt
 gui/node_modules/
+interaction/gui/web/node_modules/
 
 # Official website build artifacts
 official/.next/

@@ -237,7 +237,7 @@
 ```
 已有：provider/model/apiKey/baseURL + image_gen_models + ApplyConfig（GUI 保存配置即热重载，重新 reinit）
 说明：
-  - "热重载"已实现 — guiapp 的 SaveConfig 前端调 ApplyConfig 后端，动态替换 model/protocol/context_window 并重建 LLM client。
+  - "热重载"已实现 — interaction/gui/app 的 SaveConfig 前端调 ApplyConfig 后端，动态替换 model/protocol/context_window 并重建 LLM client。
   - 分层覆盖 / 多环境 / Schema 验证 / 导出导入：属于多用户场景优化，单用户当前不急。
 ```
 

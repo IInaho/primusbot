@@ -47,16 +47,16 @@ bot/
 
 ```
 nekocode/
-├── main.go                         # Wails GUI 入口 + gui/dist embed
+├── main.go                         # Wails GUI 入口 + interaction/gui/web/dist embed
 ├── wails.json                      # Wails 构建配置
 ├── cmd/
 │   └── nekocode-tui/
 │       └── main.go                 # TUI 程序入口
-├── guiapp/                         # Wails 后端桥接实现
+├── interaction/gui/app/            # Wails 后端桥接实现
 │   ├── app.go                      #   App 结构体 + 事件推送
 │   ├── appicon.icns                #   macOS 应用图标（多分辨率）
 │   └── appicon.ico                 #   Windows 应用图标（多分辨率）
-├── gui/                            #   Wails 前端（React + Vite）
+├── interaction/gui/web/            #   Wails 前端（React + Vite）
 │   ├── index.html
 │   ├── src/
 │   │   └── components/
@@ -359,7 +359,7 @@ nekocode/
 │       │   └── text.go             #     文本处理
 │       └── toolhelpers/            #   工具辅助
 │           └── helpers.go          #     辅助函数
-├── tui/                            # TUI 界面
+├── interaction/tui/                # TUI 交互界面
 │   ├── tui.go                      #   package tui 入口（Run 函数）
 │   ├── agent.go                    #   Agent 桥接 + startChat
 │   ├── model.go                    #   Model 结构体
@@ -815,4 +815,4 @@ Model
 | 调试日志 | `bot/debug/` | 全局 debug.Log（时间戳 + subagent 标签） |
 | 工具语义 | `bot/policy/semantics/` | Semantics 分类（SourceProducing/Mutating/Verifying） |
 | Session 视图 | `bot/session/` | DisplayMessages 转换 |
-| TUI | `tui/` | Bubble Tea v2 组件化 |
+| TUI | `interaction/tui/` | Bubble Tea v2 组件化 |

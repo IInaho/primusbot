@@ -16,6 +16,7 @@ var SharedTransport = NewSharedTransport()
 // defaults. Use it when you need custom configuration (e.g. timeouts).
 func NewSharedTransport() *http.Transport {
 	return &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConns:        20,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,

@@ -1,6 +1,6 @@
 package main
 
-import "nekocode/tui"
+import "nekocode/interaction/tui"
 
 func main() {
 	tui.Run()

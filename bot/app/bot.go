@@ -14,6 +14,7 @@ import (
 	"nekocode/bot/hooks/builtin"
 	systemprompt "nekocode/bot/prompt/system"
 	"nekocode/bot/provider"
+	"nekocode/bot/todo"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/bot/tools/builtin/shell"
@@ -179,11 +180,19 @@ func (b *Bot) initAgent() {
 
 func (b *Bot) applyCallbacks() {
 	b.cb.applyAgentControlCallbacksTo(b.ag)
-	b.ag.WireTodoWrite(func(items []view.TodoItem) {
+	b.ag.WireTodoWrite(func(items []todo.Item) {
 		b.ctxMgr.SetTodos(items)
-		b.cb.todoWriter()(items)
+		b.cb.todoWriter()(todoItemsToView(items))
 	})
 	b.setQuestionFunc(b.cb.questionFn)
+}
+
+func todoItemsToView(items []todo.Item) []view.TodoItem {
+	out := make([]view.TodoItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, view.TodoItem{Content: item.Content, Status: item.Status})
+	}
+	return out
 }
 
 func (b *Bot) setQuestionFunc(fn view.QuestionFunc) {

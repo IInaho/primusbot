@@ -35,7 +35,7 @@ NekoCode 是一个运行在终端中的 AI 助手。它能理解自然语言、�
 
 ### 资源文件
 
-源文件位于 `gui/public/logo/`：
+源文件位于 `interaction/gui/web/public/logo/`：
 
 - `logo.svg` — 完整品牌版（含 `</>` 与 `NEKOCODE` 字）
 - `logo-icon.svg` — 纯图标，App 图标源
@@ -44,7 +44,7 @@ NekoCode 是一个运行在终端中的 AI 助手。它能理解自然语言、�
 - `icon_16..1024.png` — 各尺寸 PNG 中间产物
 - `build_icns.js` — 任意平台生成 ICNS 的 Node 脚本（无需 macOS `iconutil`）
 
-GUI Logo 组件：`gui/src/components/LogoMark.tsx`（32×32 viewBox，适配 17–28px 全尺寸）
+GUI Logo 组件：`interaction/gui/web/src/components/LogoMark.tsx`（32×32 viewBox，适配 17–28px 全尺寸）
 
 ### 主题适配
 
@@ -90,7 +90,7 @@ Logo 同时适配亮/暗背景：
 
 黑猫蜷在屏幕旁的意象——teal 色偶尔闪现，像暗处的猫眼。品牌主色（暖紫 `#7C5CFC` → 暖粉 `#F472B6`）用于 GUI；TUI 沿用 teal 主色 `#4ec9b0"。
 
-**色彩体系**（`tui/styles/colors.go` 统一定义）：
+**色彩体系**（`interaction/tui/styles/colors.go` 统一定义）：
 - 主文字：`#a0a0a0`
 - Teal 主色：`#4ec9b0`（styles.Primary），用于 Assistant 色条、spinner
 - User 金：`#c9a96e`（styles.Yellow）

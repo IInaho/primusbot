@@ -12,6 +12,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.23
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/tirdyhouse/sandbox v0.0.0-20260609072247-611c7f282d40
 	github.com/wailsapp/wails/v2 v2.13.0

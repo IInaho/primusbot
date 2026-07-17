@@ -1,0 +1,71 @@
+package connectors
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+type statusConnector struct {
+	name    string
+	stopped bool
+}
+
+func (c statusConnector) Name() string { return c.name }
+func (c statusConnector) Start(context.Context) error {
+	return nil
+}
+func (c *statusConnector) Stop() error {
+	c.stopped = true
+	return nil
+}
+func (c statusConnector) HandleCommand(context.Context, []string) (string, error) {
+	return "ok", nil
+}
+func (c *statusConnector) ConnectorStatusView() ConnectorView {
+	return ConnectorView{
+		Name:        c.name,
+		Configured:  true,
+		Running:     true,
+		Status:      "running",
+		Initialized: true,
+	}
+}
+
+func TestConnectorManagerView(t *testing.T) {
+	manager := NewManager(nil)
+	manager.Register("telegram", func(Runtime) Connector {
+		return &statusConnector{name: "telegram"}
+	})
+	manager.Register("slack", func(Runtime) Connector {
+		return &statusConnector{name: "slack"}
+	})
+
+	view := manager.View()
+	if len(view.Connectors) != 2 {
+		t.Fatalf("connectors = %d, want 2", len(view.Connectors))
+	}
+	if view.Connectors[0].Name != "slack" || view.Connectors[0].Initialized {
+		t.Fatalf("first connector before init = %#v", view.Connectors[0])
+	}
+	if _, err := manager.Handle(context.Background(), []string{"telegram", "status"}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	view = manager.View()
+	var telegram ConnectorView
+	for _, conn := range view.Connectors {
+		if conn.Name == "telegram" {
+			telegram = conn
+		}
+	}
+	if !telegram.Initialized || !telegram.Running || !telegram.Configured || telegram.Status != "running" {
+		t.Fatalf("telegram view = %#v", telegram)
+	}
+	devices := manager.Devices()
+	if devices == "" || !strings.Contains(devices, "telegram") {
+		t.Fatalf("devices = %q", devices)
+	}
+	if msg, err := manager.Disconnect("telegram"); err != nil || !strings.Contains(msg, "stopped") {
+		t.Fatalf("Disconnect = %q err=%v", msg, err)
+	}
+}

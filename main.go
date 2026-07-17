@@ -5,26 +5,25 @@ import (
 	"embed"
 	"log"
 
-	"nekocode/bot/extension"
-	"nekocode/bot/view"
-	"nekocode/guiapp"
+	"nekocode/interaction/gui/app"
+	"nekocode/runtime/view"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
-//go:embed all:gui/dist
+//go:embed all:interaction/gui/web/dist
 var assets embed.FS
 
 // App keeps the Wails binding package stable as go/main/App while delegating
-// the GUI implementation to guiapp.
+// the GUI implementation to the interaction GUI app package.
 type App struct {
-	impl *guiapp.App
+	impl *app.App
 }
 
 func NewApp() *App {
-	return &App{impl: guiapp.NewApp()}
+	return &App{impl: app.NewApp()}
 }
 
 func (a *App) Startup(ctx context.Context) {
@@ -83,15 +82,15 @@ func (a *App) SaveConfig(cfg view.ConfigView) (view.ConfigView, error) {
 	return a.impl.SaveConfig(cfg)
 }
 
-func (a *App) GetSkillManagement() extension.SkillManagementView {
+func (a *App) GetSkillManagement() view.SkillManagementView {
 	return a.impl.GetSkillManagement()
 }
 
-func (a *App) RefreshSkillManagement() extension.SkillManagementView {
+func (a *App) RefreshSkillManagement() view.SkillManagementView {
 	return a.impl.RefreshSkillManagement()
 }
 
-func (a *App) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
+func (a *App) SetPluginEnabled(name string, enabled bool) (view.SkillManagementView, error) {
 	return a.impl.SetPluginEnabled(name, enabled)
 }
 
