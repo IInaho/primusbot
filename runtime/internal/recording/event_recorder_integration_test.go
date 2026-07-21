@@ -41,8 +41,30 @@ func TestEventRecorderWritesEventsAndArtifacts(t *testing.T) {
 			Preview:  diff,
 		},
 	})
+	patch := "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
 	recorder.Record(Event{
 		ID:    "evt_3",
+		RunID: runID,
+		Type:  core.EventToolPreview,
+		Time:  now.Add(1500 * time.Millisecond),
+		Payload: core.ToolPayload{
+			ToolName: "apply_patch",
+			Preview:  patch,
+		},
+	})
+	review := "Findings\nSeverity: high\nMissing runtime artifact coverage."
+	recorder.Record(Event{
+		ID:    "evt_4",
+		RunID: runID,
+		Type:  core.EventToolCompleted,
+		Time:  now.Add(1800 * time.Millisecond),
+		Payload: core.ToolPayload{
+			ToolName: "review",
+			Output:   review,
+		},
+	})
+	recorder.Record(Event{
+		ID:    "evt_5",
 		RunID: runID,
 		Type:  core.EventRunDone,
 		Time:  now.Add(2 * time.Second),
@@ -56,8 +78,8 @@ func TestEventRecorderWritesEventsAndArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read events: %v", err)
 	}
-	if lines := strings.Count(strings.TrimSpace(string(eventsData)), "\n") + 1; lines != 3 {
-		t.Fatalf("events line count = %d, want 3\n%s", lines, eventsData)
+	if lines := strings.Count(strings.TrimSpace(string(eventsData)), "\n") + 1; lines != 5 {
+		t.Fatalf("events line count = %d, want 5\n%s", lines, eventsData)
 	}
 	if !strings.Contains(string(eventsData), `"payload_type":"runtime.MessagePayload"`) {
 		t.Fatalf("payload type not recorded:\n%s", eventsData)
@@ -69,6 +91,22 @@ func TestEventRecorderWritesEventsAndArtifacts(t *testing.T) {
 	}
 	if string(diffData) != diff {
 		t.Fatalf("diff = %q, want %q", diffData, diff)
+	}
+
+	patchData, err := os.ReadFile(filepath.Join(runDir, "artifacts", "patch-002.patch"))
+	if err != nil {
+		t.Fatalf("read patch: %v", err)
+	}
+	if string(patchData) != patch {
+		t.Fatalf("patch = %q, want %q", patchData, patch)
+	}
+
+	reviewData, err := os.ReadFile(filepath.Join(runDir, "artifacts", "review-003.md"))
+	if err != nil {
+		t.Fatalf("read review: %v", err)
+	}
+	if string(reviewData) != review {
+		t.Fatalf("review = %q, want %q", reviewData, review)
 	}
 
 	resultData, err := os.ReadFile(filepath.Join(runDir, "artifacts", "result.md"))
@@ -83,8 +121,8 @@ func TestEventRecorderWritesEventsAndArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRecordedEvents: %v", err)
 	}
-	if len(events) != 3 {
-		t.Fatalf("loaded events = %d, want 3", len(events))
+	if len(events) != 5 {
+		t.Fatalf("loaded events = %d, want 5", len(events))
 	}
 	store := runstore.NewRunStore(0)
 	for _, ev := range events {
@@ -93,6 +131,10 @@ func TestEventRecorderWritesEventsAndArtifacts(t *testing.T) {
 	run, ok := store.RunView(runID)
 	if !ok || run.Input != "edit README" || run.Output != "done" {
 		t.Fatalf("restored run = %#v ok=%v", run, ok)
+	}
+	artifact, ok := store.ArtifactView(runID)
+	if !ok || len(artifact.Patches) != 1 || len(artifact.Reviews) != 1 {
+		t.Fatalf("restored artifacts = %#v ok=%v", artifact, ok)
 	}
 }
 

@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -155,6 +156,13 @@ func TestHookAuditIncludesTriggerContext(t *testing.T) {
 		Point: PreToolUse,
 		On: func(s State) *Result {
 			return &Result{BlockTool: &BlockTool{Tool: "edit", Reason: "read first"}}
+		},
+		DescribeTrigger: func(s State) string {
+			return fmt.Sprintf("target=%s exists=%d was_read=%d anchor_sufficient=%d",
+				s.GetStr(StoreEditTargetPath),
+				s.Get(StoreEditTargetExists),
+				s.Get(StoreEditTargetWasRead),
+				s.Get(StoreEditAnchorSufficient))
 		},
 	})
 

@@ -6,25 +6,23 @@ import (
 	"fmt"
 	"strings"
 
+	commonview "nekocode/common/view"
 	"nekocode/interaction/tui/components/block"
 	"nekocode/interaction/tui/components/message"
 	controlruntime "nekocode/runtime"
-	"nekocode/util/runtime"
 
 	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) startChat(value string) tea.Cmd {
-	// /summarize involves a synchronous LLM call that can take 10+ seconds.
-	// Show the command immediately and run the summarization in background
-	// so the TUI stays responsive with a spinner.
-	if isSummarizeCommand(value) {
-		return m.startSummarize(value)
-	}
-
 	m.transitionTo(stateProcessing)
 	m.Messages.SetSpinnerView(m.Spinner.View())
-	m.Messages.SetProcessingStatus(PhaseWaiting)
+	status := PhaseWaiting
+	if isSummarizeCommand(value) {
+		status = phaseSummarizing
+	}
+	m.setPhase(status)
+	m.Messages.SetProcessingStatus(status)
 	if _, err := m.Runtime.Submit(context.Background(), controlruntime.Input{
 		Kind:   controlruntime.InputMessage,
 		Source: controlruntime.SourceRef{Kind: "tui"},
@@ -44,47 +42,24 @@ func isSummarizeCommand(value string) bool {
 	return strings.TrimSpace(value) == "/summarize"
 }
 
-func (m *Model) startSummarize(value string) tea.Cmd {
-	m.transitionTo(stateProcessing)
-	m.setPhase(phaseSummarizing)
-	m.Messages.SetSpinnerView(m.Spinner.View())
-	m.Messages.SetProcessingStatus(phaseSummarizing)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				runtime.WritePanicLog(r)
-				m.summarizeCh <- summarizeDoneMsg{content: fmt.Sprintf("Summarize failed: internal panic: %v", r)}
-			}
-		}()
-		resp, _ := m.Runtime.ExecuteCommand(value)
-		m.summarizeCh <- summarizeDoneMsg{content: resp}
-	}()
-
-	return tea.Batch(
-		spinnerTick(),
-		listenSummarize(m.summarizeCh),
-	)
-}
-
-func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, string) {
-	return func(action, toolName, toolArgs, output string) {
+func (m *Model) onAgentStep(finalResponse *string) func(controlruntime.StepAction, string, string, string, bool) {
+	return func(action controlruntime.StepAction, toolName, toolArgs, output string, isError bool) {
 		switch {
-		case action == "think":
-		case action == "chat":
+		case action == controlruntime.StepActionThink:
+		case action == controlruntime.StepActionChat:
 			*finalResponse = output
 			m.Messages.AddThinkBlock(output)
-		case action == "sub_agent_start":
+		case action == controlruntime.StepActionSubAgentStart:
 			// toolName = subType, toolArgs = subID, output = colorIdx
 			colorIdx := 0
 			if n, err := fmt.Sscanf(output, "%d", &colorIdx); err != nil || n != 1 {
 				colorIdx = -1
 			}
 			m.Messages.AddSubAgent(toolArgs, toolName, colorIdx)
-		case action == "sub_agent_end":
+		case action == controlruntime.StepActionSubAgentEnd:
 			// toolArgs = subID
 			m.Messages.RemoveSubAgent(toolArgs)
-		case action == "sub_tool_start":
+		case action == controlruntime.StepActionSubToolStart:
 			if interactiveTool(toolName) {
 				return
 			}
@@ -93,31 +68,31 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			m.Messages.ProcessToolBlock(block.ContentBlock{
 				Type:       block.BlockTool,
 				ToolName:   toolName,
-				ToolArgs:   formatBriefArgs(toolName, toolArgs),
-				ToolAction: toolAction(toolName, toolArgs),
+				ToolArgs:   commonview.ToolBrief(toolName, toolArgs),
+				ToolAction: commonview.ToolAction(toolName, toolArgs),
 				Content:    "",
 				SubID:      subID,
 				SubColor:   colorIdx,
 			})
-		case action == "sub_execute_tool":
+		case action == controlruntime.StepActionSubExecuteTool:
 			if interactiveTool(toolName) {
 				return
 			}
 			// toolName = actual tool name, output = text, toolArgs = subID:colorIdx
 			subID, _ := parseSubEvent(toolArgs)
-			m.Messages.AddSubToolOutput(subID, toolName, output)
-		case action == "tool_start":
+			m.Messages.AddSubToolOutput(subID, toolName, output, isError)
+		case action == controlruntime.StepActionToolStart:
 			if interactiveTool(toolName) {
 				return
 			}
 			m.Messages.ProcessToolBlock(block.ContentBlock{
 				Type:       block.BlockTool,
 				ToolName:   toolName,
-				ToolArgs:   formatBriefArgs(toolName, toolArgs),
-				ToolAction: toolAction(toolName, toolArgs),
+				ToolArgs:   commonview.ToolBrief(toolName, toolArgs),
+				ToolAction: commonview.ToolAction(toolName, toolArgs),
 				Content:    output,
 			})
-		case action == "tool_blocked":
+		case action == controlruntime.StepActionToolBlocked:
 			if interactiveTool(toolName) {
 				return
 			}
@@ -125,13 +100,13 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			m.Messages.ProcessToolBlock(block.ContentBlock{
 				Type:       block.BlockTool,
 				ToolName:   toolName,
-				ToolArgs:   formatBriefArgs(toolName, toolArgs),
-				ToolAction: toolAction(toolName, toolArgs),
+				ToolArgs:   commonview.ToolBrief(toolName, toolArgs),
+				ToolAction: commonview.ToolAction(toolName, toolArgs),
 				Content:    output,
 				Done:       true,
 				IsError:    true,
 			})
-		case action == "tool_preview":
+		case action == controlruntime.StepActionToolPreview:
 			if interactiveTool(toolName) {
 				return
 			}
@@ -140,7 +115,7 @@ func (m *Model) onAgentStep(finalResponse *string) func(string, string, string, 
 			if interactiveTool(toolName) {
 				return
 			}
-			m.Messages.AddToolOutput(toolName, output)
+			m.Messages.AddToolOutput(toolName, output, isError)
 		}
 	}
 }
@@ -173,8 +148,8 @@ func (m *Model) loadSessionMessages() {
 			blocks = append(blocks, block.ContentBlock{
 				Type:       block.BlockTool,
 				ToolName:   b.ToolName,
-				ToolArgs:   formatBriefArgs(b.ToolName, b.Args),
-				ToolAction: toolAction(b.ToolName, b.Args),
+				ToolArgs:   commonview.ToolBrief(b.ToolName, b.Args),
+				ToolAction: commonview.ToolAction(b.ToolName, b.Args),
 				Content:    b.Content,
 				Done:       true,
 				IsError:    b.IsError,

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"mvdan.cc/sh/v3/syntax"
+	"nekocode/bot/policy/internal/shellscan"
 	"nekocode/bot/policy/semantics"
 )
 
@@ -251,14 +251,15 @@ func commandArg(args map[string]any) string {
 }
 
 func extractBashReadPaths(cmd string) []string {
-	if calls, ok := shellLiteralCalls(cmd); ok {
+	scan := shellscan.ScanShell(cmd)
+	if scan.OK {
 		var out []string
-		for _, fields := range calls {
+		for _, fields := range scan.Calls {
 			out = append(out, bashReadPathsForFields(fields)...)
 		}
 		return out
 	}
-	fields := shellFields(strings.TrimSpace(cmd))
+	fields := shellscan.Fields(strings.TrimSpace(cmd))
 	return bashReadPathsForFields(fields)
 }
 
@@ -283,19 +284,23 @@ func bashReadPathsForFields(fields []string) []string {
 }
 
 func extractBashWritePaths(cmd string) []string {
-	if calls, ok := shellLiteralCalls(cmd); ok {
-		out := extractBashRedirectWritePaths(cmd)
-		for _, fields := range calls {
+	scan := shellscan.ScanShell(cmd)
+	if scan.OK {
+		var out []string
+		for _, p := range scan.RedirectTargets {
+			out = appendPathArg(out, p)
+		}
+		for _, fields := range scan.Calls {
 			out = append(out, bashCommandWritePathsForFields(fields)...)
 		}
 		return out
 	}
-	fields := shellFields(strings.TrimSpace(cmd))
+	fields := shellscan.Fields(strings.TrimSpace(cmd))
 	if len(fields) == 0 {
 		return nil
 	}
-	out := extractBashRedirectWritePaths(cmd)
-	return append(out, bashCommandWritePathsForFields(fields)...)
+	// The AST scan failed, so there are no redirect targets to add here.
+	return bashCommandWritePathsForFields(fields)
 }
 
 func bashCommandWritePathsForFields(fields []string) []string {
@@ -320,88 +325,13 @@ func bashCommandWritePathsForFields(fields []string) []string {
 			paths, next := sedWritePaths(fields, i+1)
 			out = append(out, paths...)
 			i = next
-		case isPathMutatingCommand(filepath.Base(f)):
+		case shellscan.IsMutatingCommand(filepath.Base(f)):
 			paths, next := commandWritePaths(filepath.Base(f), fields, i+1)
 			out = append(out, paths...)
 			i = next
 		}
 	}
 	return out
-}
-
-func shellLiteralCalls(cmd string) ([][]string, bool) {
-	parser := syntax.NewParser()
-	file, err := parser.Parse(strings.NewReader(cmd), "")
-	if err != nil {
-		return nil, false
-	}
-	var calls [][]string
-	syntax.Walk(file, func(node syntax.Node) bool {
-		call, ok := node.(*syntax.CallExpr)
-		if !ok || len(call.Args) == 0 {
-			return true
-		}
-		var fields []string
-		for i, arg := range call.Args {
-			word := shellLiteralWord(arg)
-			if i == 0 && word == "" {
-				return true
-			}
-			fields = append(fields, word)
-		}
-		calls = append(calls, fields)
-		return true
-	})
-	return calls, true
-}
-
-func isPathMutatingCommand(name string) bool {
-	switch name {
-	case "mkdir", "touch", "cp", "mv", "rm", "rmdir", "chmod", "chown":
-		return true
-	default:
-		return false
-	}
-}
-
-func extractBashRedirectWritePaths(cmd string) []string {
-	parser := syntax.NewParser()
-	file, err := parser.Parse(strings.NewReader(cmd), "")
-	if err != nil {
-		return nil
-	}
-	var out []string
-	syntax.Walk(file, func(node syntax.Node) bool {
-		redir, ok := node.(*syntax.Redirect)
-		if !ok || !isWriteRedirect(redir.Op) {
-			return true
-		}
-		if p := shellLiteralWord(redir.Word); p != "" {
-			out = appendPathArg(out, p)
-		}
-		return true
-	})
-	return out
-}
-
-func isWriteRedirect(op syntax.RedirOperator) bool {
-	return op == syntax.RdrOut || op == syntax.AppOut || op == syntax.ClbOut ||
-		op == syntax.RdrAll || op == syntax.AppAll
-}
-
-func shellLiteralWord(w *syntax.Word) string {
-	if w == nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, part := range w.Parts {
-		lit, ok := part.(*syntax.Lit)
-		if !ok {
-			return ""
-		}
-		b.WriteString(lit.Value)
-	}
-	return b.String()
 }
 
 func isShellBoundary(s string) bool {
@@ -523,51 +453,6 @@ func shouldTrackWritePath(arg string) bool {
 		return false
 	}
 	return true
-}
-
-func shellFields(s string) []string {
-	var fields []string
-	var b strings.Builder
-	var quote rune
-	escaped := false
-	for _, r := range s {
-		if escaped {
-			b.WriteRune(r)
-			escaped = false
-			continue
-		}
-		if r == '\\' {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if r == quote {
-				quote = 0
-			} else {
-				b.WriteRune(r)
-			}
-			continue
-		}
-		if r == '\'' || r == '"' {
-			quote = r
-			continue
-		}
-		if r == ' ' || r == '\t' || r == '\n' {
-			if b.Len() > 0 {
-				fields = append(fields, b.String())
-				b.Reset()
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	if escaped {
-		b.WriteRune('\\')
-	}
-	if b.Len() > 0 {
-		fields = append(fields, b.String())
-	}
-	return fields
 }
 
 func nonOptionArgs(args []string) []string {

@@ -142,17 +142,25 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		t.Fatalf("run output missing session id: %q", start.Output)
 	}
 
-	time.Sleep(200 * time.Millisecond)
-	logs := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
-		ID:   "2",
-		Name: "shell",
-		Args: map[string]any{
-			"action":     "poll",
-			"session_id": 1,
-		},
-	}})[0]
-	if logs.Error != "" {
-		t.Fatalf("shell poll failed: %+v", logs)
+	// The command needs ~200ms to finish; poll with a bounded retry instead of
+	// a fixed sleep so the test stays stable under -race and slow machines.
+	var logs core.ToolCallResult
+	for range 20 {
+		logs = e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+			ID:   "2",
+			Name: "shell",
+			Args: map[string]any{
+				"action":     "poll",
+				"session_id": 1,
+			},
+		}})[0]
+		if logs.Error != "" {
+			t.Fatalf("shell poll failed: %+v", logs)
+		}
+		if strings.Contains(logs.Output, "executor-shell") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if !strings.Contains(logs.Output, "executor-shell") {
 		t.Fatalf("logs output missing command output: %q", logs.Output)

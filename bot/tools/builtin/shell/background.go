@@ -28,8 +28,11 @@ const LogsReturnBytes = 8 * 1024
 const MaxTasks = 64
 
 // taskRetentionTTL is how long an ended task stays in the registry before
-// being auto-removed. Running tasks are never evicted by this timer.
-const taskRetentionTTL = 10 * time.Second
+// being auto-removed. Running tasks are never evicted by this timer. The TTL
+// must comfortably outlive an agent turn (LLM round-trips routinely take
+// tens of seconds), otherwise a later poll hits "task not found" for a task
+// that finished while the model was thinking.
+const taskRetentionTTL = 10 * time.Minute
 
 type taskStatus int
 
@@ -58,6 +61,8 @@ func (s taskStatus) String() string {
 // (exit code 0) is reported as "done", a non-zero exit as "failed", so
 // users don't mistake success for failure.
 func (t *shellTask) displayStatus() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.status == taskRunning {
 		return "running"
 	}

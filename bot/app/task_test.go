@@ -6,6 +6,7 @@ import (
 
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/tools/runtime/taskbridge"
+	commonview "nekocode/common/view"
 )
 
 func TestBuildSubagentRunConfigUnknownAgent(t *testing.T) {
@@ -19,8 +20,8 @@ func TestBuildSubagentRunConfigWiresCallbacks(t *testing.T) {
 	defer subagent.UnregisterPlugin("tester")
 
 	var eventAction string
-	ctx := taskbridge.WithTaskCallback(context.Background(), func(action, toolName, toolArgs, output string) {
-		eventAction = action + ":" + toolName + ":" + toolArgs + ":" + output
+	ctx := taskbridge.WithTaskCallback(context.Background(), func(ev commonview.StepEvent) {
+		eventAction = string(ev.Action) + ":" + ev.ToolName + ":" + ev.ToolArgs + ":" + ev.Output
 	})
 	var phase string
 	cfg, ok := buildSubagentRunConfig(subagentRunConfigInput{
@@ -35,8 +36,8 @@ func TestBuildSubagentRunConfigWiresCallbacks(t *testing.T) {
 	if cfg.Prompt != "do it" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
-	cfg.OnToolCall(subagent.ToolCallEvent{Action: "start", ToolName: "read", ToolArgs: "path=a", Output: "ok"})
-	if eventAction != "sub_start:read:path=a:ok" {
+	cfg.OnToolCall(subagent.ToolCallEvent{Action: commonview.StepActionToolStart, ToolName: "read", ToolArgs: "path=a", Output: "ok"})
+	if eventAction != "sub_tool_start:read:path=a:ok" {
 		t.Fatalf("callback = %q", eventAction)
 	}
 	cfg.OnPhase("phase")

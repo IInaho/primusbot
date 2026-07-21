@@ -1,4 +1,4 @@
-// text.go — text utilities: fixed-height rendering, word wrapping, noise filtering.
+// render_text.go — text utilities: fixed-height rendering, word wrapping, noise filtering.
 package processing
 
 import (

@@ -4,9 +4,9 @@ package processing
 import (
 	"strings"
 
+	commonview "nekocode/common/view"
 	"nekocode/interaction/tui/components/block"
 	"nekocode/interaction/tui/styles"
-	"nekocode/runtime/view"
 )
 
 const (
@@ -44,7 +44,7 @@ type ProcessingItem struct {
 	cachedTodos  string
 	cachedTodosW int
 
-	subSlots []view.SubSlot // active sub-agents for header rendering
+	subSlots []commonview.SubSlot // active sub-agents for header rendering
 }
 
 func (p *ProcessingItem) SetSkill(s string) { p.skill = s; p.invalidate() }
@@ -103,8 +103,8 @@ func (p *ProcessingItem) AddToolBlock(b block.ContentBlock) {
 	p.invalidate()
 }
 
-func (p *ProcessingItem) AddToolOutput(toolName, output string) {
-	p.setLastToolContent(toolName, output)
+func (p *ProcessingItem) AddToolOutput(toolName, output string, isError bool) {
+	p.setLastToolContent(toolName, output, isError)
 }
 
 // UpdateToolPreview sets the preview content on the first matching tool block (in creation order).
@@ -119,8 +119,8 @@ func (p *ProcessingItem) UpdateToolPreview(toolName, preview string) {
 	}
 }
 
-func (p *ProcessingItem) setLastToolContent(toolName, output string) {
-	p.finishToolBlock("", toolName, output)
+func (p *ProcessingItem) setLastToolContent(toolName, output string, isError bool) {
+	p.finishToolBlock("", toolName, output, isError)
 }
 
 func (p *ProcessingItem) AddThinkBlock(content string) {
@@ -156,7 +156,7 @@ func (p *ProcessingItem) ThinkingText() string { return p.thinkingText.String() 
 
 // AddSubAgent registers a new active sub-agent for header display.
 func (p *ProcessingItem) AddSubAgent(id, subType string, colorIdx int) {
-	p.subSlots = append(p.subSlots, view.SubSlot{ID: id, SubType: subType, ColorIdx: colorIdx})
+	p.subSlots = append(p.subSlots, commonview.SubSlot{ID: id, SubType: subType, ColorIdx: colorIdx})
 	p.invalidateLight()
 }
 
@@ -172,13 +172,13 @@ func (p *ProcessingItem) RemoveSubAgent(id string) {
 }
 
 // AddSubToolOutput sets the output on the last matching sub-agent tool block.
-func (p *ProcessingItem) AddSubToolOutput(subID, toolName, output string) {
-	p.finishToolBlock(subID, toolName, output)
+func (p *ProcessingItem) AddSubToolOutput(subID, toolName, output string, isError bool) {
+	p.finishToolBlock(subID, toolName, output, isError)
 }
 
 // finishToolBlock finds the first matching tool block (in creation order) and marks it done.
 // If subID is non-empty, it also filters by SubID.
-func (p *ProcessingItem) finishToolBlock(subID, toolName, output string) {
+func (p *ProcessingItem) finishToolBlock(subID, toolName, output string, isError bool) {
 	for i := 0; i < len(p.blocks); i++ {
 		b := &p.blocks[i]
 		if b.Type != block.BlockTool || b.ToolName != toolName || b.Done {
@@ -187,19 +187,10 @@ func (p *ProcessingItem) finishToolBlock(subID, toolName, output string) {
 		if subID != "" && b.SubID != subID {
 			continue
 		}
-		if toolName == "edit" {
-			// Replace preview with final edit output so relocated/rebased edits
-			// render the exact committed diff.
-			// formatEditResult returns "[path#TAG]\n..." on success;
-			// errors do not start with "[".
-			isError := !strings.HasPrefix(output, "[")
-			b.Content = output
-			if isError {
-				b.IsError = true
-			}
-		} else {
-			b.Content = output
-		}
+		// The final output replaces any preview so relocated/rebased edits
+		// render the exact committed diff.
+		b.Content = output
+		b.IsError = isError
 		b.Done = true
 		p.invalidate()
 		return
@@ -207,4 +198,4 @@ func (p *ProcessingItem) finishToolBlock(subID, toolName, output string) {
 }
 
 // SubSlots returns the current active sub-agent slots.
-func (p *ProcessingItem) SubSlots() []view.SubSlot { return p.subSlots }
+func (p *ProcessingItem) SubSlots() []commonview.SubSlot { return p.subSlots }

@@ -23,7 +23,7 @@ version", the helper removes the existing user-level `org.nekocode.NekoCode`
 install and retries once. It does not remove shared runtimes or SDKs.
 
 On NixOS, if `flatpak-builder` or `appstreamcli` is missing from the current
-shell, `build.sh` re-enters `shell.nix` automatically so AppStream metadata is
+shell, `build.sh` re-enters `build/shell.nix` automatically so AppStream metadata is
 composed by the host Nix package rather than by a nested Flatpak SDK process.
 
 Go and Node are downloaded as official tarballs inside the Flatpak build
@@ -36,38 +36,38 @@ and Node `22.11.0`. Go and Node tarballs are declared as Flatpak sources with
 SHA-256 checksums, so flatpak-builder can cache them between builds.
 
 ```bash
-bash flatpak/build.sh
+bash build/flatpak/build.sh
 ```
 
 The script uses `https://registry.npmjs.org` for npm by default. If your network
 works better with a mirror, override it explicitly:
 
 ```bash
-NPM_REGISTRY=https://registry.npmmirror.com bash flatpak/build.sh
+NPM_REGISTRY=https://registry.npmmirror.com bash build/flatpak/build.sh
 ```
 
 Reset transient Flatpak builder state when needed:
 
 ```bash
-bash flatpak/build.sh --clean
+bash build/flatpak/build.sh --clean
 ```
 
 Reset dependency caches when a Go/npm cache gets stuck or corrupted:
 
 ```bash
-bash flatpak/build.sh --clean-cache
+bash build/flatpak/build.sh --clean-cache
 ```
 
 Remove every Flatpak build intermediate and start from scratch:
 
 ```bash
-bash flatpak/build.sh --clean-all
+bash build/flatpak/build.sh --clean-all
 ```
 
 To disable automatic runtime/SDK installation:
 
 ```bash
-bash flatpak/build.sh --no-install
+bash build/flatpak/build.sh --no-install
 ```
 
 ## Distributable Build
@@ -75,14 +75,14 @@ bash flatpak/build.sh --no-install
 From the repository root:
 
 ```bash
-bash flatpak/build.sh
+bash build/flatpak/build.sh
 flatpak run org.nekocode.NekoCode
 ```
 
 Export a local bundle:
 
 ```bash
-bash flatpak/build.sh --bundle
+bash build/flatpak/build.sh --bundle
 ```
 
 Install the bundle on another machine:

@@ -5,26 +5,26 @@ import (
 	"strings"
 
 	"nekocode/interaction/tui/styles"
-	"nekocode/runtime/view"
+	controlruntime "nekocode/runtime"
 
 	"charm.land/lipgloss/v2"
 )
 
 type QuestionBar struct {
-	req       *view.QuestionRequest
+	req       *controlruntime.QuestionRequest
 	sty       *styles.Styles
 	activeQ   int
 	activeOpt int
 	selected  map[int]map[int]bool
 	custom    []string
-	respond   func(view.QuestionReply)
+	respond   func(controlruntime.QuestionReply)
 }
 
 func NewQuestionBar(sty *styles.Styles) *QuestionBar {
 	return &QuestionBar{sty: sty, selected: make(map[int]map[int]bool)}
 }
 
-func (q *QuestionBar) SetRequest(req *view.QuestionRequest) {
+func (q *QuestionBar) SetRequest(req *controlruntime.QuestionRequest) {
 	q.req = req
 	q.activeQ = 0
 	q.activeOpt = 0
@@ -33,7 +33,7 @@ func (q *QuestionBar) SetRequest(req *view.QuestionRequest) {
 	q.respond = nil
 }
 
-func (q *QuestionBar) SetRequestWithResponder(req *view.QuestionRequest, respond func(view.QuestionReply)) {
+func (q *QuestionBar) SetRequestWithResponder(req *controlruntime.QuestionRequest, respond func(controlruntime.QuestionReply)) {
 	q.SetRequest(req)
 	q.respond = respond
 }
@@ -137,7 +137,7 @@ func (q *QuestionBar) Submit() {
 			}
 		}
 	}
-	reply := view.QuestionReply{Answers: answers}
+	reply := controlruntime.QuestionReply{Answers: answers}
 	if q.respond != nil {
 		q.respond(reply)
 	} else if q.req.Response != nil {
@@ -151,7 +151,7 @@ func (q *QuestionBar) Reject() {
 	if q.req == nil {
 		return
 	}
-	reply := view.QuestionReply{Rejected: true}
+	reply := controlruntime.QuestionReply{Rejected: true}
 	if q.respond != nil {
 		q.respond(reply)
 	} else if q.req.Response != nil {

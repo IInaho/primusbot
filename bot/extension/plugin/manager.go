@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/bot/extension"
 	"nekocode/bot/hooks"
 	"nekocode/common/debug"
+	commonview "nekocode/common/view"
 )
 
 const InstallUsage = "Usage: /plugin install <source>\n  source: GitHub URL | user/repo | ./local-path"
@@ -108,9 +108,9 @@ func (m *Manager) SkillDirs() []string {
 
 // MCPServers returns flattened MCP server views for all installed plugins,
 // attributed to their source plugin and its current enabled state.
-func (m *Manager) MCPServers() []extension.MCPServerView {
+func (m *Manager) MCPServers() []commonview.MCPServerView {
 	plugins := m.reg.List()
-	out := make([]extension.MCPServerView, 0)
+	out := make([]commonview.MCPServerView, 0)
 	for _, p := range plugins {
 		out = append(out, MCPServersFor(p)...)
 	}

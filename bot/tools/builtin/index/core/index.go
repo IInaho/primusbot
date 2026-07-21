@@ -1,4 +1,4 @@
-package indexer
+package core
 
 import (
 	graphpkg "nekocode/bot/tools/builtin/index/core/internal/graph"

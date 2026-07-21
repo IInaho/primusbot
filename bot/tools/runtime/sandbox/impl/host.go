@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,19 +24,28 @@ func RunHost(ctx context.Context, command string, timeout time.Duration) (string
 		cmd.Dir = dir
 	}
 
+	var output []byte
+	var err error
 	if runtime.GOOS != "windows" {
 		// Kill the whole process group on timeout/cancel so nested children
 		// (e.g. `bash -c 'sleep 30'`) cannot outlive the deadline.
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		stop := context.AfterFunc(cmdCtx, func() {
-			if cmd.Process != nil {
+		var buf strings.Builder
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if err = cmd.Start(); err == nil {
+			// Registered after Start so cmd.Process is stable when the
+			// callback reads it.
+			stop := context.AfterFunc(cmdCtx, func() {
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
-		})
-		defer stop()
+			})
+			defer stop()
+			err = cmd.Wait()
+			output = []byte(buf.String())
+		}
+	} else {
+		output, err = cmd.CombinedOutput()
 	}
-
-	output, err := cmd.CombinedOutput()
 	cleaned := toolutil.StripAnsi(string(output))
 	cleaned = truncateCapturedOutput(cleaned)
 	if err != nil {

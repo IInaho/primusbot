@@ -53,116 +53,34 @@ func defaultStagingRoot() string { return sandboxStagingBase() }
 
 // isNativeAvailable reports whether the current system can run the native
 // Linux-namespaced sandbox. It requires Linux and working user namespaces.
-func isNativeAvailable() bool {
+// The probe forks a helper process, so the result is cached: it cannot
+// change during the lifetime of this process.
+var isNativeAvailable = sync.OnceValue(func() bool {
 	if os.Getenv("NEKOCODE_DISABLE_NATIVE_SANDBOX") != "" {
 		return false
 	}
 	cmd := exec.Command("unshare", "--user", "--map-root-user", "true")
 	return cmd.Run() == nil
+})
+
+// nativeLaunch holds everything the shared preparation phase produces for
+// launching the sandboxed child. cleanup releases the per-run staging dir;
+// it is a no-op when the staging root is the shared fallback or was supplied
+// by the caller.
+type nativeLaunch struct {
+	self    string
+	args    []string
+	workdir string
+	sysproc *syscall.SysProcAttr
+	cleanup func()
 }
 
-// runNativeBash executes command inside a fresh set of Linux namespaces
-// (user, mount, net, pid, ipc, uts) created without any external binary.
-// It re-execs the current binary with childFlag; the child process builds
-// an isolated filesystem view (via pivot_root) and execs /bin/bash -c command.
-func runNativeBash(ctx context.Context, command string, profile Profile, timeout time.Duration) (string, error) {
-	if profile.Workspace == "" {
-		return "", fmt.Errorf("sandbox workspace is required")
-	}
-
-	ws, err := filepath.Abs(profile.Workspace)
-	if err != nil {
-		return "", fmt.Errorf("resolve workspace: %w", err)
-	}
-	profile.Workspace = ws
-
-	writePaths, err := resolveWritePaths(profile.WritePaths)
-	if err != nil {
-		return "", err
-	}
-	profile.WritePaths = writePaths
-
-	// The parent creates the staging mountpoint and cleans it up after the
-	// child exits. Using a unique dir avoids collisions between concurrent
-	// sandbox runs. When MkdirTemp fails we fall back to a shared default
-	// path (the base dir itself), which must NOT be removed (it would break
-	// concurrent runs).
-	createdStaging := false
-	if profile.StagingRoot == "" {
-		base := sandboxStagingBase()
-		cleanupStaleStagingRoots(base)
-		if staging, err := os.MkdirTemp(base, stagingRootPrefix); err == nil {
-			profile.StagingRoot = staging
-			createdStaging = true
-			writeStagingOwner(staging)
-		} else {
-			profile.StagingRoot = defaultStagingRoot()
-		}
-	}
-	if err := os.MkdirAll(profile.StagingRoot, 0o700); err != nil {
-		return "", fmt.Errorf("create staging root: %w", err)
-	}
-	if createdStaging {
-		defer cleanupStagingRoot(profile.StagingRoot)
-	}
-
-	profileJSON, err := json.Marshal(profile)
-	if err != nil {
-		return "", fmt.Errorf("marshal profile: %w", err)
-	}
-
-	self, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("get executable path: %w", err)
-	}
-
-	args := []string{childFlag, string(profileJSON), command}
-
-	// Default to an isolated network namespace. Only when the caller has been
-	// granted public network access do we keep the host network namespace.
-	var cloneFlags uintptr = syscall.CLONE_NEWUSER |
-		syscall.CLONE_NEWNS |
-		syscall.CLONE_NEWIPC |
-		syscall.CLONE_NEWUTS |
-		syscall.CLONE_NEWPID |
-		syscall.CLONE_NEWNET
-	if profile.Network {
-		// Network was granted: share the host network namespace instead of
-		// creating an isolated (loopback-only) one.
-		cloneFlags &^= syscall.CLONE_NEWNET
-	}
-	sysproc := &syscall.SysProcAttr{
-		Cloneflags: cloneFlags,
-		UidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
-		},
-		GidMappings: []syscall.SysProcIDMap{
-			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
-		},
-		GidMappingsEnableSetgroups: false,
-		Setpgid:                    true,
-	}
-
-	// Namespace creation or the child's mount setup can fail on kernels /
-	// container runtimes / CI that restrict user namespaces or mount calls.
-	// Classify those as UnavailableError so the router falls back to Landlock.
-	// The child setup failures are prefixed "sandbox child:"; we match that
-	// plus EPERM/EACCES to avoid misclassifying an EACCES from the command
-	// itself (e.g. writing /etc) which would not carry the child prefix.
-	unavail := func(stderr string, runErr error) bool {
-		if strings.Contains(stderr, "sandbox child:") &&
-			(strings.Contains(stderr, "operation not permitted") ||
-				strings.Contains(stderr, "permission denied")) {
-			return true
-		}
-		return strings.Contains(stderr, "operation not permitted") ||
-			strings.Contains(runErr.Error(), "operation not permitted")
-	}
-
-	return runChild(ctx, self, args, nil, profile.Workspace, timeout, sysproc, unavail, "namespace creation failed")
-}
-
-func startNativeBash(ctx context.Context, command string, profile Profile) (*Process, error) {
+// prepareNativeLaunch performs the preparation shared by runNativeBash and
+// startNativeBash: workspace validation, staging-root creation, profile
+// marshaling, and namespace (SysProcAttr) construction. On error any staging
+// dir it created is removed before returning; on success the caller owns
+// launch.cleanup.
+func prepareNativeLaunch(command string, profile Profile) (*nativeLaunch, error) {
 	if profile.Workspace == "" {
 		return nil, fmt.Errorf("sandbox workspace is required")
 	}
@@ -179,6 +97,11 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 	}
 	profile.WritePaths = writePaths
 
+	// The parent creates the staging mountpoint and the caller cleans it up
+	// after the child exits. Using a unique dir avoids collisions between
+	// concurrent sandbox runs. When MkdirTemp fails we fall back to a shared
+	// default path (the base dir itself), which must NOT be removed (it would
+	// break concurrent runs).
 	createdStaging := false
 	if profile.StagingRoot == "" {
 		base := sandboxStagingBase()
@@ -205,12 +128,15 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 		cleanup()
 		return nil, fmt.Errorf("marshal profile: %w", err)
 	}
+
 	self, err := os.Executable()
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("get executable path: %w", err)
 	}
 
+	// Default to an isolated network namespace. Only when the caller has been
+	// granted public network access do we keep the host network namespace.
 	var cloneFlags uintptr = syscall.CLONE_NEWUSER |
 		syscall.CLONE_NEWNS |
 		syscall.CLONE_NEWIPC |
@@ -218,6 +144,8 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 		syscall.CLONE_NEWPID |
 		syscall.CLONE_NEWNET
 	if profile.Network {
+		// Network was granted: share the host network namespace instead of
+		// creating an isolated (loopback-only) one.
 		cloneFlags &^= syscall.CLONE_NEWNET
 	}
 	sysproc := &syscall.SysProcAttr{
@@ -232,8 +160,53 @@ func startNativeBash(ctx context.Context, command string, profile Profile) (*Pro
 		Setpgid:                    true,
 	}
 
-	args := []string{childFlag, string(profileJSON), command}
-	p, err := startCommand(ctx, self, args, nil, profile.Workspace, sysproc, cleanup)
+	return &nativeLaunch{
+		self:    self,
+		args:    []string{childFlag, string(profileJSON), command},
+		workdir: profile.Workspace,
+		sysproc: sysproc,
+		cleanup: cleanup,
+	}, nil
+}
+
+// runNativeBash executes command inside a fresh set of Linux namespaces
+// (user, mount, net, pid, ipc, uts) created without any external binary.
+// It re-execs the current binary with childFlag; the child process builds
+// an isolated filesystem view (via pivot_root) and execs /bin/bash -c command.
+func runNativeBash(ctx context.Context, command string, profile Profile, timeout time.Duration) (string, error) {
+	launch, err := prepareNativeLaunch(command, profile)
+	if err != nil {
+		return "", err
+	}
+	defer launch.cleanup()
+
+	// Namespace creation or the child's mount setup can fail on kernels /
+	// container runtimes / CI that restrict user namespaces or mount calls.
+	// Classify those as UnavailableError so the router falls back to Landlock.
+	// The child setup failures are prefixed "sandbox child:"; we match that
+	// plus EPERM/EACCES to avoid misclassifying an EACCES from the command
+	// itself (e.g. writing /etc) which would not carry the child prefix.
+	unavail := func(stderr string, runErr error) bool {
+		if strings.Contains(stderr, "sandbox child:") &&
+			(strings.Contains(stderr, "operation not permitted") ||
+				strings.Contains(stderr, "permission denied")) {
+			return true
+		}
+		return strings.Contains(stderr, "operation not permitted") ||
+			strings.Contains(runErr.Error(), "operation not permitted")
+	}
+
+	return runChild(ctx, launch.self, launch.args, nil, launch.workdir, timeout, launch.sysproc, unavail, "namespace creation failed")
+}
+
+func startNativeBash(ctx context.Context, command string, profile Profile) (*Process, error) {
+	launch, err := prepareNativeLaunch(command, profile)
+	if err != nil {
+		return nil, err
+	}
+	// startCommand invokes cleanup on start failure and after the process
+	// exits, so ownership of launch.cleanup transfers to it here.
+	p, err := startCommand(ctx, launch.self, launch.args, nil, launch.workdir, launch.sysproc, launch.cleanup)
 	if err != nil {
 		return nil, UnavailableError{Reason: fmt.Sprintf("namespace creation failed: %v", err)}
 	}

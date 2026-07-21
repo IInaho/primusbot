@@ -61,6 +61,31 @@ type SpecifierMatcher interface {
 	Match(specifier string, callInfo map[string]any) (bool, error)
 }
 
+// EffectAwareMatcher is an optional SpecifierMatcher extension for matchers
+// whose matching semantics depend on the rule's effect. The engine probes
+// for it in ruleApplies; matchers that don't implement it get plain Match
+// for every effect. (Bash implements it: allow rules must cover every
+// subcommand of a compound command, deny/ask rules fire on any matching
+// subcommand.)
+type EffectAwareMatcher interface {
+	SpecifierMatcher
+	MatchForEffect(specifier string, callInfo map[string]any, effect Effect) (bool, error)
+}
+
+// AllowCoverer is an optional SpecifierMatcher extension for matchers whose
+// calls can be compound (e.g. chained shell commands): it decides whether a
+// set of allow specifiers JOINTLY covers the whole call, so several narrow
+// allow rules can combine to cover one call. specs are the candidate rules'
+// specifiers in rule order; hasBareAllow reports whether the candidates
+// include a match-all (empty-specifier) rule. It returns the index of the
+// deciding specifier (-1 when coverage comes from the bare rule) and whether
+// coverage holds; covered=false means "not decidable here" and the engine
+// falls back to per-rule Match evaluation.
+type AllowCoverer interface {
+	SpecifierMatcher
+	CompoundAllowCoverage(hasBareAllow bool, specs []string, callInfo map[string]any) (deciding int, covered bool)
+}
+
 // Engine evaluates permission rules for tool calls.
 type Engine struct {
 	matchers     map[string]SpecifierMatcher
@@ -106,6 +131,9 @@ func (e *Engine) SandboxFor(toolName string, callInfo map[string]any) (SandboxPr
 	return SandboxProfile{}, false
 }
 
+// sandboxRuleSpecificity ranks competing sandbox rules so the most specific
+// one wins: specifier length dominates (longer ≈ more specific), tool-name
+// length breaks ties. The ×2 weight is an unmeasured heuristic.
 func sandboxRuleSpecificity(r Rule) int {
 	return len(strings.TrimSpace(r.Specifier))*2 + len(strings.TrimSpace(r.Tool))
 }
@@ -143,7 +171,7 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 		}
 	}
 	// 3. user-declared allow (covers remembered allows → beats builtin ask)
-	if d, ok := e.evaluateBashAllowCoverage(toolName, callInfo, false); ok {
+	if d, ok := e.evaluateAllowCoverage(toolName, callInfo, false); ok {
 		return d
 	}
 	for _, r := range e.rules {
@@ -158,7 +186,7 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 		}
 	}
 	// 5. builtin allow
-	if d, ok := e.evaluateBashAllowCoverage(toolName, callInfo, true); ok {
+	if d, ok := e.evaluateAllowCoverage(toolName, callInfo, true); ok {
 		return d
 	}
 	for _, r := range e.rules {
@@ -169,21 +197,23 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 	return Decision{Effect: defaultEffect}
 }
 
-func (e *Engine) evaluateBashAllowCoverage(toolName string, callInfo map[string]any, builtinOnly bool) (Decision, bool) {
-	if !strings.EqualFold(toolName, "bash") && !strings.EqualFold(toolName, "shell") {
+// evaluateAllowCoverage lets several allow rules jointly cover a compound
+// call (e.g. "npm build && npm test" covered by two narrow bash allows). It
+// applies only when the tool's matcher implements AllowCoverer; otherwise
+// allow evaluation stays per-rule. builtinOnly selects the rule class being
+// evaluated (user-declared first, then builtin); user coverage also counts
+// builtin allows, mirroring the per-rule fallback order.
+func (e *Engine) evaluateAllowCoverage(toolName string, callInfo map[string]any, builtinOnly bool) (Decision, bool) {
+	coverer, ok := e.matcherFor(toolName).(AllowCoverer)
+	if !ok {
 		return Decision{}, false
 	}
-	cmd, _ := callInfo["command"].(string)
-	subcmds := shellCommands(cmd)
-	if len(subcmds) <= 1 {
-		return Decision{}, false
-	}
-	// Bare "allow Bash" rules (empty specifier) match every command. Such a
-	// rule — user-declared or builtin — covers all subcommands; without this
-	// branch a declared "Bash" allow silently failed to cover compound
-	// commands, leaving the engine to fall through to builtin ask rules and
-	// re-prompting the user for a call the user had already allowed as a
-	// whole.
+	// Bare "allow Tool" rules (empty specifier) match every call. Such a
+	// rule — user-declared or builtin — covers all parts of a compound call;
+	// without this branch a declared "Bash" allow silently failed to cover
+	// compound commands, leaving the engine to fall through to builtin ask
+	// rules and re-prompting the user for a call the user had already
+	// allowed as a whole.
 	var bareAllow *Rule
 	var allowRules []Rule
 	for _, r := range e.rules {
@@ -202,9 +232,6 @@ func (e *Engine) evaluateBashAllowCoverage(toolName string, callInfo map[string]
 		}
 		allowRules = append(allowRules, r)
 	}
-	if bareAllow != nil {
-		return Decision{Effect: EffectAllow, Rule: *bareAllow}, true
-	}
 	if !builtinOnly {
 		for _, r := range e.rules {
 			if r.Effect == EffectAllow && r.isBuiltin() && toolNameMatches(r.Tool, toolName) && r.Specifier != "" {
@@ -212,26 +239,18 @@ func (e *Engine) evaluateBashAllowCoverage(toolName string, callInfo map[string]
 			}
 		}
 	}
-	if len(allowRules) == 0 {
+	specs := make([]string, len(allowRules))
+	for i, r := range allowRules {
+		specs[i] = r.Specifier
+	}
+	deciding, covered := coverer.CompoundAllowCoverage(bareAllow != nil, specs, callInfo)
+	if !covered {
 		return Decision{}, false
 	}
-	var deciding Rule
-	for _, sub := range subcmds {
-		covered := false
-		for _, r := range allowRules {
-			if matchBashPattern(normalizeBashSpec(r.Specifier), sub) {
-				covered = true
-				if deciding.Tool == "" {
-					deciding = r
-				}
-				break
-			}
-		}
-		if !covered {
-			return Decision{}, false
-		}
+	if bareAllow != nil {
+		return Decision{Effect: EffectAllow, Rule: *bareAllow}, true
 	}
-	return Decision{Effect: EffectAllow, Rule: deciding}, true
+	return Decision{Effect: EffectAllow, Rule: allowRules[deciding]}, true
 }
 
 // isBuiltin reports whether a rule came from the baked-in default policy.
@@ -239,7 +258,9 @@ func (r Rule) isBuiltin() bool { return r.Source == "builtin" }
 
 // ruleApplies reports whether a rule matches a given tool call: the tool name
 // must match (case-insensitive, or "*" wildcard), and if the rule has a
-// specifier, the tool's matcher must accept it.
+// specifier, the tool's matcher must accept it. Matchers implementing
+// EffectAwareMatcher get the rule's effect so they can pick effect-dependent
+// semantics themselves (e.g. bash all- vs any-subcommand).
 func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) bool {
 	if !toolNameMatches(r.Tool, toolName) {
 		return false
@@ -247,28 +268,34 @@ func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) b
 	if r.Specifier == "" {
 		return true
 	}
-	m, ok := e.matchers[strings.ToLower(toolName)]
-	if !ok {
-		m, ok = e.matchers[toolName]
-	}
-	if !ok && strings.HasPrefix(strings.ToLower(toolName), "mcp__") {
-		m, ok = e.matchers["mcp"]
-	}
-	if !ok {
+	m := e.matcherFor(toolName)
+	if m == nil {
 		return false
 	}
-	if _, isBash := m.(BashMatcher); isBash {
-		mode := MatchAllSubcommands
-		if r.Effect == EffectDeny || r.Effect == EffectAsk {
-			mode = MatchAnySubcommand
-		}
-		return BashRuleMatches(r.Specifier, callInfo, mode)
+	if em, ok := m.(EffectAwareMatcher); ok {
+		match, err := em.MatchForEffect(r.Specifier, callInfo, r.Effect)
+		return err == nil && match
 	}
 	match, err := m.Match(r.Specifier, callInfo)
-	if err != nil || !match {
-		return false
+	return err == nil && match
+}
+
+// matcherFor resolves the matcher registered for a tool: the lowercased name
+// first, then the name as given, then the shared "mcp" matcher for mcp__*
+// tools. Returns nil when no matcher is registered.
+func (e *Engine) matcherFor(toolName string) SpecifierMatcher {
+	if m, ok := e.matchers[strings.ToLower(toolName)]; ok {
+		return m
 	}
-	return true
+	if m, ok := e.matchers[toolName]; ok {
+		return m
+	}
+	if strings.HasPrefix(strings.ToLower(toolName), "mcp__") {
+		if m, ok := e.matchers["mcp"]; ok {
+			return m
+		}
+	}
+	return nil
 }
 
 func toolNameMatches(ruleTool, callTool string) bool {

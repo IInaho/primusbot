@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"nekocode/runtime/internal/eventbus"
-	"nekocode/runtime/view"
 )
 
 type QuestionBroker struct {
@@ -21,7 +20,7 @@ type QuestionBroker struct {
 
 type questionRecord struct {
 	view QuestionView
-	req  view.QuestionRequest
+	req  QuestionRequest
 }
 
 func NewQuestionBroker(eventBus *eventbus.EventBus, source SourceRef, runID func() RunID) *QuestionBroker {
@@ -33,9 +32,9 @@ func NewQuestionBroker(eventBus *eventbus.EventBus, source SourceRef, runID func
 	}
 }
 
-func (b *QuestionBroker) Request(req view.QuestionRequest) view.QuestionReply {
+func (b *QuestionBroker) Request(req QuestionRequest) QuestionReply {
 	if req.Response == nil {
-		req.Response = make(chan view.QuestionReply, 1)
+		req.Response = make(chan QuestionReply, 1)
 	}
 	id := fmt.Sprintf("q_%d", atomic.AddUint64(&b.nextID, 1))
 	rec := &questionRecord{
@@ -51,9 +50,10 @@ func (b *QuestionBroker) Request(req view.QuestionRequest) view.QuestionReply {
 
 	b.mu.Lock()
 	b.pending[id] = rec
+	viewCopy := rec.view
 	b.mu.Unlock()
 
-	b.publish(EventQuestionRequested, rec.view)
+	b.publish(EventQuestionRequested, viewCopy)
 	reply := <-req.Response
 
 	b.mu.Lock()
@@ -73,7 +73,7 @@ func (b *QuestionBroker) Request(req view.QuestionRequest) view.QuestionReply {
 	return reply
 }
 
-func (b *QuestionBroker) Answer(id string, reply view.QuestionReply) error {
+func (b *QuestionBroker) Answer(id string, reply QuestionReply) error {
 	b.mu.Lock()
 	rec, ok := b.pending[id]
 	if !ok {
@@ -123,7 +123,7 @@ func (b *QuestionBroker) RejectAll() {
 	b.mu.Unlock()
 
 	for _, rec := range records {
-		rec.req.Response <- view.QuestionReply{Rejected: true}
+		rec.req.Response <- QuestionReply{Rejected: true}
 		b.publish(EventQuestionResolved, rec.view)
 	}
 }

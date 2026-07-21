@@ -1,7 +1,7 @@
 # NekoCode GUI 开发环境
-# Shell 进入后:
-#   nix-shell shell.nix
-#   source env.sh
+# 从仓库根目录执行:
+#   nix-shell build/shell.nix
+#   source interaction/gui/web/env.sh
 #   wails dev
 
 { pkgs ? import <nixpkgs> {} }:
@@ -54,6 +54,6 @@ pkgs.mkShell {
     echo "libsoup: $(pkg-config --modversion libsoup-3.0 2>/dev/null || echo 'FAIL')"
     echo "pango:  $(pkg-config --modversion pango 2>/dev/null || echo 'FAIL')"
     echo ""
-    echo ">> source gui/env.sh && wails dev"
+    echo ">> source interaction/gui/web/env.sh && wails dev"
   '';
 }

@@ -18,7 +18,7 @@ func TestFinishEditRevertIsNotError(t *testing.T) {
 		ToolName: "edit",
 	}})
 
-	p.finishToolBlock("", "edit", "[/tmp/file.txt#revert]\n-1:changed\n+1:original\n")
+	p.finishToolBlock("", "edit", "[/tmp/file.txt#revert]\n-1:changed\n+1:original\n", false)
 
 	blocks := p.Blocks()
 	if len(blocks) != 1 {

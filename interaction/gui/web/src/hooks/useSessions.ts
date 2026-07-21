@@ -115,18 +115,18 @@ function normalizeSessions(list: SessionMeta[] | null | undefined): SessionMeta[
 }
 
 // mapDisplayMessage 将服务端 DisplayMessage 转换为前端 Msg。
-// Blocks 映射为 msg.steps，由 RunCard/ActivityRow/UnifiedDiff 渲染。
-// Images 映射为 msg.images，由 ImageGrid 渲染。
+// blocks 映射为 msg.steps，由 RunCard/ActivityRow/UnifiedDiff 渲染。
+// images 映射为 msg.images，由 ImageGrid 渲染。
 function mapDisplayMessage(m: DisplayMessage): Msg {
-  const role = m.Role as Msg['role']
-  const text = m.Content ?? ''
-  const steps = buildStepsFromBlocks(m.Blocks)
-  const images = m.Images?.length
-    ? m.Images.map((i) => ({
-        path: i.Path,
-        url: i.URL || undefined,
-        width: i.Width,
-        height: i.Height,
+  const role = m.role as Msg['role']
+  const text = m.content ?? ''
+  const steps = buildStepsFromBlocks(m.blocks)
+  const images = m.images?.length
+    ? m.images.map((i) => ({
+        path: i.path,
+        url: i.url || undefined,
+        width: i.width ?? 0,
+        height: i.height ?? 0,
       }))
     : undefined
   return {
@@ -139,20 +139,20 @@ function mapDisplayMessage(m: DisplayMessage): Msg {
   }
 }
 
-function buildStepsFromBlocks(blocks: DisplayMessage['Blocks']): ToolStep[] {
+function buildStepsFromBlocks(blocks: DisplayMessage['blocks']): ToolStep[] {
   if (!blocks?.length) return []
   return blocks.map((b) => {
-    const isError = !!b.IsError
+    const isError = !!b.isError
     return {
       id: genId(),
-      toolName: b.ToolName,
-      // Args 来自 ToolCall.Arguments (原始 JSON), 是命令/参数的权威来源;
-      // 只有 Args 缺失时 (旧 session) 才回退到从 output 抽取 edit/write 路径。
-      args: b.Args || extractFilePath(b.Content),
-      output: b.Content,
+      toolName: b.toolName,
+      // args 来自 ToolCall.Arguments (原始 JSON), 是命令/参数的权威来源;
+      // 只有 args 缺失时 (旧 session) 才回退到从 output 抽取 edit/write 路径。
+      args: b.args || extractFilePath(b.content),
+      output: b.content,
       status: isError ? 'error' as const : 'done' as const,
       isError,
-      collapsed: shouldCollapseLoadedTool(b.ToolName),
+      collapsed: shouldCollapseLoadedTool(b.toolName),
     }
   })
 }

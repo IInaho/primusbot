@@ -3,7 +3,6 @@ package tui
 
 import (
 	"nekocode/interaction/tui/components"
-	"nekocode/interaction/tui/components/message"
 	"nekocode/util/runtime"
 
 	"charm.land/bubbles/v2/cursor"
@@ -37,41 +36,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		return m, m.handleDone(msg)
 
-	case summarizeDoneMsg:
-		return m, m.handleSummarizeDone(msg)
-
 	case runtimeEventMsg:
 		return m, tea.Batch(m.handleRuntimeEvent(msg.event), listenRuntimeEvent(m.runtimeEvents))
-
-	case notifyMsg:
-		m.Messages.AddMessage(message.ChatMessage{
-			Role: "system", Content: msg.content, RenderedContent: msg.content,
-		})
-		return m, listenNotify(m.notifyCh)
-
-	case confirmMsg:
-		if msg.req.Response == nil {
-			m.state = stateReady
-			m.resizeMessages()
-			return m, nil
-		}
-		m.ConfirmBar.SetRequest(&msg.req)
-		m.preConfirmState = m.state
-		m.state = stateConfirming
-		m.resizeMessages()
-		return m, nil
-
-	case questionMsg:
-		if msg.req.Response == nil {
-			m.state = stateReady
-			m.resizeMessages()
-			return m, nil
-		}
-		m.QuestionBar.SetRequest(&msg.req)
-		m.preConfirmState = m.state
-		m.state = stateQuestioning
-		m.resizeMessages()
-		return m, nil
 
 	case tea.KeyPressMsg:
 		if m.state == stateConfirming {

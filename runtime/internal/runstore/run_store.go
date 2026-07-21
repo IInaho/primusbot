@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"nekocode/runtime/internal/artifact"
 	"nekocode/runtime/internal/core"
 )
 
@@ -288,15 +289,7 @@ func (r *runRecord) applyToolPreview(p ToolPayload, at time.Time) {
 	if idx >= 0 {
 		r.view.Tools[idx].Preview = p.Preview
 	}
-	if strings.TrimSpace(p.Preview) != "" && isDiffArtifact(p.ToolName, p.Preview) {
-		r.artifact.Diffs = append(r.artifact.Diffs, ArtifactItem{
-			Kind:      "diff",
-			ToolName:  p.ToolName,
-			Title:     p.ToolName + " preview",
-			Content:   p.Preview,
-			CreatedAt: at,
-		})
-	}
+	r.recordToolArtifact(p.ToolName, p.Preview, "preview", at)
 }
 
 func (r *runRecord) finishTool(p ToolPayload, status ToolStatus, at time.Time) {
@@ -311,6 +304,9 @@ func (r *runRecord) finishTool(p ToolPayload, status ToolStatus, at time.Time) {
 	r.view.Tools[idx].Status = status
 	r.view.Tools[idx].FinishedAt = &at
 	r.removeToolStack(idx)
+	if status == ToolDone && !p.IsError {
+		r.recordToolArtifact(p.ToolName, p.Output, "result", at)
+	}
 }
 
 func (r *runRecord) findOpenTool(name string) int {
@@ -357,11 +353,26 @@ func (r *runRecord) finish(status RunStatus, at time.Time) {
 	r.view.FinishedAt = &at
 }
 
-func isDiffArtifact(toolName, content string) bool {
-	if toolName == "edit" || toolName == "write" || toolName == "diff" {
-		return true
+func (r *runRecord) recordToolArtifact(toolName, content, titleSuffix string, at time.Time) {
+	classification, ok := artifact.ClassifyToolOutput(toolName, content)
+	if !ok {
+		return
 	}
-	return strings.Contains(content, "\n---") && strings.Contains(content, "\n+++")
+	item := ArtifactItem{
+		Kind:      string(classification.Kind),
+		ToolName:  toolName,
+		Title:     toolName + " " + titleSuffix,
+		Content:   content,
+		CreatedAt: at,
+	}
+	switch classification.Kind {
+	case artifact.KindPatch:
+		r.artifact.Patches = append(r.artifact.Patches, item)
+	case artifact.KindReview:
+		r.artifact.Reviews = append(r.artifact.Reviews, item)
+	case artifact.KindDiff:
+		r.artifact.Diffs = append(r.artifact.Diffs, item)
+	}
 }
 
 func copyRunView(in RunView) RunView {
@@ -375,6 +386,8 @@ func copyRunView(in RunView) RunView {
 func copyArtifactView(in ArtifactView) ArtifactView {
 	out := in
 	out.Diffs = append([]ArtifactItem(nil), in.Diffs...)
+	out.Patches = append([]ArtifactItem(nil), in.Patches...)
+	out.Reviews = append([]ArtifactItem(nil), in.Reviews...)
 	out.Results = append([]ArtifactItem(nil), in.Results...)
 	out.Errors = append([]ArtifactItem(nil), in.Errors...)
 	return out

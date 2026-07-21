@@ -3,7 +3,6 @@ package components
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"nekocode/interaction/tui/styles"
 
@@ -186,10 +185,4 @@ func (i *Input) View() string {
 	return b.String()
 }
 
-type TickMsg struct{}
-
 func (i *Input) Init() tea.Cmd { return tea.Batch(textarea.Blink, BlinkTick()) }
-
-func BlinkTick() tea.Cmd {
-	return tea.Every(time.Millisecond*500, func(t time.Time) tea.Msg { return TickMsg{} })
-}

@@ -3,21 +3,21 @@ package app
 import (
 	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/extension"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/extension/skill"
 	"nekocode/bot/hooks"
 	"nekocode/bot/tools"
 	"nekocode/common/debug"
+	commonview "nekocode/common/view"
 )
 
 type extensionFacade struct {
 	skills     *skill.Manager
 	plugins    *plugin.Manager
 	mcpClients map[string]*mcp.Client
-	mcpHealth  map[string]extension.MCPHealth
-	configMCP  []extension.MCPServerView
+	mcpHealth  map[string]commonview.MCPHealth
+	configMCP  []commonview.MCPServerView
 
 	ctxMgr        *ctxmgr.Manager
 	toolRegistry  *tools.Registry
@@ -32,7 +32,7 @@ func newExtensionFacade(ctxMgr *ctxmgr.Manager, toolRegistry *tools.Registry, ho
 		hookReg:       hookReg,
 		contextWindow: contextWindow,
 		mcpClients:    make(map[string]*mcp.Client),
-		mcpHealth:     make(map[string]extension.MCPHealth),
+		mcpHealth:     make(map[string]commonview.MCPHealth),
 	}
 }
 
@@ -68,21 +68,21 @@ func (e *extensionFacade) RefreshSkillList() {
 	}
 }
 
-func (e *extensionFacade) SkillManagementView() extension.SkillManagementView {
+func (e *extensionFacade) SkillManagementView() commonview.SkillManagementView {
 	mcpServers := e.plugins.MCPServers()
 	mcpServers = append(mcpServers, e.configMCP...)
-	extension.ApplyMCPHealth(mcpServers, e.mcpHealth)
+	commonview.ApplyMCPHealth(mcpServers, e.mcpHealth)
 	return e.skills.ManagementView(e.plugins.Views(), mcpServers)
 }
 
-func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
+func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (commonview.SkillManagementView, error) {
 	if _, err := e.plugins.SetEnabled(name, enabled); err != nil {
-		return extension.SkillManagementView{}, err
+		return commonview.SkillManagementView{}, err
 	}
 	return e.SkillManagementView(), nil
 }
 
-func (e *extensionFacade) RefreshSkillManagement() extension.SkillManagementView {
+func (e *extensionFacade) RefreshSkillManagement() commonview.SkillManagementView {
 	e.plugins.Reload()
 	return e.SkillManagementView()
 }

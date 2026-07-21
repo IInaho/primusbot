@@ -7,7 +7,6 @@ import (
 
 	"nekocode/runtime/internal/core"
 	"nekocode/runtime/internal/eventbus"
-	"nekocode/runtime/view"
 )
 
 func TestQuestionBrokerAnswerUnblocksRequest(t *testing.T) {
@@ -21,9 +20,12 @@ func TestQuestionBrokerAnswerUnblocksRequest(t *testing.T) {
 	}
 
 	broker := NewQuestionBroker(bus, core.SourceRef{Kind: "test"}, func() RunID { return "run_1" })
-	result := make(chan view.QuestionReply, 1)
+	result := make(chan QuestionReply, 1)
 	go func() {
-		req := view.NewQuestionRequest([]view.QuestionItem{{Question: "Continue?"}})
+		req := QuestionRequest{
+			Questions: []core.QuestionItem{{Question: "Continue?"}},
+			Response:  make(chan QuestionReply, 1),
+		}
 		result <- broker.Request(req)
 	}()
 
@@ -42,7 +44,7 @@ func TestQuestionBrokerAnswerUnblocksRequest(t *testing.T) {
 		t.Fatal("timed out waiting for question request")
 	}
 
-	reply := view.QuestionReply{Answers: [][]string{{"yes"}}}
+	reply := QuestionReply{Answers: [][]string{{"yes"}}}
 	if err := broker.Answer(question.ID, reply); err != nil {
 		t.Fatalf("answer: %v", err)
 	}

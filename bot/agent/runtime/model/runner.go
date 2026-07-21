@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"nekocode/bot/agent/llmstream"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/llmstream"
 	"nekocode/common/debug"
 
 	"nekocode/bot/tools/runtime/core"

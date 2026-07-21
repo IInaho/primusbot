@@ -6,9 +6,9 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
+	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
-	aggov "nekocode/bot/policy"
 	"nekocode/bot/tools"
 )
 
@@ -38,7 +38,7 @@ func newFakeHost(tokens ...types.StreamToken) *fakeHost {
 
 func (h *fakeHost) Context() context.Context         { return h.ctx }
 func (h *fakeHost) ContextManager() *ctxmgr.Manager  { return h.ctxMgr }
-func (h *fakeHost) LLM() provider.LLM                   { return h.llm }
+func (h *fakeHost) LLM() provider.LLM                { return h.llm }
 func (h *fakeHost) ToolRegistry() *tools.Registry    { return h.registry }
 func (h *fakeHost) Governance() *aggov.Manager       { return h.gov }
 func (h *fakeHost) IsFinished() bool                 { return h.finished }

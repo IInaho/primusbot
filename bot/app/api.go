@@ -6,8 +6,9 @@ import (
 	"nekocode/bot/agent/runtime"
 	"nekocode/bot/command"
 	"nekocode/bot/config"
-	"nekocode/bot/extension"
+	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/view"
+	commonview "nekocode/common/view"
 )
 
 func (b *Bot) Steer(msg string) { b.getAgent().Steer(msg) }
@@ -84,7 +85,7 @@ func (b *Bot) Run(input string, callbacks view.RunCallbacks) (string, error) {
 	return b.RunAgent(input, callbacks.Step)
 }
 
-func (b *Bot) RunAgent(input string, onStep func(action, toolName, toolArgs, output string)) (string, error) {
+func (b *Bot) RunAgent(input string, onStep func(ev commonview.StepEvent)) (string, error) {
 	ag := b.getAgent()
 	result := ag.Run(input, onStep)
 	ag.SetPlanMode(false)
@@ -176,6 +177,17 @@ func (b *Bot) ContextSnapshot() view.ContextSnapshot {
 	return view.NewContextSnapshot(r)
 }
 
+func (b *Bot) MemoryView(scope view.MemoryScope) view.MemoryView {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if scope == "" {
+		scope = view.MemoryScopeProject
+	}
+	snap := b.ctxMgr.Snapshot()
+	return view.NewMemoryView(scope, memory.DefaultPath(), snap.Memory)
+}
+
 func (b *Bot) SelectSkill(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -202,19 +214,19 @@ func (b *Bot) ClearSelectedSkill() {
 	b.skillState.WantsAgent = false
 }
 
-func (b *Bot) SkillManagementView() extension.SkillManagementView {
+func (b *Bot) SkillManagementView() commonview.SkillManagementView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.SkillManagementView()
 }
 
-func (b *Bot) SetPluginEnabled(name string, enabled bool) (extension.SkillManagementView, error) {
+func (b *Bot) SetPluginEnabled(name string, enabled bool) (commonview.SkillManagementView, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.SetPluginEnabled(name, enabled)
 }
 
-func (b *Bot) RefreshSkillManagement() extension.SkillManagementView {
+func (b *Bot) RefreshSkillManagement() commonview.SkillManagementView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.RefreshSkillManagement()

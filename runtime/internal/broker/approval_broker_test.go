@@ -7,7 +7,6 @@ import (
 
 	"nekocode/runtime/internal/core"
 	"nekocode/runtime/internal/eventbus"
-	"nekocode/runtime/view"
 )
 
 func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
@@ -21,9 +20,14 @@ func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
 	}
 
 	broker := NewApprovalBroker(bus, core.SourceRef{Kind: "test"}, func() RunID { return "run_1" })
-	result := make(chan view.ConfirmReply, 1)
+	result := make(chan ConfirmReply, 1)
 	go func() {
-		req := view.NewConfirmRequest("shell", map[string]any{"command": "go test ./..."}, view.ConfirmKindPermission)
+		req := ConfirmRequest{
+			ToolName: "shell",
+			Args:     map[string]any{"command": "go test ./..."},
+			Kind:     ConfirmKindPermission,
+			Response: make(chan ConfirmReply, 1),
+		}
 		result <- broker.Request(req)
 	}()
 
@@ -37,6 +41,9 @@ func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
 		approval, ok = ev.Payload.(ApprovalView)
 		if !ok {
 			t.Fatalf("payload type = %T, want ApprovalView", ev.Payload)
+		}
+		if approval.ArgsHash == "" || approval.ToolCallHash == "" {
+			t.Fatalf("approval hashes were not set: %#v", approval)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for approval request")
@@ -53,5 +60,22 @@ func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for broker request to unblock")
+	}
+}
+
+func TestApprovalBrokerHashesAreStable(t *testing.T) {
+	first := stableHash(map[string]any{
+		"command": "go test",
+		"path":    "runtime",
+	})
+	second := stableHash(map[string]any{
+		"path":    "runtime",
+		"command": "go test",
+	})
+	if first == "" {
+		t.Fatal("hash is empty")
+	}
+	if first != second {
+		t.Fatalf("hashes differ for equivalent args: %q != %q", first, second)
 	}
 }

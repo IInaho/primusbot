@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 )
 
 func TestTaskTrackerSuppressesTaskReceiptAndRendersCleanDiff(t *testing.T) {
@@ -199,10 +198,10 @@ func TestTaskTrackerBuildQuestionReply(t *testing.T) {
 		Type:  controlruntime.EventQuestionRequested,
 		Payload: controlruntime.QuestionView{
 			ID: "q_1",
-			Questions: []view.QuestionItem{
+			Questions: []controlruntime.QuestionItem{
 				{
 					Question: "Proceed?",
-					Options:  []view.QuestionOption{{Label: "Yes"}, {Label: "No"}},
+					Options:  []controlruntime.QuestionOption{{Label: "Yes"}, {Label: "No"}},
 				},
 				{
 					Question: "Notes?",
@@ -237,9 +236,9 @@ func TestTaskTrackerBuildQuestionOptionReply(t *testing.T) {
 		Type:  controlruntime.EventQuestionRequested,
 		Payload: controlruntime.QuestionView{
 			ID: "q_1",
-			Questions: []view.QuestionItem{{
+			Questions: []controlruntime.QuestionItem{{
 				Question: "Proceed?",
-				Options:  []view.QuestionOption{{Label: "Yes"}, {Label: "No"}},
+				Options:  []controlruntime.QuestionOption{{Label: "Yes"}, {Label: "No"}},
 			}},
 		},
 	})

@@ -1,17 +1,17 @@
 package components
 
 import (
-	"nekocode/runtime/view"
 	"strings"
 	"testing"
 
 	"nekocode/interaction/tui/styles"
+	controlruntime "nekocode/runtime"
 )
 
 func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
-	cb.SetRequest(&view.ConfirmRequest{
+	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
 			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
@@ -20,8 +20,8 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 			"permission_scope":        "once",
 			"workspace":               "/repo",
 		},
-		Kind:     view.ConfirmKindPermission,
-		Response: make(chan view.ConfirmReply, 1),
+		Kind:     controlruntime.ConfirmKindPermission,
+		Response: make(chan controlruntime.ConfirmReply, 1),
 	})
 
 	view := cb.View(100, 40)
@@ -41,11 +41,11 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
-	ch := make(chan view.ConfirmReply, 1)
-	cb.SetRequest(&view.ConfirmRequest{
+	ch := make(chan controlruntime.ConfirmReply, 1)
+	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName:              "shell",
 		Args:                  map[string]any{"command": "go get example.com/pkg", "permission_scope": "once"},
-		Kind:                  view.ConfirmKindPermission,
+		Kind:                  controlruntime.ConfirmKindPermission,
 		Response:              ch,
 		CanEscalatePermission: true,
 	})
@@ -75,14 +75,14 @@ func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
-	ch := make(chan view.ConfirmReply, 1)
-	cb.SetRequest(&view.ConfirmRequest{
+	ch := make(chan controlruntime.ConfirmReply, 1)
+	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
 			"command":          "go get example.com/pkg",
 			"permission_scope": "project",
 		},
-		Kind:                  view.ConfirmKindPermission,
+		Kind:                  controlruntime.ConfirmKindPermission,
 		Response:              ch,
 		CanEscalatePermission: true,
 	})

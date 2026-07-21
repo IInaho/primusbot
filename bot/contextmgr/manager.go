@@ -13,7 +13,7 @@ import (
 
 	"nekocode/bot/contextmgr/compression"
 	"nekocode/bot/contextmgr/compression/replacement"
-	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/internal/builder"
 	compactctl "nekocode/bot/contextmgr/internal/compaction"
 	"nekocode/bot/contextmgr/internal/history"
@@ -49,7 +49,7 @@ type Config struct {
 // NewSub creates a lightweight Manager for subagents.
 // Compression is only enabled when mergeClient is non-nil.
 func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *Manager {
-	ctx := ctxctx.New(systemPrompt)
+	ctx := content.New(systemPrompt)
 	m := assembleManager(&state.State{
 		Ctx:           ctx,
 		Tracker:       &token.Tracker{},
@@ -80,7 +80,7 @@ func MakeSummarizer(ctx context.Context, client provider.LLM) compression.Summar
 }
 
 func New(cfg Config) *Manager {
-	ctx := ctxctx.New(cfg.SystemPrompt)
+	ctx := content.New(cfg.SystemPrompt)
 	if cfg.Memory != nil {
 		ctx.Memory = cfg.Memory.Build()
 	}

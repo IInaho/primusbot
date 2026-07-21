@@ -4,93 +4,135 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 )
 
-type tickFakeBot struct{}
+type tickFakeBot struct {
+	mu        sync.Mutex
+	submitted []string
+}
 
-func (tickFakeBot) Run(string, view.RunCallbacks) (string, error) { return "", nil }
-func (tickFakeBot) Submit(context.Context, controlruntime.Input) (controlruntime.RunID, error) {
+func (b *tickFakeBot) Submit(_ context.Context, input controlruntime.Input) (controlruntime.RunID, error) {
+	b.mu.Lock()
+	b.submitted = append(b.submitted, input.Text)
+	b.mu.Unlock()
 	return "", nil
 }
-func (tickFakeBot) Steer(context.Context, controlruntime.RunID, controlruntime.Input) error {
+func (*tickFakeBot) Steer(context.Context, controlruntime.RunID, controlruntime.Input) error {
 	return nil
 }
-func (tickFakeBot) Abort(context.Context, controlruntime.RunID) error { return nil }
-func (tickFakeBot) Approve(context.Context, string, controlruntime.ApprovalDecision) error {
+func (*tickFakeBot) Abort(context.Context, controlruntime.RunID) error { return nil }
+func (*tickFakeBot) Publish(controlruntime.Event)                      {}
+func (*tickFakeBot) Approve(context.Context, string, controlruntime.ApprovalDecision) error {
 	return nil
 }
-func (tickFakeBot) Answer(context.Context, string, view.QuestionReply) error { return nil }
-func (tickFakeBot) Subscribe(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error) {
+func (*tickFakeBot) Answer(context.Context, string, controlruntime.QuestionReply) error { return nil }
+func (*tickFakeBot) Subscribe(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error) {
 	return make(chan controlruntime.Event), nil
 }
-func (tickFakeBot) ExecuteCommand(string) (string, view.CmdResult) {
-	time.Sleep(100 * time.Millisecond)
-	return "summary done", view.CmdHandled
+func (*tickFakeBot) Connect(context.Context, string, []string) (string, error) {
+	return "", nil
 }
-func (tickFakeBot) SkillHint() (string, bool) { return "", false }
-func (tickFakeBot) Stats() view.BotStats      { return view.BotStats{} }
-func (tickFakeBot) CommandNames() []string    { return nil }
-func (tickFakeBot) Configure(view.ConfirmFunc, view.PhaseFunc, view.TodoFunc, func(string), chan view.ConfirmRequest, view.QuestionFunc) {
+func (*tickFakeBot) Disconnect(string) (string, error) {
+	return "", nil
 }
-func (tickFakeBot) Close()                          {}
-func (tickFakeBot) ProviderModel() (string, string) { return "test", "test" }
-func (tickFakeBot) SwitchModel(string) (string, string, error) {
+func (*tickFakeBot) CurrentRunView() (controlruntime.RunView, bool) {
+	return controlruntime.RunView{}, false
+}
+func (*tickFakeBot) RunView(controlruntime.RunID) (controlruntime.RunView, bool) {
+	return controlruntime.RunView{}, false
+}
+func (*tickFakeBot) ListRunViews(int) []controlruntime.RunView {
+	return nil
+}
+func (*tickFakeBot) ArtifactView(controlruntime.RunID) (controlruntime.ArtifactView, bool) {
+	return controlruntime.ArtifactView{}, false
+}
+func (*tickFakeBot) ConnectView() controlruntime.ConnectView {
+	return controlruntime.ConnectView{}
+}
+func (*tickFakeBot) SkillHint() (string, bool) { return "", false }
+func (*tickFakeBot) Stats() controlruntime.BotStats {
+	return controlruntime.BotStats{}
+}
+func (*tickFakeBot) CommandNames() []string          { return nil }
+func (*tickFakeBot) Close()                          {}
+func (*tickFakeBot) ProviderModel() (string, string) { return "test", "test" }
+func (*tickFakeBot) SwitchModel(string) (string, string, error) {
 	return "", "", nil
 }
-func (tickFakeBot) ContextStatus() string                  { return "" }
-func (tickFakeBot) ContextReport() string                  { return "" }
-func (tickFakeBot) ContextSnapshot() view.ContextSnapshot  { return view.ContextSnapshot{} }
-func (tickFakeBot) SelectSkill(string) error               { return nil }
-func (tickFakeBot) ClearSelectedSkill()                    {}
-func (tickFakeBot) SessionMessages() []view.DisplayMessage { return nil }
-func (tickFakeBot) ConfigView() view.ConfigView            { return view.ConfigView{} }
-func (tickFakeBot) ApplyConfig(view.ConfigView) (view.ConfigView, error) {
-	return view.ConfigView{}, nil
+func (*tickFakeBot) ContextStatus() string { return "" }
+func (*tickFakeBot) ContextReport() string { return "" }
+func (*tickFakeBot) ContextSnapshot() controlruntime.ContextSnapshot {
+	return controlruntime.ContextSnapshot{}
 }
-func (tickFakeBot) SkillManagementView() view.SkillManagementView {
-	return view.SkillManagementView{}
+func (*tickFakeBot) MemoryView(controlruntime.MemoryScope) controlruntime.MemoryView {
+	return controlruntime.MemoryView{}
 }
-func (tickFakeBot) RefreshSkillManagement() view.SkillManagementView {
-	return view.SkillManagementView{}
+func (*tickFakeBot) SelectSkill(string) error { return nil }
+func (*tickFakeBot) ClearSelectedSkill()      {}
+func (*tickFakeBot) SessionMessages() []controlruntime.DisplayMessage {
+	return nil
 }
-func (tickFakeBot) SetPluginEnabled(string, bool) (view.SkillManagementView, error) {
-	return view.SkillManagementView{}, nil
+func (*tickFakeBot) ConfigView() controlruntime.ConfigView { return controlruntime.ConfigView{} }
+func (*tickFakeBot) ApplyConfig(controlruntime.ConfigView) (controlruntime.ConfigView, error) {
+	return controlruntime.ConfigView{}, nil
 }
-func (tickFakeBot) CWD() string                           { return "" }
-func (tickFakeBot) ClearContext()                         {}
-func (tickFakeBot) CurrentSessionID() string              { return "" }
-func (tickFakeBot) SetSession(string) error               { return nil }
-func (tickFakeBot) ResumeSession(string) error            { return nil }
-func (tickFakeBot) ListSessions() []view.SessionMeta      { return nil }
-func (tickFakeBot) NewSession() (view.SessionMeta, error) { return view.SessionMeta{}, nil }
-func (tickFakeBot) DeleteSession(string) error            { return nil }
+func (*tickFakeBot) SkillManagementView() controlruntime.SkillManagementView {
+	return controlruntime.SkillManagementView{}
+}
+func (*tickFakeBot) RefreshSkillManagement() controlruntime.SkillManagementView {
+	return controlruntime.SkillManagementView{}
+}
+func (*tickFakeBot) SetPluginEnabled(string, bool) (controlruntime.SkillManagementView, error) {
+	return controlruntime.SkillManagementView{}, nil
+}
+func (*tickFakeBot) CWD() string                                { return "" }
+func (*tickFakeBot) ClearContext()                              {}
+func (*tickFakeBot) CurrentSessionID() string                   { return "" }
+func (*tickFakeBot) SetSession(string) error                    { return nil }
+func (*tickFakeBot) ResumeSession(string) error                 { return nil }
+func (*tickFakeBot) ListSessions() []controlruntime.SessionMeta { return nil }
+func (*tickFakeBot) NewSession() (controlruntime.SessionMeta, error) {
+	return controlruntime.SessionMeta{}, nil
+}
+func (*tickFakeBot) DeleteSession(string) error { return nil }
+
+func (b *tickFakeBot) submittedInputs() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.submitted...)
+}
 
 type blockingStatsBot struct {
 	tickFakeBot
 	statsCalled chan struct{}
 }
 
-func (b blockingStatsBot) Stats() view.BotStats {
+func (b *blockingStatsBot) Stats() controlruntime.BotStats {
 	close(b.statsCalled)
 	select {}
 }
 
 func TestSummarizeProcessingTickUpdatesView(t *testing.T) {
-	m := NewModel(tickFakeBot{})
+	bot := &tickFakeBot{}
+	m := NewModel(bot)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(*Model)
 
-	cmd := m.startSummarize("/summarize")
+	cmd := m.startChat("/summarize")
 	if cmd == nil {
-		t.Fatal("startSummarize should listen for completion")
+		t.Fatal("startChat should tick while summarizing")
+	}
+	if got := bot.submittedInputs(); len(got) != 1 || got[0] != "/summarize" {
+		t.Fatalf("submitted inputs = %#v, want /summarize", got)
 	}
 
 	before := fmt.Sprint(m.View())
@@ -114,7 +156,7 @@ func TestSummarizeProcessingTickUpdatesView(t *testing.T) {
 }
 
 func TestSummarizeProcessingTickDoesNotReadStats(t *testing.T) {
-	bot := blockingStatsBot{statsCalled: make(chan struct{})}
+	bot := &blockingStatsBot{statsCalled: make(chan struct{})}
 	m := NewModel(bot)
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(*Model)

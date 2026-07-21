@@ -34,22 +34,22 @@ modules:
   - name: nekocode
     buildsystem: simple
     build-commands:
-      - rm -rf src/node_modules src/gui/node_modules src/gui/dist src/build
+      - rm -rf src/node_modules src/interaction/gui/web/node_modules src/interaction/gui/web/dist src/build/bin
       - mkdir -p /run/build/nekocode-cache/go-build /run/build/nekocode-cache/gopath /run/build/nekocode-cache/go-mod /run/build/nekocode-cache/npm
       - PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" go version
       - PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" node --version
       - PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" npm --version
-      - PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" npm --prefix src/gui config get registry
-      - timeout 900 env PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" npm --prefix src/gui ci --prefer-offline --no-audit --fund=false --progress=false --loglevel=http --timing
+      - PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" npm --prefix src/interaction/gui/web config get registry
+      - timeout 900 env PATH="$PWD/.toolchain/bin:$PWD/.toolchain/node/bin:$PATH" npm --prefix src/interaction/gui/web ci --prefer-offline --no-audit --fund=false --progress=false --loglevel=http --timing
       - cd src && PATH="$PWD/../.toolchain/bin:$PWD/../.toolchain/node/bin:$PATH" go mod download
       - cd src && PATH="$PWD/../.toolchain/bin:$PWD/../.toolchain/node/bin:$PATH" go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
       - |
         sed -i 's/"frontend:install": "npm install"/"frontend:install": "true"/' src/wails.json
       - cd src && PATH="$PWD/../.toolchain/bin:$PWD/../.toolchain/node/bin:$PATH" /run/build/nekocode-cache/gopath/bin/wails build -clean -v 2
       - install -Dm755 src/build/bin/nekocode-gui /app/bin/nekocode-gui
-      - install -Dm644 src/flatpak/org.nekocode.NekoCode.desktop /app/share/applications/org.nekocode.NekoCode.desktop
-      - install -Dm644 src/flatpak/org.nekocode.NekoCode.metainfo.xml /app/share/metainfo/org.nekocode.NekoCode.metainfo.xml
-      - install -Dm644 src/flatpak/org.nekocode.NekoCode.png /app/share/icons/hicolor/256x256/apps/org.nekocode.NekoCode.png
+      - install -Dm644 src/build/flatpak/org.nekocode.NekoCode.desktop /app/share/applications/org.nekocode.NekoCode.desktop
+      - install -Dm644 src/build/flatpak/org.nekocode.NekoCode.metainfo.xml /app/share/metainfo/org.nekocode.NekoCode.metainfo.xml
+      - install -Dm644 src/build/flatpak/org.nekocode.NekoCode.png /app/share/icons/hicolor/256x256/apps/org.nekocode.NekoCode.png
       - chmod -R u+rwX /run/build/nekocode-cache src/build
     sources:
       - type: archive

@@ -10,7 +10,7 @@ import (
 )
 
 func TestLenAndStats(t *testing.T) {
-	st := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}}
+	st := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}}
 	(&history.Store{State: st}).Add("user", "hello")
 
 	u := &Meter{State: st}
@@ -24,7 +24,7 @@ func TestLenAndStats(t *testing.T) {
 }
 
 func TestTokenUsage(t *testing.T) {
-	st := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}, ContextWindow: 10000}
+	st := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}, ContextWindow: 10000}
 	_, budget := (&Meter{State: st}).TokenUsage()
 	if budget != 10000 {
 		t.Errorf("budget = %d, want 10000", budget)

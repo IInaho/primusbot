@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,8 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"nekocode/runtime/internal/artifact"
 	"nekocode/runtime/internal/core"
-	"nekocode/runtime/view"
 	"nekocode/util/fs"
 )
 
@@ -23,6 +24,7 @@ type SourceRef = core.SourceRef
 type MessagePayload = core.MessagePayload
 type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
+type TodoItem = core.TodoItem
 type ToolPayload = core.ToolPayload
 type DonePayload = core.DonePayload
 type ApprovalView = core.ApprovalView
@@ -111,49 +113,91 @@ func (r *EventRecorder) RunDir(runID RunID) string {
 	return filepath.Join(r.runDir, safePathPart(string(runID)))
 }
 
+func (r *EventRecorder) Close() error {
+	if r == nil {
+		return nil
+	}
+	return nil
+}
+
 func (r *EventRecorder) Record(ev Event) {
+	if err := r.RecordError(ev); err != nil {
+		log.Printf("runtime: event recorder: %v", err)
+	}
+}
+
+func (r *EventRecorder) RecordError(ev Event) error {
 	if r == nil || ev.RunID == "" {
-		return
+		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	runDir := r.RunDir(ev.RunID)
 	if err := os.MkdirAll(filepath.Join(runDir, "artifacts"), 0o700); err != nil {
-		return
+		return fmt.Errorf("create run dir: %w", err)
 	}
-	_ = appendJSONLine(filepath.Join(runDir, "events.jsonl"), recordedEventFrom(ev))
-	r.recordArtifact(runDir, ev)
+	if err := appendJSONLine(filepath.Join(runDir, "events.jsonl"), recordedEventFrom(ev)); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+	if err := r.recordArtifact(runDir, ev); err != nil {
+		log.Printf("runtime: event recorder: artifact: %v", err)
+	}
+	return nil
 }
 
-func (r *EventRecorder) recordArtifact(runDir string, ev Event) {
+func (r *EventRecorder) recordArtifact(runDir string, ev Event) error {
 	switch ev.Type {
 	case EventToolPreview:
 		p, ok := ev.Payload.(ToolPayload)
-		if !ok || strings.TrimSpace(p.Preview) == "" || !isDiffArtifact(p.ToolName, p.Preview) {
-			return
+		if !ok {
+			return nil
 		}
-		path := filepath.Join(runDir, "artifacts", r.nextArtifactName(ev.RunID, "diff", ".patch"))
-		_ = fs.WriteFileWithDir(path, []byte(p.Preview), 0o600)
+		return r.recordToolArtifact(runDir, ev.RunID, p.ToolName, p.Preview)
+	case EventToolCompleted:
+		p, ok := ev.Payload.(ToolPayload)
+		if !ok || p.IsError {
+			return nil
+		}
+		return r.recordToolArtifact(runDir, ev.RunID, p.ToolName, p.Output)
 	case EventRunDone:
 		p, ok := ev.Payload.(DonePayload)
 		if !ok || strings.TrimSpace(p.Output) == "" {
-			return
+			return nil
 		}
 		path := filepath.Join(runDir, "artifacts", "result.md")
-		_ = fs.WriteFileWithDir(path, []byte(p.Output), 0o600)
+		if err := fs.WriteFileWithDir(path, []byte(p.Output), 0o600); err != nil {
+			return fmt.Errorf("write result.md: %w", err)
+		}
 	case EventRunFailed:
 		p, ok := ev.Payload.(DonePayload)
 		if !ok {
-			return
+			return nil
 		}
 		if strings.TrimSpace(p.Output) != "" {
-			_ = fs.WriteFileWithDir(filepath.Join(runDir, "artifacts", "partial-result.md"), []byte(p.Output), 0o600)
+			if err := fs.WriteFileWithDir(filepath.Join(runDir, "artifacts", "partial-result.md"), []byte(p.Output), 0o600); err != nil {
+				return fmt.Errorf("write partial-result.md: %w", err)
+			}
 		}
 		if strings.TrimSpace(p.Error) != "" {
-			_ = fs.WriteFileWithDir(filepath.Join(runDir, "artifacts", "error.txt"), []byte(p.Error), 0o600)
+			if err := fs.WriteFileWithDir(filepath.Join(runDir, "artifacts", "error.txt"), []byte(p.Error), 0o600); err != nil {
+				return fmt.Errorf("write error.txt: %w", err)
+			}
 		}
 	}
+	return nil
+}
+
+func (r *EventRecorder) recordToolArtifact(runDir string, runID RunID, toolName, content string) error {
+	classification, ok := artifact.ClassifyToolOutput(toolName, content)
+	if !ok {
+		return nil
+	}
+	path := filepath.Join(runDir, "artifacts", r.nextArtifactName(runID, string(classification.Kind), classification.Extension))
+	if err := fs.WriteFileWithDir(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write tool artifact: %w", err)
+	}
+	return nil
 }
 
 func (r *EventRecorder) nextArtifactName(runID RunID, kind, ext string) string {
@@ -188,6 +232,7 @@ func LoadRecordedEvents(baseDir string) ([]Event, error) {
 	for _, path := range matches {
 		events, err := loadRecordedEventFile(path)
 		if err != nil {
+			log.Printf("runtime: skip recorded events %s: %v", path, err)
 			continue
 		}
 		out = append(out, events...)
@@ -208,17 +253,21 @@ func loadRecordedEventFile(path string) ([]Event, error) {
 	var events []Event
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	lineNo := 0
 	for scanner.Scan() {
+		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
 		var rec recordedEvent
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			log.Printf("runtime: recorded event %s:%d unmarshal: %v", path, lineNo, err)
 			continue
 		}
 		ev, err := rec.Event()
 		if err != nil {
+			log.Printf("runtime: recorded event %s:%d decode: %v", path, lineNo, err)
 			continue
 		}
 		events = append(events, ev)
@@ -260,7 +309,7 @@ func decodeRecordedPayload(typ EventType, data json.RawMessage) (any, error) {
 		var p ToolPayload
 		return p, json.Unmarshal(data, &p)
 	case EventTodosUpdated:
-		var p []view.TodoItem
+		var p []TodoItem
 		return p, json.Unmarshal(data, &p)
 	case EventApprovalRequested, EventApprovalResolved:
 		var p ApprovalView
@@ -294,13 +343,6 @@ func marshalPayload(payload any) (json.RawMessage, string) {
 
 func payloadTypeName(payload any) string {
 	return strings.Replace(fmt.Sprintf("%T", payload), "core.", "runtime.", 1)
-}
-
-func isDiffArtifact(toolName, content string) bool {
-	if toolName == "edit" || toolName == "write" || toolName == "diff" {
-		return true
-	}
-	return strings.Contains(content, "\n---") && strings.Contains(content, "\n+++")
 }
 
 func appendJSONLine(path string, v any) error {

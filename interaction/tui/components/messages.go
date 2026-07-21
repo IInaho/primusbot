@@ -95,8 +95,8 @@ func (m *Messages) ProcessToolBlock(b block.ContentBlock) {
 	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.AddToolBlock(b) })
 }
 
-func (m *Messages) AddToolOutput(toolName, output string) {
-	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.AddToolOutput(toolName, output) })
+func (m *Messages) AddToolOutput(toolName, output string, isError bool) {
+	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.AddToolOutput(toolName, output, isError) })
 }
 
 func (m *Messages) UpdateToolPreview(toolName, preview string) {
@@ -133,8 +133,8 @@ func (m *Messages) RemoveSubAgent(id string) {
 	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.RemoveSubAgent(id) })
 }
 
-func (m *Messages) AddSubToolOutput(subID, toolName, output string) {
-	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.AddSubToolOutput(subID, toolName, output) })
+func (m *Messages) AddSubToolOutput(subID, toolName, output string, isError bool) {
+	m.UpdateProcessing(func(p *processing.ProcessingItem) { p.AddSubToolOutput(subID, toolName, output, isError) })
 }
 
 func (m *Messages) ClearProcessing() {
@@ -165,7 +165,13 @@ func (m *Messages) AddMessage(msg message.ChatMessage) {
 	defer m.mu.Unlock()
 
 	item := m.messageItem(msg)
-	m.AppendItems(item)
+	if m.processingItem != nil {
+		// Keep the processing item pinned as the last list item — both
+		// invalidateProcessing and the tick animation assume it is final.
+		m.InsertItem(len(m.Items())-1, item)
+	} else {
+		m.AppendItems(item)
+	}
 	if m.Follow {
 		m.ScrollToBottom()
 	}

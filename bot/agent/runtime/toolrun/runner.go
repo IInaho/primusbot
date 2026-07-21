@@ -9,9 +9,10 @@ import (
 	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
+	commonview "nekocode/common/view"
 )
 
-type Callback func(action, toolName, toolArgs, output string)
+type Callback func(ev commonview.StepEvent)
 
 type Host interface {
 	Context() context.Context
@@ -34,7 +35,7 @@ func New(host Host) *Runner {
 
 func (r *Runner) ExecuteAndFeedback(calls []core.ToolCallItem, textContent string, quota *budget.ToolQuota, callback Callback) bool {
 	if textContent != "" && callback != nil {
-		callback("think", "", "", textContent)
+		callback(commonview.StepEvent{Action: commonview.StepActionThink, Output: textContent})
 	}
 
 	filtered := r.FilterToolCalls(calls, quota)

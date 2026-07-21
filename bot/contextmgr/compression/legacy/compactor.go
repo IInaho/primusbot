@@ -6,7 +6,7 @@ import (
 
 	"nekocode/common/debug"
 
-	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/token"
 )
 
@@ -21,7 +21,7 @@ type Tracker interface {
 
 // Compactor holds references to the parent's state for compaction.
 type Compactor struct {
-	Ctx           *ctxctx.Content
+	Ctx           *content.Content
 	ContextWindow *int
 	Tracker       Tracker
 

@@ -10,7 +10,6 @@ import (
 	"nekocode/interaction/tui/components"
 	"nekocode/interaction/tui/styles"
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -18,12 +17,8 @@ import (
 
 type RuntimeClient interface {
 	controlruntime.Runtime
+	controlruntime.QueryRuntime
 	Close()
-	ExecuteCommand(string) (string, view.CmdResult)
-	Stats() view.BotStats
-	CommandNames() []string
-	ProviderModel() (string, string)
-	SessionMessages() []view.DisplayMessage
 }
 
 type Model struct {
@@ -46,10 +41,6 @@ type Model struct {
 	ConfirmBar      *components.ConfirmBar
 	QuestionBar     *components.QuestionBar
 	Scrollbar       *components.Scrollbar
-	confirmCh       chan view.ConfirmRequest
-	questionCh      chan view.QuestionRequest
-	notifyCh        chan string
-	summarizeCh     chan summarizeDoneMsg
 	runtimeEvents   <-chan controlruntime.Event
 }
 
@@ -76,10 +67,6 @@ func NewModel(rt RuntimeClient) *Model {
 		Width:         80,
 		Height:        24,
 		state:         stateReady,
-		confirmCh:     make(chan view.ConfirmRequest),
-		questionCh:    make(chan view.QuestionRequest),
-		notifyCh:      make(chan string, 8),
-		summarizeCh:   make(chan summarizeDoneMsg, 1),
 		runtimeEvents: events,
 	}
 	m.Input.SetHistory(loadInputHistory())
@@ -87,9 +74,7 @@ func NewModel(rt RuntimeClient) *Model {
 	return m
 }
 
-func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.Input.Init(), listenNotify(m.notifyCh), listenRuntimeEvent(m.runtimeEvents))
-}
+func (m *Model) Init() tea.Cmd { return tea.Batch(m.Input.Init(), listenRuntimeEvent(m.runtimeEvents)) }
 
 func (m *Model) resizeMessages() {
 	follow := m.Messages.Follow
@@ -140,46 +125,6 @@ func (m *Model) transitionTo(state chatState) {
 	m.resizeMessages()
 }
 
-func listenConfirm(ch <-chan view.ConfirmRequest) tea.Cmd {
-	return func() tea.Msg {
-		req, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return confirmMsg{req: req}
-	}
-}
-
-func listenQuestion(ch <-chan view.QuestionRequest) tea.Cmd {
-	return func() tea.Msg {
-		req, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return questionMsg{req: req}
-	}
-}
-
-func listenNotify(ch <-chan string) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return notifyMsg{content: msg}
-	}
-}
-
-func listenSummarize(ch <-chan summarizeDoneMsg) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return msg
-	}
-}
-
 func listenRuntimeEvent(ch <-chan controlruntime.Event) tea.Cmd {
 	return func() tea.Msg {
 		if ch == nil {
@@ -197,8 +142,8 @@ func listenRuntimeEvent(ch <-chan controlruntime.Event) tea.Cmd {
 const (
 	phaseSteer       = "Processing new input..."
 	phaseSummarizing = "Summarizing context..."
-	PhaseReady       = view.PhaseReady
-	PhaseWaiting     = view.PhaseWaiting
+	PhaseReady       = "Ready"
+	PhaseWaiting     = "Waiting"
 )
 
 func (m *Model) setPhase(p string) {
@@ -208,18 +153,39 @@ func (m *Model) setPhase(p string) {
 	m.processingPhase = p
 }
 
-func todoItemsText(items []view.TodoItem) string {
+func todoItemsText(items []controlruntime.TodoItem) string {
 	if len(items) == 0 {
 		return ""
 	}
-	done := view.CountCompleted(items)
+	done := countCompleted(items)
 	if done == len(items) {
 		return fmt.Sprintf("✓ All %d tasks complete", done)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Tasks %d/%d", done, len(items))
 	for _, it := range items {
-		fmt.Fprintf(&b, "\n%s %s", view.TodoStatusIcon(it.Status), it.Content)
+		fmt.Fprintf(&b, "\n%s %s", todoStatusIcon(it.Status), it.Content)
 	}
 	return b.String()
+}
+
+func countCompleted(items []controlruntime.TodoItem) int {
+	n := 0
+	for _, it := range items {
+		if it.Status == "completed" {
+			n++
+		}
+	}
+	return n
+}
+
+func todoStatusIcon(status string) string {
+	switch status {
+	case "in_progress":
+		return "▸"
+	case "completed":
+		return "✓"
+	default:
+		return "·"
+	}
 }

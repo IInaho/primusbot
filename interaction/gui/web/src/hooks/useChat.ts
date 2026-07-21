@@ -527,15 +527,16 @@ function terminalStep(s: ToolStep): boolean {
 }
 
 // reImagePath matches image_gen output lines like "  => /abs/path/nekocode_img_xxx.jpg" or "  /path/img.png".
-const RE_IMAGE_PATH = /(?:=>\s+)?(\/[^\s]+\.(?:png|jpg|jpeg|gif|webp))/i
+const RE_IMAGE_PATH = /^\s*(?:=>\s+)?(\/[^\s]+\.(?:png|jpg|jpeg|gif|webp))\s*$/i
 
 function parseImageOutput(output: string): UIImageRef[] {
   if (!output) return []
   const seen = new Set<string>()
   const refs: UIImageRef[] = []
-  const matches = output.matchAll(new RegExp(RE_IMAGE_PATH.source, 'gi'))
-  for (const m of matches) {
-    const p = m[1]
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(RE_IMAGE_PATH)
+    if (!match) continue
+    const p = match[1]
     if (seen.has(p)) continue
     seen.add(p)
     refs.push({ path: p, width: 0, height: 0 })

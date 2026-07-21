@@ -10,6 +10,14 @@ interface MarkdownBodyProps {
 
 // 组件映射保持稳定: 提升到模块作用域, 避免每次渲染重建对象导致内部元素 memo 失效。
 const markdownComponents: Components = {
+  img({ src, alt }: any) {
+    const text = src ? (alt ? `${alt}: ${src}` : src) : alt || ''
+    return (
+      <code className="rounded bg-surface-3/70 px-[5px] py-px font-mono text-[0.85em] text-warning [overflow-wrap:anywhere]">
+        {text}
+      </code>
+    )
+  },
   code({ className, children, ...props }: any) {
     const cls = (className as string) || ''
     const isInline = !cls.startsWith('language-')

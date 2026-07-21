@@ -11,7 +11,7 @@ import (
 
 func TestAutoCompactIfNeeded_NoStrategy(t *testing.T) {
 	c := &Controller{State: &state.State{
-		Ctx:           context.New("test prompt"),
+		Ctx:           content.New("test prompt"),
 		Tracker:       &token.Tracker{},
 		ContextWindow: 10000,
 	}}

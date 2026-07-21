@@ -7,17 +7,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
+	"nekocode/runtime/internal/eventbus"
+	"nekocode/runtime/internal/runstore"
 )
 
 type fakeRuntime struct {
-	bus   *controlruntime.EventBus
-	store *controlruntime.RunStore
+	bus   *eventbus.EventBus
+	store *runstore.RunStore
 
 	mu              sync.Mutex
 	nextRun         int
@@ -32,10 +35,14 @@ type fakeRuntime struct {
 }
 
 func newFakeRuntime() *fakeRuntime {
-	bus := controlruntime.NewEventBus()
-	store := controlruntime.NewRunStore(0)
+	bus := eventbus.NewEventBus()
+	store := runstore.NewRunStore(0)
 	bus.AddObserver(store.Record)
 	return &fakeRuntime{bus: bus, store: store}
+}
+
+func (f *fakeRuntime) Publish(ev controlruntime.Event) {
+	f.bus.Publish(ev)
 }
 
 func (f *fakeRuntime) Submit(_ context.Context, input controlruntime.Input) (controlruntime.RunID, error) {
@@ -81,7 +88,7 @@ func (f *fakeRuntime) Approve(_ context.Context, approvalID string, decision con
 	return nil
 }
 
-func (f *fakeRuntime) Answer(_ context.Context, questionID string, reply view.QuestionReply) error {
+func (f *fakeRuntime) Answer(_ context.Context, questionID string, reply controlruntime.QuestionReply) error {
 	f.mu.Lock()
 	f.answered = questionID
 	f.answerRejected = reply.Rejected
@@ -150,20 +157,46 @@ func (f *fakeRuntime) EventHistory(filter controlruntime.EventFilter) []controlr
 	return f.bus.History(filter)
 }
 
-func (f *fakeRuntime) Stats() view.BotStats {
-	return view.BotStats{PromptTokens: 10, CompletionTokens: 5}
+func (f *fakeRuntime) Stats() controlruntime.BotStats {
+	return controlruntime.BotStats{PromptTokens: 10, CompletionTokens: 5}
 }
 
-func (f *fakeRuntime) ContextSnapshot() view.ContextSnapshot {
-	return view.ContextSnapshot{Budget: 100, Used: 25, Free: 75}
+func (f *fakeRuntime) ContextSnapshot() controlruntime.ContextSnapshot {
+	return controlruntime.ContextSnapshot{Budget: 100, Used: 25, Free: 75}
 }
 
-func (f *fakeRuntime) ListSessions() []view.SessionMeta {
-	return []view.SessionMeta{{ID: "session_1", CWD: "/tmp", MsgCount: 2}}
+func (f *fakeRuntime) MemoryView(scope controlruntime.MemoryScope) controlruntime.MemoryView {
+	if scope == "" {
+		scope = controlruntime.MemoryScopeProject
+	}
+	return controlruntime.MemoryView{
+		Scope:   scope,
+		Path:    "/tmp/memory.md",
+		Content: "[Project Memory]\n## Active Goals\n- converge runtime",
+		Sections: []controlruntime.MemorySection{
+			{Key: "tech_stack", Title: "## Tech Stack", Empty: true},
+			{Key: "active_goals", Title: "## Active Goals", Content: "- converge runtime"},
+			{Key: "completed_tasks", Title: "## Completed Tasks", Empty: true},
+			{Key: "architecture_map", Title: "## Key Architecture Map", Empty: true},
+			{Key: "preferences", Title: "## User Preferences", Empty: true},
+		},
+	}
 }
 
-func (f *fakeRuntime) SessionMessages() []view.DisplayMessage {
-	return []view.DisplayMessage{{Role: "user", Content: "hello"}}
+func (f *fakeRuntime) ListSessions() []controlruntime.SessionMeta {
+	return []controlruntime.SessionMeta{{ID: "session_1", CWD: "/tmp", MsgCount: 2}}
+}
+
+func (f *fakeRuntime) SessionMessages() []controlruntime.DisplayMessage {
+	return []controlruntime.DisplayMessage{{Role: "user", Content: "hello"}}
+}
+
+func (f *fakeRuntime) CommandNames() []string {
+	return []string{"help", "model", "connect"}
+}
+
+func (f *fakeRuntime) ProviderModel() (provider, model string) {
+	return "openai", "gpt-test"
 }
 
 func TestServerSubmitAndQueryRun(t *testing.T) {
@@ -206,6 +239,32 @@ func TestServerSubmitAndQueryRun(t *testing.T) {
 	}
 }
 
+func TestSubmitRequestOmitsOptionalNestedObjects(t *testing.T) {
+	data, err := json.Marshal(submitRequest{Text: "hello"})
+	if err != nil {
+		t.Fatalf("marshal submit request: %v", err)
+	}
+	got := string(data)
+	if strings.Contains(got, `"source"`) || strings.Contains(got, `"sender"`) {
+		t.Fatalf("empty optional nested objects should be omitted: %s", got)
+	}
+
+	source := controlruntime.SourceRef{Kind: "test"}
+	sender := controlruntime.SenderRef{Username: "alice"}
+	data, err = json.Marshal(submitRequest{
+		Text:   "hello",
+		Source: &source,
+		Sender: &sender,
+	})
+	if err != nil {
+		t.Fatalf("marshal populated submit request: %v", err)
+	}
+	got = string(data)
+	if !strings.Contains(got, `"source"`) || !strings.Contains(got, `"sender"`) {
+		t.Fatalf("populated optional nested objects should be present: %s", got)
+	}
+}
+
 func TestServerConnectView(t *testing.T) {
 	rt := newFakeRuntime()
 	handler := New(rt).Handler()
@@ -243,13 +302,63 @@ func TestServerExtraQueriesAndConnectCommand(t *testing.T) {
 		t.Fatalf("current run status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	for _, path := range []string{"/stats", "/context", "/sessions", "/sessions/current/messages"} {
+	for _, path := range []string{"/stats", "/context", "/memory", "/sessions", "/sessions/current/messages", "/model", "/commands"} {
 		req = httptest.NewRequest(http.MethodGet, path, nil)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s status = %d body=%s", path, rec.Code, rec.Body.String())
 		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/memory", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var memory controlruntime.MemoryView
+	if err := json.Unmarshal(rec.Body.Bytes(), &memory); err != nil {
+		t.Fatalf("decode memory: %v", err)
+	}
+	if memory.Scope != controlruntime.MemoryScopeProject || len(memory.Sections) != 5 || memory.Sections[1].Content != "- converge runtime" {
+		t.Fatalf("memory view = %#v", memory)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/stats", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var statsPayload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &statsPayload); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if _, ok := statsPayload["promptTokens"]; !ok {
+		t.Fatalf("stats should use JSON tags, got %#v", statsPayload)
+	}
+	if _, ok := statsPayload["PromptTokens"]; ok {
+		t.Fatalf("stats leaked Go field name: %#v", statsPayload)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/sessions/current/messages", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var messagesPayload map[string][]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &messagesPayload); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	if len(messagesPayload["messages"]) != 1 || messagesPayload["messages"][0]["role"] != "user" {
+		t.Fatalf("messages should use JSON tags, got %#v", messagesPayload)
+	}
+	if _, ok := messagesPayload["messages"][0]["Role"]; ok {
+		t.Fatalf("messages leaked Go field name: %#v", messagesPayload)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/model", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var model map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &model); err != nil {
+		t.Fatalf("decode model: %v", err)
+	}
+	if model["provider"] != "openai" || model["model"] != "gpt-test" {
+		t.Fatalf("model view = %#v", model)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/connect/telegram", bytes.NewBufferString(`{"args":["status"]}`))
@@ -339,6 +448,49 @@ func TestServerArtifactsAndControls(t *testing.T) {
 	}
 }
 
+func TestServerRejectsInvalidJSONContracts(t *testing.T) {
+	rt := newFakeRuntime()
+	handler := New(rt).Handler()
+
+	for _, tc := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "unknown submit field",
+			path: "/input",
+			body: `{"text":"hello","unexpected":true}`,
+		},
+		{
+			name: "trailing submit json",
+			path: "/input",
+			body: `{"text":"hello"} {"text":"again"}`,
+		},
+		{
+			name: "trailing optional connect json",
+			path: "/connect/telegram",
+			body: `{"args":["status"]} {"args":["again"]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.path, bytes.NewBufferString(tc.body))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			var payload map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode error payload: %v", err)
+			}
+			if !strings.Contains(payload["error"], "invalid json") {
+				t.Fatalf("error payload = %#v", payload)
+			}
+		})
+	}
+}
+
 func TestServerEventsSSE(t *testing.T) {
 	rt := newFakeRuntime()
 	server := httptest.NewServer(New(rt).Handler())
@@ -380,6 +532,25 @@ func TestServerEventsSSE(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPAPIDocCoversRegisteredRoutes(t *testing.T) {
+	serverSource, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	doc, err := os.ReadFile("../../docs/RUNTIME_HTTP_API.md")
+	if err != nil {
+		t.Fatalf("read api doc: %v", err)
+	}
+
+	registered := parseRegisteredRoutes(string(serverSource))
+	documented := parseDocumentedRoutes(string(doc))
+	for _, route := range registered {
+		if !documented[route] {
+			t.Fatalf("route %s is registered but missing from docs/RUNTIME_HTTP_API.md", route)
+		}
+	}
+}
+
 func postJSON(t *testing.T, url string, body any) *http.Response {
 	t.Helper()
 	data, err := json.Marshal(body)
@@ -391,4 +562,25 @@ func postJSON(t *testing.T, url string, body any) *http.Response {
 		t.Fatalf("post: %v", err)
 	}
 	return resp
+}
+
+func parseRegisteredRoutes(source string) []string {
+	re := regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+) ([^"]+)"`)
+	matches := re.FindAllStringSubmatch(source, -1)
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		out = append(out, match[1]+" "+match[2])
+	}
+	return out
+}
+
+func parseDocumentedRoutes(doc string) map[string]bool {
+	re := regexp.MustCompile(`\| (GET|POST) \| ` + "`" + `([^` + "`" + `]+)` + "`" + ` \|`)
+	matches := re.FindAllStringSubmatch(doc, -1)
+	out := make(map[string]bool, len(matches))
+	for _, match := range matches {
+		path := strings.SplitN(match[2], "?", 2)[0]
+		out[match[1]+" "+path] = true
+	}
+	return out
 }

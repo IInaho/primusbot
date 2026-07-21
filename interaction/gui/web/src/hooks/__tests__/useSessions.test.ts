@@ -87,17 +87,17 @@ describe('useSessions', () => {
     mockSafeListSessions.mockResolvedValueOnce([meta('one')])
     mockSafeLoadSession.mockResolvedValueOnce([
       {
-        Role: 'assistant',
-        Content: '',
-        Blocks: [
+        role: 'assistant',
+        content: '',
+        blocks: [
           {
-            ToolName: 'shell',
-            Args: '{"command":"false"}',
-            Content: 'command failed: exit status 1',
-            IsError: true,
+            toolName: 'shell',
+            args: '{"command":"false"}',
+            content: 'command failed: exit status 1',
+            isError: true,
           },
         ],
-        Images: null,
+        images: null,
       },
     ])
     const { result } = renderHook(() => useSessions())
@@ -117,29 +117,29 @@ describe('useSessions', () => {
     mockSafeListSessions.mockResolvedValueOnce([meta('one')])
     mockSafeLoadSession.mockResolvedValueOnce([
       {
-        Role: 'assistant',
-        Content: '',
-        Blocks: [
+        role: 'assistant',
+        content: '',
+        blocks: [
           {
-            ToolName: 'edit',
-            Args: '{"file_path":"/repo/app.ts"}',
-            Content: 'diff',
-            IsError: false,
+            toolName: 'edit',
+            args: '{"file_path":"/repo/app.ts"}',
+            content: 'diff',
+            isError: false,
           },
           {
-            ToolName: 'shell',
-            Args: '{"command":"npm test"}',
-            Content: 'ok',
-            IsError: false,
+            toolName: 'shell',
+            args: '{"command":"npm test"}',
+            content: 'ok',
+            isError: false,
           },
           {
-            ToolName: 'write',
-            Args: '{"file_path":"/repo/out.txt"}',
-            Content: 'written',
-            IsError: false,
+            toolName: 'write',
+            args: '{"file_path":"/repo/out.txt"}',
+            content: 'written',
+            isError: false,
           },
         ],
-        Images: null,
+        images: null,
       },
     ])
     const { result } = renderHook(() => useSessions())

@@ -10,7 +10,6 @@ import (
 
 	"nekocode/interaction/connect/telegram/internal/taskview"
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 )
 
 type Connector struct {
@@ -121,369 +120,6 @@ func (c *Connector) Stop() error {
 	return nil
 }
 
-func (c *Connector) HandleCommand(ctx context.Context, args []string) (string, error) {
-	if len(args) > 0 {
-		switch strings.ToLower(args[0]) {
-		case "add":
-			return c.addProfile(ctx, args[1:])
-		case "token":
-			return c.configureToken(ctx, args[1:])
-		case "profiles", "list":
-			return c.profiles()
-		case "use":
-			return c.useProfile(ctx, args[1:])
-		case "pair":
-			return c.pairProfile(ctx, args[1:])
-		case "unpair":
-			return c.unpairProfile(args[1:])
-		case "remove", "delete":
-			return c.removeProfile(args[1:])
-		case "reset":
-			return c.resetConfig()
-		case "status":
-			return c.status()
-		case "disconnect", "stop":
-			if err := c.Stop(); err != nil {
-				return "", err
-			}
-			return "Telegram connector stopped.", nil
-		}
-	}
-	return c.connectActive(ctx)
-}
-
-func (c *Connector) connectActive(ctx context.Context) (string, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	if len(cfg.Profiles) == 0 {
-		return setupInstructions(), nil
-	}
-	profile, ok := cfg.activeProfile()
-	if !ok || strings.TrimSpace(profile.BotToken) == "" {
-		return setupInstructions(), nil
-	}
-	if profile.Owner == nil {
-		return c.pairProfile(ctx, []string{profile.Name})
-	}
-	if err := c.Start(ctx); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Telegram connected.\n\nBot: %s\nOwner: %s", profileLabel(profile), ownerLabel(profile.Owner)), nil
-}
-
-func (c *Connector) pairProfile(ctx context.Context, args []string) (string, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	if len(cfg.Profiles) == 0 {
-		return setupInstructions(), nil
-	}
-	name := cfg.ActiveProfile
-	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
-		name = args[0]
-	}
-	idx := cfg.profileIndex(name)
-	if idx < 0 {
-		return "", fmt.Errorf("telegram profile %q not found", name)
-	}
-	cfg.ActiveProfile = cfg.Profiles[idx].Name
-	profile := &cfg.Profiles[idx]
-	if strings.TrimSpace(profile.BotToken) == "" {
-		return setupInstructions(), nil
-	}
-	if profile.Owner != nil {
-		return fmt.Sprintf("%s is already paired with %s.\nRun /connect telegram unpair %s before pairing another account.", profileLabel(*profile), ownerLabel(profile.Owner), profile.Name), nil
-	}
-	client := newAPIClient(profile.BotToken)
-	if profile.BotUsername == "" {
-		getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		me, err := client.getMe(getCtx)
-		cancel()
-		if err != nil {
-			return "", err
-		}
-		profile.BotUsername = me.Username
-	}
-	nonce, err := newPairingNonce()
-	if err != nil {
-		return "", err
-	}
-	profile.PairingNonce = nonce
-	profile.PairingExpires = time.Now().Add(pairingTTL).Unix()
-	if err := saveConfig(cfg); err != nil {
-		return "", err
-	}
-	if err := c.Start(ctx); err != nil {
-		return "", err
-	}
-	link := fmt.Sprintf("https://t.me/%s?start=%s", profile.BotUsername, nonce)
-	qr, err := terminalQR(link)
-	if err != nil {
-		qr = ""
-	}
-	var out strings.Builder
-	out.WriteString("Telegram pairing started.\n")
-	out.WriteString("Profile: ")
-	out.WriteString(profileLabel(*profile))
-	out.WriteString("\n\n")
-	out.WriteString("Open this link on your phone, or scan the QR code:\n")
-	out.WriteString(link)
-	if qr != "" {
-		out.WriteString("\n\n")
-		out.WriteString(qr)
-	}
-	out.WriteString("\n\nPairing expires in 5 minutes.\n")
-	out.WriteString("After pairing, Telegram messages will be routed into this NekoCode session.")
-	return out.String(), nil
-}
-
-func (c *Connector) configureToken(ctx context.Context, args []string) (string, error) {
-	if len(args) == 0 {
-		return "Usage: /connect telegram add <bot-token>", nil
-	}
-	return c.addProfile(ctx, args)
-}
-
-func (c *Connector) addProfile(ctx context.Context, args []string) (string, error) {
-	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
-		return "Usage: /connect telegram add <bot-token>", nil
-	}
-	name := ""
-	token := strings.TrimSpace(args[0])
-	if len(args) >= 2 {
-		name = normalizeProfileName(args[0])
-		token = strings.TrimSpace(args[1])
-	}
-	if token == "" {
-		return "Usage: /connect telegram add <bot-token>", nil
-	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	client := newAPIClient(token)
-	getCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	me, err := client.getMe(getCtx)
-	cancel()
-	if err != nil {
-		return "", err
-	}
-	if name == "" {
-		name = profileNameFromBotUsername(me.Username)
-	}
-	idx := cfg.profileIndex(name)
-	if idx < 0 {
-		cfg.Profiles = append(cfg.Profiles, BotProfile{Name: name})
-		idx = len(cfg.Profiles) - 1
-	}
-	cfg.Profiles[idx].Name = name
-	cfg.Profiles[idx].BotToken = token
-	cfg.Profiles[idx].BotUsername = me.Username
-	if cfg.ActiveProfile == "" || len(cfg.Profiles) == 1 {
-		cfg.ActiveProfile = name
-	}
-	if err := saveConfig(cfg); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Telegram bot saved: %s\nRun /connect telegram to connect.", profileLabel(cfg.Profiles[idx])), nil
-}
-
-func (c *Connector) status() (string, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	c.mu.Lock()
-	running := c.running
-	c.mu.Unlock()
-	if len(cfg.Profiles) == 0 {
-		return "Telegram is not configured.\n\n" + setupInstructions(), nil
-	}
-	return fmt.Sprintf("Telegram: running=%v active=%s\n\n%s", running, cfg.ActiveProfile, profilesList(cfg, running)), nil
-}
-
-func (c *Connector) profiles() (string, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	c.mu.Lock()
-	running := c.running
-	c.mu.Unlock()
-	if len(cfg.Profiles) == 0 {
-		return setupInstructions(), nil
-	}
-	return profilesList(cfg, running), nil
-}
-
-func (c *Connector) useProfile(ctx context.Context, args []string) (string, error) {
-	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
-		return "Usage: /connect telegram use <name>", nil
-	}
-	name := normalizeProfileName(args[0])
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	idx := cfg.profileIndex(name)
-	if idx < 0 {
-		return "", fmt.Errorf("telegram profile %q not found", name)
-	}
-	c.mu.Lock()
-	wasRunning := c.running
-	active := c.active
-	c.mu.Unlock()
-	if wasRunning && active != "" && active != cfg.Profiles[idx].Name {
-		if err := c.Stop(); err != nil {
-			return "", err
-		}
-	}
-	cfg.ActiveProfile = cfg.Profiles[idx].Name
-	if err := saveConfig(cfg); err != nil {
-		return "", err
-	}
-	profile := cfg.Profiles[idx]
-	if profile.Owner == nil {
-		return fmt.Sprintf("Active Telegram profile set to %s.\nRun /connect telegram pair to bind your Telegram account.", profileLabel(profile)), nil
-	}
-	if err := c.Start(ctx); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Telegram connected.\n\nActive profile: %s\nOwner: %s", profileLabel(profile), ownerLabel(profile.Owner)), nil
-}
-
-func (c *Connector) unpairProfile(args []string) (string, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	name := cfg.ActiveProfile
-	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
-		name = args[0]
-	}
-	idx := cfg.profileIndex(name)
-	if idx < 0 {
-		return "", fmt.Errorf("telegram profile %q not found", name)
-	}
-	cfg.Profiles[idx].Owner = nil
-	cfg.Profiles[idx].PairingNonce = ""
-	cfg.Profiles[idx].PairingExpires = 0
-	if err := saveConfig(cfg); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Telegram profile unpaired: %s", profileLabel(cfg.Profiles[idx])), nil
-}
-
-func (c *Connector) removeProfile(args []string) (string, error) {
-	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
-		return "Usage: /connect telegram remove <name>", nil
-	}
-	name := normalizeProfileName(args[0])
-	cfg, err := loadConfig()
-	if err != nil {
-		return "", err
-	}
-	idx := cfg.profileIndex(name)
-	if idx < 0 {
-		return "", fmt.Errorf("telegram profile %q not found", name)
-	}
-	removed := cfg.Profiles[idx]
-	if cfg.ActiveProfile == removed.Name {
-		c.mu.Lock()
-		wasRunning := c.running
-		c.mu.Unlock()
-		if wasRunning {
-			if err := c.Stop(); err != nil {
-				return "", err
-			}
-		}
-	}
-	cfg.Profiles = append(cfg.Profiles[:idx], cfg.Profiles[idx+1:]...)
-	if cfg.ActiveProfile == removed.Name {
-		cfg.ActiveProfile = ""
-		if len(cfg.Profiles) > 0 {
-			cfg.ActiveProfile = cfg.Profiles[0].Name
-		}
-	}
-	if err := saveConfig(cfg); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Telegram profile removed: %s", profileLabel(removed)), nil
-}
-
-func (c *Connector) resetConfig() (string, error) {
-	c.mu.Lock()
-	wasRunning := c.running
-	c.mu.Unlock()
-	if wasRunning {
-		if err := c.Stop(); err != nil {
-			return "", err
-		}
-	}
-	if err := saveConfig(Config{}); err != nil {
-		return "", err
-	}
-	return "Telegram configuration reset.", nil
-}
-
-func profilesList(cfg Config, running bool) string {
-	if len(cfg.Profiles) == 0 {
-		return "No Telegram profiles configured."
-	}
-	lines := []string{"Telegram profiles:"}
-	for _, p := range cfg.Profiles {
-		marker := " "
-		status := "stopped"
-		if p.Name == cfg.ActiveProfile {
-			marker = "*"
-			if running {
-				status = "running"
-			} else {
-				status = "active"
-			}
-		}
-		owner := "unpaired"
-		if p.Owner != nil {
-			owner = "owner " + ownerLabel(p.Owner)
-		}
-		lines = append(lines, fmt.Sprintf("%s %s  %s  %s", marker, profileLabel(p), status, owner))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func profileLabel(p BotProfile) string {
-	if p.BotUsername != "" {
-		return p.Name + " @" + p.BotUsername
-	}
-	return p.Name
-}
-
-func ownerLabel(owner *Device) string {
-	if owner == nil {
-		return "unpaired"
-	}
-	if owner.Username != "" {
-		return "@" + owner.Username
-	}
-	if owner.UserID != 0 {
-		return strconv.FormatInt(owner.UserID, 10)
-	}
-	return "unknown"
-}
-
-func profileNameFromBotUsername(username string) string {
-	name := normalizeProfileName(username)
-	name = strings.TrimSuffix(name, "_bot")
-	name = strings.TrimSuffix(name, "bot")
-	if name == "" {
-		return "telegram"
-	}
-	return name
-}
-
 func (c *Connector) pollLoop(ctx context.Context, client *apiClient) {
 	for {
 		cfg, err := loadConfig()
@@ -577,7 +213,7 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 		id := strings.TrimSpace(strings.TrimPrefix(text, "/dismiss"))
 		resolvedID, err := c.tracker().RejectQuestion(id)
 		if err == nil {
-			err = c.rt.Answer(ctx, resolvedID, view.QuestionReply{Rejected: true})
+			err = c.rt.Answer(ctx, resolvedID, controlruntime.QuestionReply{Rejected: true})
 		}
 		c.replyErr(ctx, client, msg.Chat.ID, "Dismissed.", err)
 	case text == "/last":
@@ -666,7 +302,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 	case "dismiss":
 		_, err = c.tracker().RejectQuestion(id)
 		if err == nil {
-			err = c.rt.Answer(ctx, id, view.QuestionReply{Rejected: true})
+			err = c.rt.Answer(ctx, id, controlruntime.QuestionReply{Rejected: true})
 		}
 		okText = "Dismissed"
 	case "answer":
@@ -679,7 +315,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 			err = parseErr
 			break
 		}
-		var reply view.QuestionReply
+		var reply controlruntime.QuestionReply
 		var resolvedID string
 		reply, resolvedID, err = c.tracker().BuildQuestionOptionReply(id, idx)
 		if err == nil {
@@ -700,19 +336,15 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 }
 
 func (c *Connector) publishStatus(status, message string) {
-	if publisher, ok := c.rt.(interface {
-		Publish(controlruntime.Event)
-	}); ok {
-		publisher.Publish(controlruntime.Event{
-			Type:   controlruntime.EventConnectorStatus,
-			Source: controlruntime.SourceRef{Kind: "telegram"},
-			Payload: controlruntime.ConnectorStatusPayload{
-				Name:    "telegram",
-				Status:  status,
-				Message: message,
-			},
-		})
-	}
+	c.rt.Publish(controlruntime.Event{
+		Type:   controlruntime.EventConnectorStatus,
+		Source: controlruntime.SourceRef{Kind: "telegram"},
+		Payload: controlruntime.ConnectorStatusPayload{
+			Name:    "telegram",
+			Status:  status,
+			Message: message,
+		},
+	})
 }
 
 func (c *Connector) eventLoop(ctx context.Context, client *apiClient) {

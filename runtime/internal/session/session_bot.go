@@ -2,20 +2,27 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"strings"
-
-	"nekocode/runtime/view"
 )
 
 func (r *SessionRuntime) configureBot() {
-	r.bot.Configure(
-		func(req view.ConfirmRequest) view.ConfirmReply {
+	r.confirmDone = make(chan struct{})
+	confirmCh := make(chan ConfirmRequest, 1)
+	go r.confirmChLoop(confirmCh)
+
+	r.runner.ConfigureRuntime(ControlCallbacks{
+		Confirm: func(req ConfirmRequest) ConfirmReply {
+			runID := r.CurrentRunID()
 			r.setStatus(RunWaitingApproval)
 			reply := r.approvals.Request(req)
-			r.setStatus(RunRunning)
+			if r.shouldResumeRun(runID) {
+				r.setStatus(RunRunning)
+			}
 			return reply
 		},
-		func(phase string) {
+		ConfirmCh: confirmCh,
+		Phase: func(phase string) {
 			r.events.Publish(Event{
 				RunID:   r.CurrentRunID(),
 				Type:    EventPhaseChanged,
@@ -23,7 +30,7 @@ func (r *SessionRuntime) configureBot() {
 				Payload: PhasePayload{Phase: phase},
 			})
 		},
-		func(items []view.TodoItem) {
+		Todo: func(items []TodoItem) {
 			r.events.Publish(Event{
 				RunID:   r.CurrentRunID(),
 				Type:    EventTodosUpdated,
@@ -31,7 +38,7 @@ func (r *SessionRuntime) configureBot() {
 				Payload: items,
 			})
 		},
-		func(msg string) {
+		Notify: func(msg string) {
 			r.events.Publish(Event{
 				RunID:   r.CurrentRunID(),
 				Type:    EventSystemMessage,
@@ -39,54 +46,65 @@ func (r *SessionRuntime) configureBot() {
 				Payload: MessagePayload{Role: "system", Content: msg, Source: SourceRef{Kind: "bot"}},
 			})
 		},
-		nil,
-		func(req view.QuestionRequest) view.QuestionReply {
+		Question: func(req QuestionRequest) QuestionReply {
+			runID := r.CurrentRunID()
 			r.setStatus(RunWaitingQuestion)
 			reply := r.questions.Request(req)
-			r.setStatus(RunRunning)
+			if r.shouldResumeRun(runID) {
+				r.setStatus(RunRunning)
+			}
 			return reply
 		},
-	)
+	})
+}
+
+func (r *SessionRuntime) confirmChLoop(confirmCh chan ConfirmRequest) {
+	for {
+		select {
+		case <-r.confirmDone:
+			return
+		case req, ok := <-confirmCh:
+			if !ok {
+				return
+			}
+			if req.Response == nil {
+				// Unblock signal sent by the bot (e.g. install cancelled).
+				// Reject any pending approval so the synchronous Confirm caller returns.
+				r.approvals.RejectAll()
+				continue
+			}
+			runID := r.CurrentRunID()
+			r.setStatus(RunWaitingApproval)
+			reply := r.approvals.Request(req)
+			if r.shouldResumeRun(runID) {
+				r.setStatus(RunRunning)
+			}
+			select {
+			case req.Response <- reply:
+			default:
+			}
+		}
+	}
 }
 
 func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.finishRun(runID, "", fmt.Errorf("runtime: run %s panicked: %v", runID, rec))
+		}
+	}()
+
 	r.events.Publish(Event{RunID: runID, Type: EventRunStarted, Source: SourceRef{Kind: "runtime"}})
 
 	if handled := r.handleRuntimeCommand(ctx, runID, input); handled {
 		return
 	}
 
-	resp, cr := r.bot.ExecuteCommand(input.Text)
-	if cr != view.CmdNone {
-		if resp != "" {
-			r.events.Publish(Event{
-				RunID:   runID,
-				Type:    EventSystemMessage,
-				Source:  SourceRef{Kind: "bot"},
-				Payload: MessagePayload{Role: "system", Content: resp, Source: SourceRef{Kind: "bot"}},
-			})
-		}
-		if cr == view.CmdSessionResumed {
-			r.events.Publish(Event{
-				RunID:  runID,
-				Type:   EventSessionResumed,
-				Source: SourceRef{Kind: "bot"},
-			})
-		}
-		if hint, wantsAgent := r.bot.SkillHint(); wantsAgent {
-			r.events.Publish(Event{
-				RunID:   runID,
-				Type:    EventSystemMessage,
-				Source:  SourceRef{Kind: "runtime"},
-				Payload: MessagePayload{Role: "system", Content: "Loaded skill: " + hint, Source: SourceRef{Kind: "runtime"}},
-			})
-		} else {
-			r.finishRun(runID, "", nil)
-			return
-		}
+	if shouldRunAgent := r.handleBotCommand(runID, input); !shouldRunAgent {
+		return
 	}
 
-	result, err := r.bot.Run(input.Text, view.RunCallbacks{
+	result, err := r.runner.Run(input.Text, RunCallbacks{
 		Text: func(delta string) {
 			r.events.Publish(Event{
 				RunID:   runID,
@@ -103,8 +121,8 @@ func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
 				Payload: DeltaPayload{Delta: delta},
 			})
 		},
-		Step: func(action, toolName, toolArgs, output string) {
-			r.publishStep(runID, action, toolName, toolArgs, output)
+		Step: func(ev StepEvent) {
+			r.publishStep(runID, ev)
 		},
 	})
 	r.finishRun(runID, result, err)
@@ -115,32 +133,50 @@ func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
 	}
 }
 
+func (r *SessionRuntime) handleBotCommand(runID RunID, input Input) bool {
+	resp, cr := r.commands.ExecuteCommand(input.Text)
+	if cr == CmdNone {
+		return true
+	}
+	if resp != "" {
+		r.events.Publish(Event{
+			RunID:   runID,
+			Type:    EventSystemMessage,
+			Source:  SourceRef{Kind: "bot"},
+			Payload: MessagePayload{Role: "system", Content: resp, Source: SourceRef{Kind: "bot"}},
+		})
+	}
+	if cr == CmdSessionResumed {
+		r.events.Publish(Event{
+			RunID:  runID,
+			Type:   EventSessionResumed,
+			Source: SourceRef{Kind: "bot"},
+		})
+	}
+	if hint, wantsAgent := r.skills.SkillHint(); wantsAgent {
+		r.events.Publish(Event{
+			RunID:   runID,
+			Type:    EventSystemMessage,
+			Source:  SourceRef{Kind: "runtime"},
+			Payload: MessagePayload{Role: "system", Content: "Loaded skill: " + hint, Source: SourceRef{Kind: "runtime"}},
+		})
+		return true
+	}
+	r.finishRun(runID, "", nil)
+	return false
+}
+
 func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, input Input) bool {
 	fields := strings.Fields(strings.TrimSpace(input.Text))
 	if len(fields) == 0 {
 		return false
 	}
 	name := strings.TrimPrefix(strings.ToLower(fields[0]), "/")
-	if name != "connect" && name != "disconnect" && name != "devices" {
+	handler, ok := r.runtimeCommands[name]
+	if !ok {
 		return false
 	}
-	var resp string
-	var err error
-	switch name {
-	case "connect":
-		resp, err = r.connectors.Handle(ctx, fields[1:])
-	case "disconnect":
-		connName := ""
-		if len(fields) > 1 {
-			connName = fields[1]
-		}
-		resp, err = r.connectors.Disconnect(connName)
-		if err == nil && connName != "" {
-			resp = ""
-		}
-	case "devices":
-		resp = r.connectors.Devices()
-	}
+	resp, err := handler(ctx, r, fields[1:])
 	if err != nil {
 		resp = err.Error()
 	}
@@ -157,7 +193,7 @@ func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, 
 }
 
 func (r *SessionRuntime) finishRun(runID RunID, output string, err error) {
-	if r.Status() == RunAborted {
+	if r.isRunAborted(runID) {
 		return
 	}
 	payload := DonePayload{Output: output}
@@ -178,31 +214,35 @@ func (r *SessionRuntime) finishRun(runID RunID, output string, err error) {
 	r.setStatus(RunIdle)
 }
 
-func (r *SessionRuntime) publishStep(runID RunID, action, toolName, toolArgs, output string) {
-	typ := EventToolCompleted
-	payload := ToolPayload{ToolName: toolName, Args: toolArgs, Output: output}
-	switch action {
-	case "tool_start", "sub_tool_start":
+func (r *SessionRuntime) publishStep(runID RunID, ev StepEvent) {
+	var typ EventType
+	payload := ToolPayload{ToolName: ev.ToolName, CallID: ev.CallID, Args: ev.ToolArgs, Output: ev.Output, IsError: ev.IsError}
+	switch ev.Action {
+	case StepActionToolStart, StepActionSubToolStart:
 		typ = EventToolStarted
-		payload.Preview = output
-	case "tool_blocked":
+		payload.Preview = ev.Output
+	case StepActionToolBlocked:
 		typ = EventToolBlocked
-	case "tool_preview":
+	case StepActionToolPreview:
 		typ = EventToolPreview
-		payload.Preview = output
-	case "sub_agent_start":
+		payload.Preview = ev.Output
+	case StepActionExecuteTool, StepActionSubExecuteTool:
+		typ = EventToolCompleted
+	case StepActionSubAgentStart:
 		typ = EventSubAgentStarted
-	case "sub_agent_end":
+	case StepActionSubAgentEnd:
 		typ = EventSubAgentEnded
-	case "chat":
+	case StepActionChat:
 		r.events.Publish(Event{
 			RunID:   runID,
 			Type:    EventAssistantDelta,
 			Source:  SourceRef{Kind: "bot"},
-			Payload: DeltaPayload{Delta: output},
+			Payload: DeltaPayload{Delta: ev.Output},
 		})
 		return
-	case "think":
+	case StepActionThink:
+		return
+	default:
 		return
 	}
 	r.events.Publish(Event{

@@ -5,8 +5,31 @@ import (
 	"testing"
 
 	"nekocode/interaction/tui/components/message"
+	"nekocode/interaction/tui/components/processing"
 	"nekocode/interaction/tui/styles"
 )
+
+// Regression: a message arriving while the processing item is active must be
+// inserted before it — the processing item has to stay the last list item,
+// otherwise it renders above chat messages and tick-driven updates (which
+// invalidate the last item) stop reaching it.
+func TestAddMessageDuringProcessingKeepsProcessingItemLast(t *testing.T) {
+	sty := styles.DefaultStyles()
+	m := NewMessages(80, 8, &sty)
+	m.AddMessage(message.ChatMessage{Role: "user", Content: "first"})
+	m.SetProcessing(true)
+
+	m.AddMessage(message.ChatMessage{Role: "user", Content: "second"})
+	m.AddMessage(message.ChatMessage{Role: "system", Content: "note"})
+
+	items := m.Items()
+	if len(items) != 4 {
+		t.Fatalf("items = %d, want 4", len(items))
+	}
+	if _, ok := items[len(items)-1].(*processing.ProcessingItem); !ok {
+		t.Fatalf("last item is %T, want *processing.ProcessingItem pinned at the end", items[len(items)-1])
+	}
+}
 
 func TestSetProcessingOffKeepsBottomWhenFollowing(t *testing.T) {
 	sty := styles.DefaultStyles()

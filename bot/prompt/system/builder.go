@@ -5,8 +5,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	ctxfmt "nekocode/bot/contextmgr/context"
 )
 
 //go:embed system_zh.md
@@ -52,7 +50,7 @@ func (b *Builder) Build() string {
 			osRel = func() string { return runtime.GOOS }
 		}
 		date := now().Format("2006-01-02")
-		parts = append(parts, ctxfmt.FormatEnv(b.cwd, date, osRel(), runtime.GOARCH))
+		parts = append(parts, FormatEnv(b.cwd, date, osRel(), runtime.GOARCH))
 	}
 	return strings.Join(parts, "\n\n")
 }

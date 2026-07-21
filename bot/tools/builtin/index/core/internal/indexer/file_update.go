@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+
+	graphpkg "nekocode/bot/tools/builtin/index/core/internal/graph"
 )
 
 // DeleteFile removes a file from both persistent index storage and the graph.
@@ -32,13 +34,13 @@ func (i *Indexer) UpsertFile(g *Graph, cwd, path string, content []byte) error {
 		insertFileIntoGraph(g, i.db, path, cwd, nodes, edges)
 		i.ResolveReferences(g)
 	}
-	lang := detectLanguageForFile(filepath.Ext(path))
+	lang := graphpkg.LanguageForFile(filepath.Ext(path))
 	return i.db.SaveFile(path, hash, lang)
 }
 
 func insertFileIntoGraph(g *Graph, db *DB, path string, cwd string, nodes []*Node, edges []*Edge) (int64, string) {
 	ext := filepath.Ext(path)
-	lang := detectLanguageForFile(ext)
+	lang := graphpkg.LanguageForFile(ext)
 
 	relDir, _ := filepath.Rel(cwd, filepath.Dir(path))
 	if relDir == "." {

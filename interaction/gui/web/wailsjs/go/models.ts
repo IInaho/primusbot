@@ -1,13 +1,13 @@
 export namespace view {
-
+	
 	export class WorkspaceConfig {
 	    path: string;
 	    access?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -18,11 +18,11 @@ export namespace view {
 	    sandbox_mode?: string;
 	    network?: boolean;
 	    writable_roots?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SandboxConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sandbox_mode = source["sandbox_mode"];
@@ -35,11 +35,11 @@ export namespace view {
 	    ask?: string[];
 	    deny?: string[];
 	    sandbox?: Record<string, SandboxConfig>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PermissionsConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.allow = source["allow"];
@@ -47,7 +47,7 @@ export namespace view {
 	        this.deny = source["deny"];
 	        this.sandbox = this.convertValues(source["sandbox"], SandboxConfig, true);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -71,11 +71,11 @@ export namespace view {
 	    args?: string[];
 	    env?: Record<string, string>;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MCPServerConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.command = source["command"];
@@ -91,11 +91,11 @@ export namespace view {
 	    secret_key: string;
 	    base_url?: string;
 	    model?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ImageGenConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -113,11 +113,11 @@ export namespace view {
 	    model: string;
 	    base_url?: string;
 	    protocol?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ModelConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -139,11 +139,11 @@ export namespace view {
 	    mcp_servers?: Record<string, MCPServerConfig>;
 	    permissions?: PermissionsConfig;
 	    workspaces?: WorkspaceConfig[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConfigView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -157,7 +157,7 @@ export namespace view {
 	        this.permissions = this.convertValues(source["permissions"], PermissionsConfig);
 	        this.workspaces = this.convertValues(source["workspaces"], WorkspaceConfig);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -181,11 +181,11 @@ export namespace view {
 	    label: string;
 	    tokens: number;
 	    tone: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextSegment(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
@@ -220,11 +220,11 @@ export namespace view {
 	    subCacheHit: number;
 	    subCacheMiss: number;
 	    segments: ContextSegment[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextSnapshot(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.budget = source["budget"];
@@ -253,7 +253,7 @@ export namespace view {
 	        this.subCacheMiss = source["subCacheMiss"];
 	        this.segments = this.convertValues(source["segments"], ContextSegment);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -273,59 +273,59 @@ export namespace view {
 		}
 	}
 	export class DisplayBlock {
-	    ToolName: string;
-	    Args: string;
-	    Content: string;
-	    IsError: boolean;
-
+	    toolName: string;
+	    args?: string;
+	    content: string;
+	    isError?: boolean;
+	
 	    static createFrom(source: any = {}) {
 	        return new DisplayBlock(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ToolName = source["ToolName"];
-	        this.Args = source["Args"];
-	        this.Content = source["Content"];
-	        this.IsError = source["IsError"];
+	        this.toolName = source["toolName"];
+	        this.args = source["args"];
+	        this.content = source["content"];
+	        this.isError = source["isError"];
 	    }
 	}
 	export class ImageRef {
-	    Path: string;
-	    URL: string;
-	    Width: number;
-	    Height: number;
-
+	    path: string;
+	    url?: string;
+	    width?: number;
+	    height?: number;
+	
 	    static createFrom(source: any = {}) {
 	        return new ImageRef(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Path = source["Path"];
-	        this.URL = source["URL"];
-	        this.Width = source["Width"];
-	        this.Height = source["Height"];
+	        this.path = source["path"];
+	        this.url = source["url"];
+	        this.width = source["width"];
+	        this.height = source["height"];
 	    }
 	}
 	export class DisplayMessage {
-	    Role: string;
-	    Content: string;
-	    Blocks: DisplayBlock[];
-	    Images: ImageRef[];
-
+	    role: string;
+	    content: string;
+	    blocks?: DisplayBlock[];
+	    images?: ImageRef[];
+	
 	    static createFrom(source: any = {}) {
 	        return new DisplayMessage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Role = source["Role"];
-	        this.Content = source["Content"];
-	        this.Blocks = this.convertValues(source["Blocks"], DisplayBlock);
-	        this.Images = this.convertValues(source["Images"], ImageRef);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.blocks = this.convertValues(source["blocks"], DisplayBlock);
+	        this.images = this.convertValues(source["images"], ImageRef);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -344,9 +344,9 @@ export namespace view {
 		    return a;
 		}
 	}
-
-
-
+	
+	
+	
 	export class MCPServerView {
 	    name: string;
 	    plugin: string;
@@ -356,11 +356,11 @@ export namespace view {
 	    status?: string;
 	    error?: string;
 	    toolCount?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MCPServerView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -373,8 +373,8 @@ export namespace view {
 	        this.toolCount = source["toolCount"];
 	    }
 	}
-
-
+	
+	
 	export class PluginView {
 	    name: string;
 	    version?: string;
@@ -388,11 +388,11 @@ export namespace view {
 	    commands?: string[];
 	    mcpServers?: string[];
 	    hasHooks?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PluginView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -409,18 +409,18 @@ export namespace view {
 	        this.hasHooks = source["hasHooks"];
 	    }
 	}
-
+	
 	export class SessionMeta {
 	    id: string;
 	    cwd: string;
 	    createdAt: number;
 	    updatedAt: number;
 	    msgCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SessionMeta(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -439,11 +439,11 @@ export namespace view {
 	    source: string;
 	    sourceKind: string;
 	    plugin?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -460,18 +460,18 @@ export namespace view {
 	    skills: SkillView[];
 	    plugins: PluginView[];
 	    mcp: MCPServerView[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillManagementView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skills = this.convertValues(source["skills"], SkillView);
 	        this.plugins = this.convertValues(source["plugins"], PluginView);
 	        this.mcp = this.convertValues(source["mcp"], MCPServerView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -490,7 +490,7 @@ export namespace view {
 		    return a;
 		}
 	}
-
+	
 
 }
 

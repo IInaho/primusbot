@@ -16,7 +16,8 @@ var extToLang = map[string]string{
 	".java": "java",
 }
 
-func detectLanguageForFile(ext string) string {
+// LanguageForFile returns the language name for a file extension, or "unknown".
+func LanguageForFile(ext string) string {
 	if lang, ok := extToLang[ext]; ok {
 		return lang
 	}
@@ -27,7 +28,7 @@ func detectLanguage(g *Graph) string {
 	langs := make(map[string]int)
 	for _, n := range g.Nodes {
 		ext := filepath.Ext(n.File)
-		if lang := detectLanguageForFile(ext); lang != "unknown" {
+		if lang := LanguageForFile(ext); lang != "unknown" {
 			langs[lang]++
 		}
 	}

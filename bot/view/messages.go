@@ -11,7 +11,7 @@ import (
 
 var reImagePath = regexp.MustCompile(`(?:=>\s+)?(\S*(?:nekocode_img|/)\S*\.(?:png|jpg|jpeg|gif|webp))\b`)
 
-func DisplayMessages(messages []types.Message, compactBoundary int) []DisplayMessage {
+func displayMessages(messages []types.Message, compactBoundary int) []DisplayMessage {
 	if compactBoundary > 0 && compactBoundary < len(messages) {
 		messages = messages[compactBoundary:]
 	}

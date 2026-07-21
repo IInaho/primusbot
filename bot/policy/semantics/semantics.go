@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"mvdan.cc/sh/v3/syntax"
+	"nekocode/bot/policy/internal/shellscan"
 )
 
 type Semantics struct {
@@ -136,52 +136,23 @@ type shellScan struct {
 }
 
 func parseShell(cmd string) shellScan {
-	parser := syntax.NewParser()
-	file, err := parser.Parse(strings.NewReader(cmd), "")
-	if err != nil {
+	s := shellscan.ScanShell(cmd)
+	if !s.OK {
 		return shellScan{}
 	}
-	scan := shellScan{OK: true}
-	syntax.Walk(file, func(node syntax.Node) bool {
-		switch n := node.(type) {
-		case *syntax.Redirect:
-			if n.Op == syntax.RdrOut || n.Op == syntax.AppOut || n.Op == syntax.ClbOut ||
-				n.Op == syntax.RdrAll || n.Op == syntax.AppAll {
-				scan.HasWriteRedirect = true
-			}
-		case *syntax.CallExpr:
-			if len(n.Args) == 0 {
-				return true
-			}
-			var words []string
-			for i, arg := range n.Args {
-				word := literalWord(arg)
-				if i == 0 && word == "" {
-					return true
-				}
-				words = append(words, strings.ToLower(word))
-			}
-			c := shellCall{Name: words[0]}
-			if len(words) > 1 {
-				c.Args = words[1:]
-			}
-			scan.Calls = append(scan.Calls, c)
+	scan := shellScan{OK: true, HasWriteRedirect: s.HasWriteRedirect}
+	for _, fields := range s.Calls {
+		words := make([]string, len(fields))
+		for i, f := range fields {
+			words[i] = strings.ToLower(f)
 		}
-		return true
-	})
-	return scan
-}
-
-func literalWord(w *syntax.Word) string {
-	var b strings.Builder
-	for _, part := range w.Parts {
-		lit, ok := part.(*syntax.Lit)
-		if !ok {
-			return ""
+		c := shellCall{Name: words[0]}
+		if len(words) > 1 {
+			c.Args = words[1:]
 		}
-		b.WriteString(lit.Value)
+		scan.Calls = append(scan.Calls, c)
 	}
-	return b.String()
+	return scan
 }
 
 func callLooksExploratory(call shellCall) bool {
@@ -308,9 +279,10 @@ func envOptionTakesValue(opt string) bool {
 }
 
 func callLooksMutating(call shellCall) bool {
-	switch call.Name {
-	case "mkdir", "touch", "cp", "mv", "rm", "rmdir", "chmod", "chown":
+	if shellscan.IsMutatingCommand(call.Name) {
 		return true
+	}
+	switch call.Name {
 	case "tee":
 		return slices.ContainsFunc(call.Args, func(arg string) bool {
 			return arg != "" && !strings.HasPrefix(arg, "-")

@@ -33,10 +33,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nekocode/interaction/connect/telegram"
 	controlruntime "nekocode/runtime"
 	"nekocode/runtime/defaultbot"
-	"nekocode/runtime/view"
 
 	"github.com/google/uuid"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -45,37 +43,26 @@ import (
 // App 是绑定到 Wails 前端的应用实例。
 type App struct {
 	ctx   context.Context
-	rt    *controlruntime.SessionRuntime
+	rt    runtimeBackend
 	mu    sync.Mutex
 	runs  int
 	ready atomic.Bool
 	start time.Time
+}
 
-	// pendingTools 按 toolName 排队保存新生成的工具 id, 用于 tool_start ↔ tool_preview ↔ tool_done 关联。
-	pendingMu sync.Mutex
-	pending   map[string][]string
-
-	// confirm 确认弹窗
-	confirmMu sync.Mutex
-	confirmCh chan view.ConfirmRequest
-	confs     map[string]view.ConfirmRequest // id -> req, 等待前端回复
-
-	questionMu sync.Mutex
-	questions  map[string]view.QuestionRequest
+type runtimeBackend interface {
+	controlruntime.Runtime
+	controlruntime.QueryRuntime
+	controlruntime.ManagementRuntime
+	RegisterConnector(name string, factory controlruntime.ConnectorFactory)
+	Close()
 }
 
 // NewApp 创建 App 实例，bot.Bot 在这里初始化以消除 startup/domReady 竞态。
 func NewApp() *App {
-	rt := defaultbot.NewSessionRuntime()
-	rt.RegisterConnector("telegram", func(runtime controlruntime.Runtime) controlruntime.Connector {
-		return telegram.New(runtime)
-	})
+	rt := defaultbot.NewSessionRuntimeWithTelegram()
 	return &App{
-		rt:        rt,
-		pending:   make(map[string][]string),
-		confs:     make(map[string]view.ConfirmRequest),
-		questions: make(map[string]view.QuestionRequest),
-		confirmCh: make(chan view.ConfirmRequest),
+		rt: rt,
 	}
 }
 
@@ -110,7 +97,7 @@ func (a *App) DomReady(_ context.Context) {
 }
 
 // compactConfirmArgs 提取确认弹窗需要显示的 args。
-func compactConfirmArgs(req view.ConfirmRequest) map[string]any {
+func compactConfirmArgs(req controlruntime.ConfirmRequest) map[string]any {
 	m := make(map[string]any, 4)
 	switch req.ToolName {
 	case "edit":
@@ -169,36 +156,11 @@ func truncateConfirmString(s string) string {
 	return s
 }
 
-func confirmPreview(req view.ConfirmRequest) string {
+func confirmPreview(req controlruntime.ConfirmRequest) string {
 	if p, ok := req.Args["_preview"].(string); ok {
 		return p
 	}
 	return ""
-}
-
-// ---------- 工具 id 关联 ----------
-
-func (a *App) popPendingTool(toolName string) (string, bool) {
-	a.pendingMu.Lock()
-	defer a.pendingMu.Unlock()
-	if queue, ok := a.pending[toolName]; ok && len(queue) > 0 {
-		id := queue[0]
-		a.pending[toolName] = queue[1:]
-		return id, false
-	}
-	return uuid.NewString(), true
-}
-
-func (a *App) pushPendingTool(toolName, id string) {
-	a.pendingMu.Lock()
-	a.pending[toolName] = append(a.pending[toolName], id)
-	a.pendingMu.Unlock()
-}
-
-func (a *App) resetPending() {
-	a.pendingMu.Lock()
-	a.pending = make(map[string][]string)
-	a.pendingMu.Unlock()
 }
 
 // ---------- 前端可调用的 Method ----------
@@ -210,7 +172,6 @@ func (a *App) SendMessage(input string) {
 	a.start = time.Now()
 	a.mu.Unlock()
 
-	a.resetPending()
 	wailsruntime.EventsEmit(a.ctx, "agent:status", map[string]string{
 		"status": "thinking",
 	})
@@ -255,27 +216,27 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		wailsruntime.EventsEmit(a.ctx, "agent:todos", map[string]any{"items": ev.Payload})
 	case controlruntime.EventToolStarted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("tool_start", p.ToolName, p.Args, p.Preview)
+			a.dispatchStep(controlruntime.StepActionToolStart, p)
 		}
 	case controlruntime.EventToolBlocked:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("tool_blocked", p.ToolName, p.Args, p.Output)
+			a.dispatchStep(controlruntime.StepActionToolBlocked, p)
 		}
 	case controlruntime.EventToolPreview:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("tool_preview", p.ToolName, p.Args, p.Preview)
+			a.dispatchStep(controlruntime.StepActionToolPreview, p)
 		}
 	case controlruntime.EventToolCompleted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("execute_tool", p.ToolName, p.Args, p.Output)
+			a.dispatchStep(controlruntime.StepActionExecuteTool, p)
 		}
 	case controlruntime.EventSubAgentStarted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("sub_agent_start", p.ToolName, p.Args, p.Output)
+			a.dispatchStep(controlruntime.StepActionSubAgentStart, p)
 		}
 	case controlruntime.EventSubAgentEnded:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep("sub_agent_end", p.ToolName, p.Args, p.Output)
+			a.dispatchStep(controlruntime.StepActionSubAgentEnd, p)
 		}
 	case controlruntime.EventApprovalRequested:
 		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
@@ -354,82 +315,65 @@ func (a *App) startTime() time.Time {
 	return a.start
 }
 
-func (a *App) dispatchStep(action, toolName, toolArgs, output string) {
+func (a *App) dispatchStep(action controlruntime.StepAction, p controlruntime.ToolPayload) {
 	switch action {
-	case "tool_start":
-		id := uuid.NewString()
-		a.pushPendingTool(toolName, id)
+	case controlruntime.StepActionToolStart:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_start", map[string]any{
-			"id":       id,
-			"toolName": toolName,
-			"args":     toolArgs,
-			"preview":  output,
+			"id":       toolEventID(p),
+			"toolName": p.ToolName,
+			"args":     p.Args,
+			"preview":  p.Preview,
 			"blocked":  false,
 		})
-	case "tool_blocked":
-		id := uuid.NewString()
+	case controlruntime.StepActionToolBlocked:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_start", map[string]any{
-			"id":       id,
-			"toolName": toolName,
-			"args":     toolArgs,
-			"preview":  output,
+			"id":       toolEventID(p),
+			"toolName": p.ToolName,
+			"args":     p.Args,
+			"preview":  p.Output,
 			"blocked":  true,
-			"reason":   output,
+			"reason":   p.Output,
 		})
-	case "tool_preview":
+	case controlruntime.StepActionToolPreview:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_preview", map[string]any{
-			"toolName": toolName,
-			"preview":  output,
+			"toolName": p.ToolName,
+			"preview":  p.Preview,
 		})
-	case "execute_tool":
-		id, _ := a.popPendingTool(toolName)
-		isError := isToolError(toolName, output)
+	case controlruntime.StepActionExecuteTool:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_done", map[string]any{
-			"toolName": toolName,
-			"args":     toolArgs,
-			"output":   output,
-			"isError":  isError,
-			"id":       id,
+			"toolName": p.ToolName,
+			"args":     p.Args,
+			"output":   p.Output,
+			"isError":  p.IsError,
+			"id":       toolEventID(p),
 		})
-	case "sub_agent_start":
+	case controlruntime.StepActionSubAgentStart:
 		wailsruntime.EventsEmit(a.ctx, "agent:subagent_start", map[string]any{
-			"id":       toolArgs,
-			"subType":  toolName,
-			"colorIdx": parseIntSafe(output),
+			"id":       p.Args,
+			"subType":  p.ToolName,
+			"colorIdx": parseIntSafe(p.Output),
 		})
-	case "sub_agent_end":
+	case controlruntime.StepActionSubAgentEnd:
 		wailsruntime.EventsEmit(a.ctx, "agent:subagent_end", map[string]any{
-			"id": toolArgs,
-		})
-	case "think":
-		wailsruntime.EventsEmit(a.ctx, "agent:reasoning", map[string]any{
-			"delta": "",
-			"done":  true,
+			"id": p.Args,
 		})
 	default:
 		wailsruntime.EventsEmit(a.ctx, "agent:step", map[string]string{
-			"action":   action,
-			"toolName": toolName,
-			"toolArgs": toolArgs,
-			"output":   output,
+			"action":   string(action),
+			"toolName": p.ToolName,
+			"toolArgs": p.Args,
+			"output":   p.Output,
 		})
 	}
 }
 
-func isToolError(toolName, output string) bool {
-	trimmed := strings.TrimSpace(output)
-	if trimmed == "" {
-		return false
+// toolEventID returns the tool call ID carried by the event, falling back to a
+// fresh UUID for events that legitimately lack one (e.g. previews).
+func toolEventID(p controlruntime.ToolPayload) string {
+	if p.CallID != "" {
+		return p.CallID
 	}
-	if toolName == "edit" {
-		return !strings.HasPrefix(trimmed, "[")
-	}
-	return trimmed == "cancelled" ||
-		strings.HasPrefix(trimmed, "forbidden:") ||
-		strings.HasPrefix(trimmed, "plan mode:") ||
-		strings.HasPrefix(trimmed, "blocked") ||
-		strings.HasPrefix(trimmed, "command failed:") ||
-		strings.HasPrefix(trimmed, "command timed out")
+	return uuid.NewString()
 }
 
 func parseIntSafe(s string) int {
@@ -474,8 +418,12 @@ func (a *App) ContextReport() string {
 	return a.rt.ContextReport()
 }
 
-func (a *App) ContextSnapshot() view.ContextSnapshot {
+func (a *App) ContextSnapshot() controlruntime.ContextSnapshot {
 	return a.rt.ContextSnapshot()
+}
+
+func (a *App) MemoryView(scope string) controlruntime.MemoryView {
+	return a.rt.MemoryView(controlruntime.MemoryScope(scope))
 }
 
 func (a *App) SelectSkill(name string) error {
@@ -486,43 +434,55 @@ func (a *App) ClearSelectedSkill() {
 	a.rt.ClearSelectedSkill()
 }
 
-func (a *App) GetConfig() view.ConfigView {
+func (a *App) GetConfig() controlruntime.ConfigView {
 	return a.rt.ConfigView()
 }
 
-func (a *App) SaveConfig(cfg view.ConfigView) (view.ConfigView, error) {
-	return a.rt.ApplyConfig(cfg)
+func (a *App) SaveConfig(cfg controlruntime.ConfigView) (controlruntime.ConfigView, error) {
+	next, err := a.rt.ApplyConfig(cfg)
+	if err != nil {
+		return controlruntime.ConfigView{}, err
+	}
+	return next, nil
 }
 
-func (a *App) GetSkillManagement() view.SkillManagementView {
+func (a *App) GetSkillManagement() controlruntime.SkillManagementView {
 	return a.rt.SkillManagementView()
 }
 
-func (a *App) RefreshSkillManagement() view.SkillManagementView {
+func (a *App) RefreshSkillManagement() controlruntime.SkillManagementView {
 	return a.rt.RefreshSkillManagement()
 }
 
-func (a *App) SetPluginEnabled(name string, enabled bool) (view.SkillManagementView, error) {
-	return a.rt.SetPluginEnabled(name, enabled)
+func (a *App) SetPluginEnabled(name string, enabled bool) (controlruntime.SkillManagementView, error) {
+	next, err := a.rt.SetPluginEnabled(name, enabled)
+	if err != nil {
+		return controlruntime.SkillManagementView{}, err
+	}
+	return next, nil
 }
 
 // ---------- Session 管理 ----------
 
 // ListSessions 返回所有已落盘的会话元数据。
-func (a *App) ListSessions() []view.SessionMeta {
+func (a *App) ListSessions() []controlruntime.SessionMeta {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.rt.ListSessions()
 }
 
 // NewSession 创建一个新会话并将其设为当前会话，返回会话元数据。
-func (a *App) NewSession() (view.SessionMeta, error) {
+func (a *App) NewSession() (controlruntime.SessionMeta, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.rt.NewSession()
+	meta, err := a.rt.NewSession()
+	if err != nil {
+		return controlruntime.SessionMeta{}, err
+	}
+	return meta, nil
 }
 
-func (a *App) LoadSession(id string) ([]view.DisplayMessage, error) {
+func (a *App) LoadSession(id string) ([]controlruntime.DisplayMessage, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -605,25 +565,10 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 // req.CanEscalatePermission 当作"用户已勾选授权"使用，导致 GUI 中用户点
 // "允许"按钮就静默授权了沙箱/主机升级，与 TUI 的两个独立按钮语义不一致。
 func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
-	if err := a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
+	_ = a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
 		Allowed:  ok,
 		Remember: ok && remember,
-	}); err == nil {
-		return
-	}
-	a.confirmMu.Lock()
-	req, found := a.confs[id]
-	if found {
-		delete(a.confs, id)
-	}
-	a.confirmMu.Unlock()
-	if found {
-		req.Response <- view.ConfirmReply{
-			Allowed:             ok,
-			Remember:            ok && remember,
-			AllowWithPermission: false,
-		}
-	}
+	})
 }
 
 // ReplyConfirmWithPermission 由前端调用，回复确认弹窗并显式声明是否同时
@@ -631,30 +576,11 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 // 才会被采用；否则 withPermission 强制为 false（防止前端误用"允许并授权"
 // 按钮对不可升级的工具下放授权）。
 func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, withPermission bool) {
-	if err := a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
+	_ = a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
 		Allowed:             ok,
 		Remember:            ok && remember,
 		AllowWithPermission: ok && withPermission,
-	}); err == nil {
-		return
-	}
-	a.confirmMu.Lock()
-	req, found := a.confs[id]
-	if found {
-		delete(a.confs, id)
-	}
-	a.confirmMu.Unlock()
-	if found {
-		grant := false
-		if ok && withPermission && req.CanEscalatePermission {
-			grant = true
-		}
-		req.Response <- view.ConfirmReply{
-			Allowed:             ok,
-			Remember:            ok && remember,
-			AllowWithPermission: grant,
-		}
-	}
+	})
 }
 
 // ReplyQuestion 由前端调用，回复 agent 发起的问题。
@@ -663,16 +589,5 @@ func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 	if answersJSON != "" {
 		_ = json.Unmarshal([]byte(answersJSON), &answers)
 	}
-	if err := a.rt.Answer(a.ctx, id, view.QuestionReply{Answers: answers, Rejected: rejected}); err == nil {
-		return
-	}
-	a.questionMu.Lock()
-	req, found := a.questions[id]
-	if found {
-		delete(a.questions, id)
-	}
-	a.questionMu.Unlock()
-	if found {
-		req.Response <- view.QuestionReply{Answers: answers, Rejected: rejected}
-	}
+	_ = a.rt.Answer(a.ctx, id, controlruntime.QuestionReply{Answers: answers, Rejected: rejected})
 }

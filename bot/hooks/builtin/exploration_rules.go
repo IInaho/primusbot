@@ -32,6 +32,9 @@ func ExplorationExhaustedHook() hooks.Hook {
 				},
 			}
 		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("explore_calls=%d has_edits=%d", s.Get(hooks.StoreExploreCalls), s.Get(hooks.StoreHasEdits))
+		},
 	}
 }
 
@@ -46,6 +49,9 @@ func ExploreCascadeHook() hooks.Hook {
 			return &hooks.Result{Hint: &hooks.Hint{Type: "explore_cascade", Severity: "warning",
 				Content: fmt.Sprintf("你已经启动了 %d 个 researcher 子 Agent。如果已收集足够信息，立即综合发现并行动。\n\n你的任务：%s",
 					n, s.GetStr(hooks.StoreStepInput))}}
+		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("researcher_calls=%d", s.Get(hooks.StoreToolResearcher))
 		},
 	}
 }

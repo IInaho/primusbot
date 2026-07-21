@@ -10,12 +10,12 @@ import (
 )
 
 func TestSnapshotRestore(t *testing.T) {
-	st := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}, ContextWindow: 50000}
+	st := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}, ContextWindow: 50000}
 	(&history.Store{State: st}).Add("user", "hello world")
 
 	snap := (&Store{State: st}).Snapshot()
 
-	st2 := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}}
+	st2 := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}}
 	(&Store{State: st2}).Restore(snap)
 
 	if got, want := len(st2.Ctx.Messages), len(st.Ctx.Messages); got != want {

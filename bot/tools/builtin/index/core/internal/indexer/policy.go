@@ -25,17 +25,6 @@ var (
 		".go": true, ".js": true, ".jsx": true, ".ts": true, ".tsx": true,
 		".py": true, ".rs": true,
 	}
-
-	extToLang = map[string]string{
-		".go":   "go",
-		".js":   "javascript",
-		".jsx":  "javascript",
-		".ts":   "typescript",
-		".tsx":  "typescript",
-		".py":   "python",
-		".rs":   "rust",
-		".java": "java",
-	}
 )
 
 // ShouldSkipDir returns true if the directory should be skipped during walks.
@@ -50,11 +39,4 @@ func SupportsFile(path string) bool {
 		return false
 	}
 	return ext != ".go" || !goGeneratedRE.MatchString(filepath.Base(path))
-}
-
-func detectLanguageForFile(ext string) string {
-	if lang, ok := extToLang[ext]; ok {
-		return lang
-	}
-	return "unknown"
 }

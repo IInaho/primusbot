@@ -17,8 +17,8 @@ type QuestionItem struct {
 
 // QuestionReply carries one answer array per question.
 type QuestionReply struct {
-	Answers  [][]string
-	Rejected bool
+	Answers  [][]string `json:"answers,omitempty"`
+	Rejected bool       `json:"rejected,omitempty"`
 }
 
 // QuestionRequest is sent to UI clients when the agent needs user input.

@@ -9,7 +9,7 @@ import (
 )
 
 func TestSetContextWindow(t *testing.T) {
-	st := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}}
+	st := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}}
 	s := &Store{State: st}
 
 	s.SetContextWindow(10000)
@@ -24,7 +24,7 @@ func TestSetContextWindow(t *testing.T) {
 }
 
 func TestAllTasksDone_Empty(t *testing.T) {
-	st := &state.State{Ctx: context.New("test prompt"), Tracker: &token.Tracker{}}
+	st := &state.State{Ctx: content.New("test prompt"), Tracker: &token.Tracker{}}
 	if !(&Store{State: st}).AllTasksDone() {
 		t.Error("empty todos should be 'done'")
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/context"
 	"nekocode/bot/provider/types"
 )
 
@@ -148,7 +148,7 @@ func TestAutoCompactIfNeeded_NoSummarizer_DoesNotError(t *testing.T) {
 	}
 	bigBudget := 64000
 	cm := &Compactor{
-		Ctx:           &ctxctx.Content{Messages: msgs, CompactBoundary: 80},
+		Ctx:           &content.Content{Messages: msgs, CompactBoundary: 80},
 		ContextWindow: &bigBudget,
 		Tracker:       &testTracker{promptEst: 35000},
 		CompactCount:  new(int),
@@ -374,7 +374,7 @@ func TestMicroCompactIfNeeded_ClearsToolResults(t *testing.T) {
 	msgs := createMicroCompactMessages(10) // 10 tool-result pairs
 	smallBudget := 8000
 	cm := &Compactor{
-		Ctx:           &ctxctx.Content{Messages: msgs},
+		Ctx:           &content.Content{Messages: msgs},
 		ContextWindow: &smallBudget,
 		Tracker:       &testTracker{promptEst: 6000}, // > half of 8000
 		CompactCount:  new(int),
@@ -406,7 +406,7 @@ func TestMicroCompactIfNeeded_PreservesRecent(t *testing.T) {
 	}
 	smallBudget := 8000
 	cm := &Compactor{
-		Ctx:           &ctxctx.Content{Messages: msgs},
+		Ctx:           &content.Content{Messages: msgs},
 		ContextWindow: &smallBudget,
 		Tracker:       &testTracker{promptEst: 6000},
 		CompactCount:  new(int),
@@ -435,7 +435,7 @@ func TestMicroCompactIfNeeded_BudgetScaling(t *testing.T) {
 	for _, tt := range tests {
 		msgs := createMicroCompactMessages(20)
 		cm := &Compactor{
-			Ctx:           &ctxctx.Content{Messages: msgs},
+			Ctx:           &content.Content{Messages: msgs},
 			ContextWindow: &tt.budget,
 			Tracker:       &testTracker{promptEst: tt.budget - 1000},
 			CompactCount:  new(int),
@@ -684,7 +684,7 @@ func TestPipelineWithSessionJson_MultiToolResults(t *testing.T) {
 	// micro-compact only targets OLD messages (≥2 turns back).
 	smallBudget := 8000
 	cm := &Compactor{
-		Ctx:           &ctxctx.Content{Messages: msgs},
+		Ctx:           &content.Content{Messages: msgs},
 		ContextWindow: &smallBudget,
 		Tracker:       &testTracker{promptEst: 6000},
 		CompactCount:  new(int),
@@ -775,7 +775,7 @@ func TestEstimateTokens_TrackerPrecedence(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func newPipelineCompactor(msgs []types.Message, budget int, boundary int, archive string) *Compactor {
-	ctx := &ctxctx.Content{Messages: msgs, CompactBoundary: boundary, Archive: archive}
+	ctx := &content.Content{Messages: msgs, CompactBoundary: boundary, Archive: archive}
 	return &Compactor{
 		Ctx: ctx, ContextWindow: &budget, Tracker: &testTracker{},
 		CompactCount: new(int), TrimCount: new(int), Cfg: DefaultConfig,

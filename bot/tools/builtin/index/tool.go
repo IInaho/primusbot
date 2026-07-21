@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	indexer "nekocode/bot/tools/builtin/index/core"
+	indexcore "nekocode/bot/tools/builtin/index/core"
 	"nekocode/bot/tools/runtime/core"
 )
 
@@ -17,7 +17,7 @@ import (
 // requires no external setup.
 type IndexTool struct {
 	mgrOnce sync.Once
-	mgr     indexer.Manager
+	mgr     indexcore.Manager
 	mgrErr  error
 }
 
@@ -27,14 +27,14 @@ func NewIndexTool() *IndexTool {
 	return &IndexTool{}
 }
 
-func (t *IndexTool) ensureInit() (indexer.Manager, error) {
+func (t *IndexTool) ensureInit() (indexcore.Manager, error) {
 	t.mgrOnce.Do(func() {
 		cwd, err := os.Getwd()
 		if err != nil {
 			t.mgrErr = fmt.Errorf("resolve working directory: %w", err)
 			return
 		}
-		t.mgr, t.mgrErr = indexer.NewManager(cwd)
+		t.mgr, t.mgrErr = indexcore.NewManager(cwd)
 		if t.mgrErr != nil {
 			return
 		}
@@ -101,7 +101,7 @@ func (t *IndexTool) Execute(ctx context.Context, args map[string]any) (string, e
 	}
 }
 
-func querySymbol(mgr indexer.Manager, name string) string {
+func querySymbol(mgr indexcore.Manager, name string) string {
 	symbols := mgr.QuerySymbol(name)
 	if len(symbols) == 0 {
 		return fmt.Sprintf("No symbols matching '%s' found in project index. Try grep for a broader search.", name)
@@ -114,7 +114,7 @@ func querySymbol(mgr indexer.Manager, name string) string {
 	return b.String()
 }
 
-func queryDeps(mgr indexer.Manager, pkgPath string) string {
+func queryDeps(mgr indexcore.Manager, pkgPath string) string {
 	deps := mgr.QueryDeps(pkgPath)
 	if deps == nil {
 		return fmt.Sprintf("Package '%s' not found in project index or has no internal dependencies.", pkgPath)
@@ -128,7 +128,7 @@ func queryDeps(mgr indexer.Manager, pkgPath string) string {
 	return b.String()
 }
 
-func queryFile(mgr indexer.Manager, name string) string {
+func queryFile(mgr indexcore.Manager, name string) string {
 	files := mgr.QueryFile(name)
 	if len(files) == 0 {
 		return fmt.Sprintf("No files matching '%s' found in project index. The file may have been deleted or renamed — try glob to search the filesystem directly.", name)
@@ -141,7 +141,7 @@ func queryFile(mgr indexer.Manager, name string) string {
 	return b.String()
 }
 
-func querySearch(mgr indexer.Manager, term string) string {
+func querySearch(mgr indexcore.Manager, term string) string {
 	nodes, err := mgr.Search(term, 50)
 	if err != nil {
 		return fmt.Sprintf("Search error: %v", err)

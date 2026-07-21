@@ -1,5 +1,5 @@
 // Package url provides base-URL path joining helpers.
-package util
+package url
 
 import (
 	"net/url"

@@ -3,20 +3,20 @@ package plugin
 import (
 	"path/filepath"
 
-	"nekocode/bot/extension"
+	commonview "nekocode/common/view"
 )
 
-func (m *Manager) Views() []extension.PluginView {
+func (m *Manager) Views() []commonview.PluginView {
 	plugins := m.reg.List()
-	out := make([]extension.PluginView, 0, len(plugins))
+	out := make([]commonview.PluginView, 0, len(plugins))
 	for _, p := range plugins {
 		out = append(out, viewFor(p))
 	}
 	return out
 }
 
-func viewFor(p *Plugin) extension.PluginView {
-	return extension.PluginView{
+func viewFor(p *Plugin) commonview.PluginView {
+	return commonview.PluginView{
 		Name:        p.Name,
 		Version:     p.Version,
 		Description: p.Description,
@@ -33,12 +33,12 @@ func viewFor(p *Plugin) extension.PluginView {
 }
 
 // MCPServersFor flattens the MCP servers declared by a plugin.
-func MCPServersFor(p *Plugin) []extension.MCPServerView {
+func MCPServersFor(p *Plugin) []commonview.MCPServerView {
 	servers := p.MCPServers()
-	out := make([]extension.MCPServerView, 0, len(servers))
+	out := make([]commonview.MCPServerView, 0, len(servers))
 	for name, cfg := range servers {
 		cfg = ExpandPluginMCPConfig(cfg, p.Dir)
-		out = append(out, extension.NewMCPServerView(extension.MCPServerViewInput{
+		out = append(out, commonview.NewMCPServerView(commonview.MCPServerViewInput{
 			Name:    name,
 			Plugin:  p.Name,
 			Command: cfg.Command,

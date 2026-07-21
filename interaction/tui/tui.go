@@ -4,9 +4,7 @@ package tui
 import (
 	"fmt"
 
-	"nekocode/interaction/connect/telegram"
 	"nekocode/interaction/tui/components/message"
-	controlruntime "nekocode/runtime"
 	"nekocode/runtime/defaultbot"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,10 +12,7 @@ import (
 
 func Run() {
 	message.Warmup()
-	rt := defaultbot.NewSessionRuntime()
-	rt.RegisterConnector("telegram", func(runtime controlruntime.Runtime) controlruntime.Connector {
-		return telegram.New(runtime)
-	})
+	rt := defaultbot.NewSessionRuntimeWithTelegram()
 	defer rt.Close()
 	p := tea.NewProgram(NewModel(rt))
 	if _, err := p.Run(); err != nil {

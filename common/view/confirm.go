@@ -48,15 +48,3 @@ func NewConfirmRequest(toolName string, args map[string]any, kind ConfirmKind) C
 
 // ConfirmFunc asks the user to approve a tool call.
 type ConfirmFunc func(req ConfirmRequest) ConfirmReply
-
-// PhaseFunc is called when the agent's phase changes.
-type PhaseFunc func(phase string)
-
-// Phase constants emitted by agent runtime and displayed by UI surfaces.
-const (
-	PhaseReady     = "Ready"
-	PhaseWaiting   = "Waiting"
-	PhaseThinking  = "Thinking"
-	PhaseReasoning = "Reasoning"
-	PhaseRunning   = "Running"
-)

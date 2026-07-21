@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-manifest_dir="$repo_root/flatpak"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+manifest_dir="$repo_root/build/flatpak"
 manifest="org.nekocode.NekoCode.yml"
 manifest_path="$manifest_dir/$manifest"
 work_dir="$repo_root/.build/flatpak"
@@ -25,7 +25,7 @@ prepare_only=0
 
 usage() {
   cat <<'EOF'
-Usage: bash flatpak/build.sh [--bundle] [--clean] [--clean-cache] [--clean-all] [--no-install] [--prepare-only]
+Usage: bash build/flatpak/build.sh [--bundle] [--clean] [--clean-cache] [--clean-all] [--no-install] [--prepare-only]
 
   --bundle      Export nekocode.flatpak after installing the app locally.
   --clean       Reset transient Flatpak build state before building.
@@ -46,7 +46,7 @@ quote_shell_arg() {
 }
 
 maybe_reexec_in_nix_shell() {
-  if [[ "$prepare_only" == "1" || -n "${NEKOCODE_FLATPAK_NIX_SHELL:-}" || ! -f "$repo_root/shell.nix" ]]; then
+  if [[ "$prepare_only" == "1" || -n "${NEKOCODE_FLATPAK_NIX_SHELL:-}" || ! -f "$repo_root/build/shell.nix" ]]; then
     return
   fi
 
@@ -71,8 +71,8 @@ maybe_reexec_in_nix_shell() {
     quoted_args+=("$(quote_shell_arg "$arg")")
   done
 
-  echo "Re-entering nix-shell shell.nix for Flatpak packaging tools..."
-  exec nix-shell "$repo_root/shell.nix" --run "cd $(quote_shell_arg "$repo_root") && NEKOCODE_FLATPAK_NIX_SHELL=1 bash flatpak/build.sh ${quoted_args[*]}"
+  echo "Re-entering nix-shell build/shell.nix for Flatpak packaging tools..."
+  exec nix-shell "$repo_root/build/shell.nix" --run "cd $(quote_shell_arg "$repo_root") && NEKOCODE_FLATPAK_NIX_SHELL=1 bash build/flatpak/build.sh ${quoted_args[*]}"
 }
 
 make_bundle=0
@@ -95,7 +95,7 @@ require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing command: $1" >&2
     if [[ "$1" == "flatpak-builder" ]]; then
-      echo "Install flatpak-builder first. On NixOS, add pkgs.flatpak-builder or enter nix-shell shell.nix." >&2
+      echo "Install flatpak-builder first. On NixOS, add pkgs.flatpak-builder or enter nix-shell build/shell.nix." >&2
     fi
     exit 1
   fi
@@ -151,7 +151,7 @@ ensure_appstreamcli() {
   fi
 
   echo "Missing command: appstreamcli" >&2
-  echo "On NixOS, enter nix-shell shell.nix or install an AppStream package that provides appstreamcli." >&2
+  echo "On NixOS, enter nix-shell build/shell.nix or install an AppStream package that provides appstreamcli." >&2
   exit 1
 }
 
@@ -164,11 +164,11 @@ ensure_user_export_permissions() {
 }
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
-  desktop-file-validate "$repo_root/flatpak/org.nekocode.NekoCode.desktop"
+  desktop-file-validate "$manifest_dir/org.nekocode.NekoCode.desktop"
 fi
 
 if command -v xmllint >/dev/null 2>&1; then
-  xmllint --noout "$repo_root/flatpak/org.nekocode.NekoCode.metainfo.xml"
+  xmllint --noout "$manifest_dir/org.nekocode.NekoCode.metainfo.xml"
 fi
 
 mkdir -p "$work_dir" "$cache_dir"
@@ -181,14 +181,14 @@ rsync -a --delete \
   --exclude='/.build/' \
   --exclude='/build-flatpak/' \
   --exclude='/node_modules/' \
-  --exclude='/gui/node_modules/' \
-  --exclude='/gui/dist/' \
-  --exclude='/build/' \
+  --exclude='/interaction/gui/web/node_modules/' \
+  --exclude='/interaction/gui/web/dist/' \
+  --exclude='/build/bin/' \
   --exclude='/result' \
   --exclude='/result-dev' \
   --exclude='/nekocode.flatpak' \
-  --exclude='/flatpak/.work/' \
-  --exclude='/flatpak/.flatpak-builder/' \
+  --exclude='/build/flatpak/.work/' \
+  --exclude='/build/flatpak/.flatpak-builder/' \
   "$repo_root/" "$source_dir/"
 
 sed \

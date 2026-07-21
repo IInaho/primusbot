@@ -228,3 +228,117 @@ func TestSandboxRulesTrimMode(t *testing.T) {
 		t.Fatalf("sandbox mode should be normalized, got %+v", rules)
 	}
 }
+
+// newBashEngine builds an engine with the real matchers so bash semantics
+// (compound commands, subcommand coverage) are exercised end to end.
+func newBashEngine(rules ...Rule) *Engine {
+	e := NewEngine(DefaultMatchers())
+	e.SetRules(rules)
+	return e
+}
+
+func bashCall(cmd string) map[string]any {
+	return map[string]any{"command": cmd}
+}
+
+func TestEvaluateBashCompoundCoveredByUnionOfAllows(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "npm run *", Effect: EffectAllow, Source: "user"},
+		Rule{Tool: "bash", Specifier: "npm test", Effect: EffectAllow, Source: "user"},
+	)
+	d := e.Evaluate("bash", bashCall("npm run build && npm test"), EffectAsk)
+	if d.Effect != EffectAllow {
+		t.Fatalf("two narrow allows should jointly cover the compound call, got %v", d.Effect)
+	}
+	if d.Rule.Specifier != "npm run *" {
+		t.Fatalf("deciding rule should be the first covering spec, got %+v", d.Rule)
+	}
+}
+
+func TestEvaluateBashCompoundPartiallyCoveredFallsThrough(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "npm run *", Effect: EffectAllow, Source: "user"},
+	)
+	d := e.Evaluate("bash", bashCall("npm run build && rm -rf /tmp/x"), EffectAsk)
+	if d.Effect != EffectAsk {
+		t.Fatalf("uncovered subcommand must fall through to the default, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateBashUserAllowCoverageCountsBuiltinAllows(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "cargo *", Effect: EffectAllow, Source: "user"},
+		Rule{Tool: "bash", Specifier: "ls *", Effect: EffectAllow, Source: "builtin"},
+	)
+	d := e.Evaluate("bash", bashCall("cargo build && ls -la"), EffectAsk)
+	if d.Effect != EffectAllow {
+		t.Fatalf("user + builtin allows should jointly cover the compound call, got %v", d.Effect)
+	}
+	if d.Rule.Specifier != "cargo *" {
+		t.Fatalf("user rule should be the deciding rule, got %+v", d.Rule)
+	}
+}
+
+func TestEvaluateBashBareAllowCoversCompound(t *testing.T) {
+	bare := Rule{Tool: "bash", Effect: EffectAllow, Source: "user"}
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "npm run *", Effect: EffectAllow, Source: "user"},
+		bare,
+	)
+	d := e.Evaluate("bash", bashCall("npm run build && rm -rf /tmp/x"), EffectAsk)
+	if d.Effect != EffectAllow {
+		t.Fatalf("bare allow should cover the whole compound call, got %v", d.Effect)
+	}
+	if d.Rule.Specifier != "" {
+		t.Fatalf("bare rule should be the deciding rule, got %+v", d.Rule)
+	}
+}
+
+func TestEvaluateBashDenyFiresOnAnySubcommand(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "rm *", Effect: EffectDeny, Source: "user"},
+		Rule{Tool: "bash", Specifier: "ls *", Effect: EffectAllow, Source: "user"},
+	)
+	d := e.Evaluate("bash", bashCall("ls -la && rm -rf /tmp/x"), EffectAllow)
+	if d.Effect != EffectDeny {
+		t.Fatalf("deny must fire on any matching subcommand, got %v", d.Effect)
+	}
+	// command substitution is a subcommand too
+	d = e.Evaluate("bash", bashCall("echo $(rm -rf /tmp/x)"), EffectAllow)
+	if d.Effect != EffectDeny {
+		t.Fatalf("deny must fire inside command substitution, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateBashAskFiresOnAnySubcommand(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "git push *", Effect: EffectAsk, Source: "user"},
+	)
+	d := e.Evaluate("bash", bashCall("git status && git push origin main"), EffectAllow)
+	if d.Effect != EffectAsk {
+		t.Fatalf("ask must fire on any matching subcommand, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateBashBuiltinAllowCoverage(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "ls *", Effect: EffectAllow, Source: "builtin"},
+	)
+	d := e.Evaluate("bash", bashCall("ls -la && ls /tmp"), EffectDeny)
+	if d.Effect != EffectAllow {
+		t.Fatalf("builtin allow covering every subcommand should allow, got %v", d.Effect)
+	}
+}
+
+func TestEvaluateBashSingleCommandUsesPlainMatch(t *testing.T) {
+	e := newBashEngine(
+		Rule{Tool: "bash", Specifier: "npm run *", Effect: EffectAllow, Source: "user"},
+	)
+	d := e.Evaluate("bash", bashCall("npm run build"), EffectAsk)
+	if d.Effect != EffectAllow {
+		t.Fatalf("single command matching an allow rule should allow, got %v", d.Effect)
+	}
+	if d.Rule.Specifier != "npm run *" {
+		t.Fatalf("deciding rule should be the allow rule, got %+v", d.Rule)
+	}
+}

@@ -102,7 +102,7 @@ NekoCode 是一个运行在终端里的 AI 编程助手。你像聊天一样交�
 # 方式一：源码编译（TUI 版本）
 git clone https://github.com/lznauy/NekoCode.git
 cd NekoCode
-go build -o nekocode-tui ./cmd
+go build -o nekocode-tui ./cmd/tui
 ./nekocode-tui
 ```
 

@@ -13,7 +13,7 @@ import (
 
 	"nekocode/bot/config"
 	"nekocode/bot/tools/runtime/toolhelpers"
-	utilurl "nekocode/util/url"
+	"nekocode/util/url"
 )
 
 type jimengSubmitResp struct {
@@ -181,7 +181,7 @@ func (t *ImageGenTool) jimengCallRaw(ctx context.Context, signer *Signer, baseUR
 }
 
 func jimengEndpoint(baseURL string, query neturl.Values) (string, error) {
-	u, err := neturl.Parse(utilurl.JoinURLPath(baseURL))
+	u, err := neturl.Parse(url.JoinURLPath(baseURL))
 	if err != nil {
 		return "", err
 	}

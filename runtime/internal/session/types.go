@@ -1,7 +1,6 @@
 package session
 
 import (
-	"nekocode/runtime/internal/botcore"
 	"nekocode/runtime/internal/broker"
 	"nekocode/runtime/internal/connectors"
 	"nekocode/runtime/internal/core"
@@ -11,7 +10,41 @@ import (
 	"nekocode/runtime/internal/runstore"
 )
 
-type RuntimeBot = botcore.RuntimeBot
+type AgentRunner interface {
+	Run(input string, callbacks RunCallbacks) (string, error)
+	ConfigureRuntime(callbacks ControlCallbacks)
+}
+
+type CommandExecutor interface {
+	ExecuteCommand(input string) (string, CmdResult)
+}
+
+type SkillHintProvider interface {
+	SkillHint() (string, bool)
+}
+
+type CommandCatalog interface {
+	CommandNames() []string
+}
+
+type RunController interface {
+	Steer(msg string)
+	Abort()
+	Close()
+}
+
+type StatsProvider interface {
+	Stats() BotStats
+}
+
+type ModelInfoProvider interface {
+	ProviderModel() (provider, model string)
+}
+
+type MessageProvider interface {
+	SessionMessages() []DisplayMessage
+}
+
 type EventBus = eventbus.EventBus
 type ApprovalBroker = broker.ApprovalBroker
 type QuestionBroker = broker.QuestionBroker
@@ -31,8 +64,19 @@ type EventFilter = core.EventFilter
 type MessagePayload = core.MessagePayload
 type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
+type CmdResult = core.CmdResult
+type StepAction = core.StepAction
+type StepEvent = core.StepEvent
+type RunCallbacks = core.RunCallbacks
+type ControlCallbacks = core.ControlCallbacks
+type TodoItem = core.TodoItem
+type BotStats = core.BotStats
+type DisplayMessage = core.DisplayMessage
 type ToolPayload = core.ToolPayload
 type DonePayload = core.DonePayload
+type ConfirmKind = core.ConfirmKind
+type ConfirmRequest = core.ConfirmRequest
+type ConfirmReply = core.ConfirmReply
 type ApprovalDecision = core.ApprovalDecision
 type ApprovalView = core.ApprovalView
 type RunView = core.RunView
@@ -40,6 +84,10 @@ type ArtifactView = core.ArtifactView
 type ConnectView = core.ConnectView
 type ConnectorStatusPayload = core.ConnectorStatusPayload
 type QuestionView = core.QuestionView
+type QuestionOption = core.QuestionOption
+type QuestionItem = core.QuestionItem
+type QuestionReply = core.QuestionReply
+type QuestionRequest = core.QuestionRequest
 
 const (
 	InputMessage = core.InputMessage
@@ -72,6 +120,25 @@ const (
 	EventRunAborted        = core.EventRunAborted
 	EventSessionResumed    = core.EventSessionResumed
 	EventConnectorStatus   = core.EventConnectorStatus
+
+	CmdNone           = core.CmdNone
+	CmdHandled        = core.CmdHandled
+	CmdConfirming     = core.CmdConfirming
+	CmdSessionResumed = core.CmdSessionResumed
+
+	StepActionChat           = core.StepActionChat
+	StepActionThink          = core.StepActionThink
+	StepActionToolStart      = core.StepActionToolStart
+	StepActionToolBlocked    = core.StepActionToolBlocked
+	StepActionToolPreview    = core.StepActionToolPreview
+	StepActionExecuteTool    = core.StepActionExecuteTool
+	StepActionSubToolStart   = core.StepActionSubToolStart
+	StepActionSubExecuteTool = core.StepActionSubExecuteTool
+	StepActionSubAgentStart  = core.StepActionSubAgentStart
+	StepActionSubAgentEnd    = core.StepActionSubAgentEnd
+
+	ConfirmKindPermission = core.ConfirmKindPermission
+	ConfirmKindInstall    = core.ConfirmKindInstall
 )
 
 func NewEventBus() *EventBus {

@@ -31,5 +31,8 @@ func ProgressStallHook() hooks.Hook {
 						n, s.GetStr(hooks.StoreStepInput))},
 			}
 		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("stall_turns=%d ledger_progress=%d", s.Get(hooks.CounterStallTurns), s.Get(hooks.StoreLedgerProgress))
+		},
 	}
 }

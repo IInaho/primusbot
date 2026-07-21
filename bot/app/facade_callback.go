@@ -30,12 +30,23 @@ type callbackBus struct {
 }
 
 func (c *callbackBus) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
-	c.confirmFn = confirmFn
-	c.phaseFn = phaseFn
-	c.todoFn = todoFn
-	c.notifyFn = notifyFn
-	c.confirmCh = confirmCh
-	c.questionFn = questionFn
+	c.ConfigureRuntime(view.ControlCallbacks{
+		Confirm:   confirmFn,
+		Phase:     phaseFn,
+		Todo:      todoFn,
+		Notify:    notifyFn,
+		ConfirmCh: confirmCh,
+		Question:  questionFn,
+	})
+}
+
+func (c *callbackBus) ConfigureRuntime(callbacks view.ControlCallbacks) {
+	c.confirmFn = callbacks.Confirm
+	c.phaseFn = callbacks.Phase
+	c.todoFn = callbacks.Todo
+	c.notifyFn = callbacks.Notify
+	c.confirmCh = callbacks.ConfirmCh
+	c.questionFn = callbacks.Question
 }
 
 func (c *callbackBus) applyAgentControlCallbacksTo(ag *runtime.Agent) {
@@ -144,6 +155,11 @@ func (c *callbackBus) InstallCallbacks() plugin.InstallCallbacks {
 
 func (b *Bot) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
 	b.cb.Configure(confirmFn, phaseFn, todoFn, notifyFn, confirmCh, questionFn)
+	b.applyCallbacks()
+}
+
+func (b *Bot) ConfigureRuntime(callbacks view.ControlCallbacks) {
+	b.cb.ConfigureRuntime(callbacks)
 	b.applyCallbacks()
 }
 

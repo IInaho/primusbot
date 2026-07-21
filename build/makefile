@@ -1,7 +1,11 @@
+# NekoCode 构建入口
+# 所有 target 均假设从仓库根目录执行:
+#   make -f build/makefile <target>
+
 BIN     := nekocode
-TUI_SRC := ./cmd/main.go
+TUI_SRC := ./cmd/tui
 GUI_SRC := ./main.go
-GUI_DIR := gui
+GUI_DIR := interaction/gui/web
 
 .PHONY: build run install clean test gui
 

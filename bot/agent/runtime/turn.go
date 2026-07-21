@@ -5,6 +5,7 @@ import (
 	"nekocode/bot/hooks"
 	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools/runtime/core"
+	commonview "nekocode/common/view"
 )
 
 type turnRunner struct {
@@ -53,7 +54,7 @@ func (r *turnRunner) interruptedBeforeReasoning(callback RunCallback) bool {
 	a.run.stopReason = hooks.StopInterrupted
 	a.run.lastText = msgInterrupted
 	if callback != nil {
-		callback("chat", "", "", msgInterrupted)
+		callback(commonview.StepEvent{Action: commonview.StepActionChat, Output: msgInterrupted})
 	}
 	return true
 }
@@ -116,7 +117,7 @@ func (r *turnRunner) completeWithText(reasoning *ReasoningResult, recordable boo
 	a.run.step++
 	r.recordReasoningText(reasoning, recordable)
 	if callback != nil {
-		callback(reasoning.Action.String(), "", "", reasoning.ActionInput)
+		callback(commonview.StepEvent{Action: stepActionForReasoning(reasoning.Action), Output: reasoning.ActionInput})
 	}
 }
 
@@ -185,12 +186,23 @@ func (r *turnRunner) applyPostTurnHint(reasoning *ReasoningResult, hint *hooks.H
 	r.recordReasoningText(reasoning, recordable)
 	if recordable {
 		if callback != nil {
-			callback(reasoning.Action.String(), "", "", reasoning.ActionInput)
+			callback(commonview.StepEvent{Action: stepActionForReasoning(reasoning.Action), Output: reasoning.ActionInput})
 		}
 	}
 	a.injectHint(hint)
 	a.run.step++
 	return false
+}
+
+func stepActionForReasoning(action ActionType) commonview.StepAction {
+	switch action {
+	case ActionChat:
+		return commonview.StepActionChat
+	case ActionExecuteTool:
+		return commonview.StepActionExecuteTool
+	default:
+		return commonview.StepAction("")
+	}
 }
 
 func (r *turnRunner) applyFinalPolicyBlock(reasoning *ReasoningResult, reason string) bool {

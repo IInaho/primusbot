@@ -325,6 +325,32 @@ describe('useChat', () => {
     expect(result.current.msgs[1].steps).toHaveLength(0)
   })
 
+  it('extracts only local image_gen paths from output that also contains CDN URLs', async () => {
+    const { result } = renderHook(() => useChat())
+
+    act(() => {
+      result.current.setText('draw')
+    })
+    act(() => {
+      result.current.send()
+    })
+    await waitFor(() => expect(result.current.msgs).toHaveLength(2))
+
+    const output = [
+      'Generated images:',
+      '  https://p3-aiop-sign.byteimg.com/tos-cn-i-vuqhorh59i/example.jpg?x-expires=1784486738&x-signature=test',
+      '  => /tmp/nekocode_img_20260719_024538_1.jpg',
+    ].join('\n')
+
+    act(() => {
+      emit('agent:tool_start', { id: 'img1', toolName: 'image_gen', args: '{}', preview: '', blocked: false })
+      emit('agent:tool_done', { id: 'img1', toolName: 'image_gen', args: '{}', output, isError: false })
+    })
+
+    await waitFor(() => expect(result.current.msgs[1].images).toHaveLength(1))
+    expect(result.current.msgs[1].images![0].path).toBe('/tmp/nekocode_img_20260719_024538_1.jpg')
+  })
+
   it('uses final edit diff on success and error output on failure', async () => {
     const { result } = renderHook(() => useChat())
 

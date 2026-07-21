@@ -1,31 +1,15 @@
+// Package todo re-exports the shared todo item model from common/view.
 package todo
 
+import commonview "nekocode/common/view"
+
 // Item represents a single task in the todo list.
-type Item struct {
-	Content string `json:"content"`
-	Status  string `json:"status"` // "pending", "in_progress", "completed"
-}
+type Item = commonview.TodoItem
 
 // Func is called whenever the todo list is updated.
-type Func func(items []Item)
+type Func = commonview.TodoFunc
 
-func CountCompleted(items []Item) int {
-	n := 0
-	for _, it := range items {
-		if it.Status == "completed" {
-			n++
-		}
-	}
-	return n
-}
-
-func StatusIcon(status string) string {
-	switch status {
-	case "in_progress":
-		return "▸"
-	case "completed":
-		return "✓"
-	default:
-		return "·"
-	}
-}
+var (
+	CountCompleted = commonview.CountCompleted
+	StatusIcon     = commonview.TodoStatusIcon
+)

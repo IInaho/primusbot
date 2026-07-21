@@ -3,11 +3,11 @@ package subagent
 import (
 	"context"
 
+	"nekocode/bot/agent/llmstream"
 	"nekocode/bot/agent/runtime/model"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/llmstream"
 )
 
 func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), phase func(string)) ([]core.ToolCallItem, string, error) {

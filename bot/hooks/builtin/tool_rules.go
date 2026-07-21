@@ -27,6 +27,11 @@ func ToolResultGuardrailHook() hooks.Hook {
 				Content:  fmt.Sprintf("%d tool results accumulated. Check for unfinished sub-tasks - if any, continue with task. If all done, call task(verify) to validate, then report results.", count),
 			}}
 		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("tool_results=%d last_warned=%d threshold=%d interval=%d",
+				s.Get(hooks.StoreToolResultCount), s.Get(hooks.CounterToolResultWarned),
+				toolResultThreshold, toolResultInterval)
+		},
 	}
 }
 
@@ -50,6 +55,13 @@ func ReadBeforeWriteHook() hooks.Hook {
 				Reason: "你正在修改 " + path + "，但 ledger 中没有该文件的读取记录。请先 Read 确认当前内容，确认差异后再 edit/write。",
 			}}
 		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("target=%s exists=%d was_read=%d anchor_sufficient=%d",
+				dashIfEmpty(s.GetStr(hooks.StoreEditTargetPath)),
+				s.Get(hooks.StoreEditTargetExists),
+				s.Get(hooks.StoreEditTargetWasRead),
+				s.Get(hooks.StoreEditAnchorSufficient))
+		},
 	}
 }
 
@@ -66,6 +78,9 @@ func ReadOnlySpiralHook() hooks.Hook {
 				Severity: "warning",
 				Content:  "You've been reading without acting. Summarize your findings now - don't read any more files.",
 			}}
+		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("read_only_streak=%d", s.Get(hooks.StoreReadOnlyStreak))
 		},
 	}
 }

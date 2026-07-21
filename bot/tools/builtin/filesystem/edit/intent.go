@@ -94,7 +94,7 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	if err := writeUndoSnapshot(pe); err != nil {
 		return "", fmt.Errorf("failed to prepare undo snapshot: %w", err)
 	}
-	finalText := RestoreLineEndings(plan.NormalizedAfter, plan.LineEnding)
+	finalText := toolutil.RestoreLineEndings(plan.NormalizedAfter, plan.LineEnding)
 	if err := os.WriteFile(plan.SafePath, []byte(finalText), plan.OrigMode); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
@@ -376,23 +376,4 @@ func truncateMatchContext(text string, maxRunes int) string {
 func lockForPath(path string) *sync.Mutex {
 	actual, _ := fileLocks.LoadOrStore(path, &sync.Mutex{})
 	return actual.(*sync.Mutex)
-}
-
-// RestoreLineEndings converts LF back to the original line ending style.
-func RestoreLineEndings(text, lineEnding string) string {
-	if lineEnding == "\n" {
-		return text
-	}
-	// First normalize to LF, then convert to target.
-	text = toolutil.NormalizeToLF(text)
-	return strings.ReplaceAll(text, "\n", lineEnding)
-}
-
-// DetectLineEnding returns the first line ending found ("\r\n" or "\n").
-// Defaults to "\n" if no line endings are present.
-func DetectLineEnding(text string) string {
-	if strings.Contains(text, "\r\n") {
-		return "\r\n"
-	}
-	return "\n"
 }

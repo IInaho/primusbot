@@ -225,3 +225,87 @@ func mergeMaps(a, b map[string]any) map[string]any {
 	}
 	return out
 }
+
+func TestBashMatchForEffect(t *testing.T) {
+	m := BashMatcher{}
+	info := map[string]any{"command": "ls -la && sudo rm -rf /tmp/x"}
+	// deny/ask → any subcommand matching fires
+	for _, effect := range []Effect{EffectDeny, EffectAsk} {
+		got, err := m.MatchForEffect("sudo *", info, effect)
+		if err != nil || !got {
+			t.Errorf("MatchForEffect(sudo *, %v) = %v, %v; want true", effect, got, err)
+		}
+		// a non-matching rule still doesn't fire
+		got, _ = m.MatchForEffect("docker *", info, effect)
+		if got {
+			t.Errorf("MatchForEffect(docker *, %v) = true, want false", effect)
+		}
+	}
+	// allow → every subcommand must match
+	got, _ := m.MatchForEffect("ls *", info, EffectAllow)
+	if got {
+		t.Error("allow with an uncovered subcommand must not match")
+	}
+	got, _ = m.MatchForEffect("sudo *", info, EffectAllow)
+	if got {
+		t.Error("allow matching only one subcommand must not match")
+	}
+}
+
+func TestBashCompoundAllowCoverage(t *testing.T) {
+	m := BashMatcher{}
+	info := map[string]any{"command": "npm run build && npm test"}
+
+	// union of two narrow allows covers the compound call
+	deciding, covered := m.CompoundAllowCoverage(false, []string{"npm run *", "npm test"}, info)
+	if !covered || deciding != 0 {
+		t.Errorf("coverage = (%d, %v), want (0, true)", deciding, covered)
+	}
+	// deciding is the first spec covering the FIRST subcommand
+	deciding, covered = m.CompoundAllowCoverage(false, []string{"npm test", "npm run *"}, info)
+	if !covered || deciding != 1 {
+		t.Errorf("coverage = (%d, %v), want (1, true)", deciding, covered)
+	}
+	// one uncovered subcommand → not covered
+	if _, covered = m.CompoundAllowCoverage(false, []string{"npm run *"}, info); covered {
+		t.Error("partial coverage must report covered=false")
+	}
+	// single (non-compound) commands are left to per-rule Match
+	if _, covered = m.CompoundAllowCoverage(false, []string{"npm run *"}, map[string]any{"command": "npm run build"}); covered {
+		t.Error("single subcommand must report covered=false")
+	}
+	// bare match-all allow covers everything, deciding = -1
+	deciding, covered = m.CompoundAllowCoverage(true, nil, info)
+	if !covered || deciding != -1 {
+		t.Errorf("bare allow coverage = (%d, %v), want (-1, true)", deciding, covered)
+	}
+	// no specs, no bare → not covered
+	if _, covered = m.CompoundAllowCoverage(false, nil, info); covered {
+		t.Error("no specs must report covered=false")
+	}
+	// command-substitution parts count as subcommands too
+	subInfo := map[string]any{"command": "echo ok && echo $(rm -rf /tmp/x)"}
+	if _, covered = m.CompoundAllowCoverage(false, []string{"echo *"}, subInfo); covered {
+		t.Error("uncovered command substitution must report covered=false")
+	}
+	if _, covered = m.CompoundAllowCoverage(false, []string{"echo *", "rm *"}, subInfo); !covered {
+		t.Error("union covering the substitution must report covered=true")
+	}
+}
+
+func TestShellCommandsMemoized(t *testing.T) {
+	cmd := "cachetest-unique-bin --flag && echo done"
+	first := shellCommands(cmd)
+	cached, ok := shellParseCache.Load(cmd)
+	if !ok {
+		t.Fatal("shellCommands should memoize parsed subcommands")
+	}
+	second := shellCommands(cmd)
+	if len(first) != 2 || len(second) != 2 {
+		t.Fatalf("expected 2 subcommands, got %v / %v", first, second)
+	}
+	got, _ := cached.([]string)
+	if len(got) != 2 || got[0] != first[0] || got[1] != first[1] {
+		t.Fatalf("cached subcommands differ: %v vs %v", got, first)
+	}
+}

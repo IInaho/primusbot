@@ -44,6 +44,15 @@ describe('MessageItem', () => {
     expect(screen.getByText('code')).toBeInTheDocument()
   })
 
+  it('renders markdown image URLs as text instead of remote images', () => {
+    const url = 'https://p3-aiop-sign.byteimg.com/tos-cn-i-vuqhorh59i/example.jpg?x-expires=1784486738&x-signature=test'
+    const mdMsg: Msg = { id: '7', role: 'assistant', text: `![generated](${url})`, streaming: false }
+    const { container } = render(<MessageItem msg={mdMsg} toggleStep={toggleStep} />)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText(`generated: ${url}`)).toBeInTheDocument()
+  })
+
   it('renders RunCard when assistant message has Run metadata (steps)', () => {
     const runMsg: Msg = {
       id: '6',

@@ -6,6 +6,7 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/taskbridge"
 	"nekocode/common/debug"
+	commonview "nekocode/common/view"
 
 	"github.com/google/uuid"
 )
@@ -32,24 +33,23 @@ func (r *Runner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callback 
 			continue
 		}
 		if callback != nil {
-			callback("sub_agent_start", subType, subID, fmt.Sprint(colorIdx))
+			callback(commonview.StepEvent{Action: commonview.StepActionSubAgentStart, ToolName: subType, ToolArgs: subID, Output: fmt.Sprint(colorIdx)})
 		}
 		sid := subID
 		cid := colorIdx
 		taskInfos = append(taskInfos, subSlotInfo{sid, cid})
-		allowed[i].Args["_sub_callback"] = taskbridge.TaskCallbackFn(func(action, toolName, toolArgs, output string) {
+		allowed[i].Args["_sub_callback"] = taskbridge.TaskCallbackFn(func(ev commonview.StepEvent) {
 			if callback == nil {
 				return
 			}
 			sidTag := fmt.Sprintf("%s:%d", sid, cid)
-			switch action {
-			case "sub_tool_start":
-				callback(action, toolName, toolArgs, sidTag)
-			case "sub_execute_tool":
-				callback(action, toolName, sidTag, output)
-			default:
-				callback(action, toolName, toolArgs, output)
+			switch ev.Action {
+			case commonview.StepActionSubToolStart:
+				ev.Output = sidTag
+			case commonview.StepActionSubExecuteTool:
+				ev.ToolArgs = sidTag
 			}
+			callback(ev)
 		})
 	}
 
@@ -57,7 +57,7 @@ func (r *Runner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callback 
 		for _, ti := range taskInfos {
 			r.host.SubSlots().Release(ti.subID)
 			if callback != nil {
-				callback("sub_agent_end", "", ti.subID, "")
+				callback(commonview.StepEvent{Action: commonview.StepActionSubAgentEnd, ToolArgs: ti.subID})
 			}
 		}
 	}

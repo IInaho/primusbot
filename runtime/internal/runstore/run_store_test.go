@@ -41,6 +41,34 @@ func TestRunStoreBuildsRunAndArtifactViews(t *testing.T) {
 			Preview:  diff,
 		},
 	})
+	patch := "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch"
+	store.Record(Event{
+		RunID: runID,
+		Type:  core.EventToolStarted,
+		Time:  now.Add(2400 * time.Millisecond),
+		Payload: core.ToolPayload{
+			ToolName: "apply_patch",
+		},
+	})
+	store.Record(Event{
+		RunID: runID,
+		Type:  core.EventToolPreview,
+		Time:  now.Add(2500 * time.Millisecond),
+		Payload: core.ToolPayload{
+			ToolName: "apply_patch",
+			Preview:  patch,
+		},
+	})
+	review := "Findings\nSeverity: high\nMissing runtime artifact coverage."
+	store.Record(Event{
+		RunID: runID,
+		Type:  core.EventToolCompleted,
+		Time:  now.Add(2800 * time.Millisecond),
+		Payload: core.ToolPayload{
+			ToolName: "review",
+			Output:   review,
+		},
+	})
 	store.Record(Event{
 		RunID: runID,
 		Type:  core.EventRunDone,
@@ -60,7 +88,7 @@ func TestRunStoreBuildsRunAndArtifactViews(t *testing.T) {
 	if view.Input != "edit README" || view.Source.Kind != "telegram" || view.Sender.Username != "alice" {
 		t.Fatalf("input/source/sender not captured: %#v", view)
 	}
-	if len(view.Tools) != 1 || view.Tools[0].Preview != diff {
+	if len(view.Tools) != 3 || view.Tools[0].Preview != diff || view.Tools[1].Preview != patch || view.Tools[2].Output != review {
 		t.Fatalf("tool preview not captured: %#v", view.Tools)
 	}
 	if view.Output != "done" || view.FinishedAt == nil {
@@ -73,6 +101,12 @@ func TestRunStoreBuildsRunAndArtifactViews(t *testing.T) {
 	}
 	if len(artifact.Diffs) != 1 || artifact.Diffs[0].Content != diff {
 		t.Fatalf("diff artifact not captured: %#v", artifact.Diffs)
+	}
+	if len(artifact.Patches) != 1 || artifact.Patches[0].Content != patch {
+		t.Fatalf("patch artifact not captured: %#v", artifact.Patches)
+	}
+	if len(artifact.Reviews) != 1 || artifact.Reviews[0].Content != review {
+		t.Fatalf("review artifact not captured: %#v", artifact.Reviews)
 	}
 	if len(artifact.Results) != 1 || artifact.Results[0].Content != "done" {
 		t.Fatalf("result artifact not captured: %#v", artifact.Results)
@@ -95,5 +129,14 @@ func TestRunStoreCopiesViews(t *testing.T) {
 	second, _ := store.RunView("run_1")
 	if second.Tools[0].Name != "shell" {
 		t.Fatalf("RunView returned mutable slice: %#v", second.Tools)
+	}
+	artifact, ok := store.ArtifactView("run_1")
+	if !ok {
+		t.Fatal("ArtifactView missing")
+	}
+	artifact.Patches = append(artifact.Patches, ArtifactItem{Content: "changed"})
+	copied, _ := store.ArtifactView("run_1")
+	if len(copied.Patches) != 0 {
+		t.Fatalf("ArtifactView returned mutable patch slice: %#v", copied.Patches)
 	}
 }

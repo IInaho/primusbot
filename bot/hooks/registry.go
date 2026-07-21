@@ -139,7 +139,7 @@ func hookAuditEvent(h Hook, point HookPoint, snap *Snapshot, result *Result) Hoo
 		Hook:    h.Name,
 		Point:   point,
 		Tool:    snap.Tool,
-		Trigger: hookTrigger(h.Name, snap),
+		Trigger: hookTrigger(h, snap),
 	}
 	switch {
 	case result.Stop != nil:
@@ -178,35 +178,14 @@ func emptyAsDash(s string) string {
 	return s
 }
 
-func hookTrigger(name string, snap *Snapshot) string {
-	switch name {
-	case "read_before_write":
-		return fmt.Sprintf("target=%s exists=%d was_read=%d anchor_sufficient=%d",
-			emptyAsDash(snap.getStr(StoreEditTargetPath)),
-			snap.get(StoreEditTargetExists),
-			snap.get(StoreEditTargetWasRead),
-			snap.get(StoreEditAnchorSufficient))
-	case "tool_result_guardrail":
-		return fmt.Sprintf("tool_results=%d last_warned=%d threshold=40 interval=10",
-			snap.get(StoreToolResultCount), snap.get(CounterToolResultWarned))
-	case "quota":
-		return fmt.Sprintf("reads_left=%d last_warned=%d", snap.get(StoreQuotaReads), snap.get(CounterQuotaWarned))
-	case "read_only_spiral":
-		return fmt.Sprintf("read_only_streak=%d", snap.get(StoreReadOnlyStreak))
-	case "verification":
-		return fmt.Sprintf("has_tasks=%d tasks_all_done=%d turn_tool_calls=%d final_intent=%s",
-			snap.get(StoreHasTasks), snap.get(StoreTasksAllDone), snap.get(StoreTurnToolCalls), emptyAsDash(snap.getStr(StoreFinalIntent)))
-	case "exploration_exhausted":
-		return fmt.Sprintf("explore_calls=%d has_edits=%d", snap.get(StoreExploreCalls), snap.get(StoreHasEdits))
-	case "explore_cascade":
-		return fmt.Sprintf("researcher_calls=%d", snap.get(StoreToolResearcher))
-	case "progress_stall":
-		return fmt.Sprintf("stall_turns=%d ledger_progress=%d", snap.get(CounterStallTurns), snap.get(StoreLedgerProgress))
-	case "garbled_circuit_breaker":
-		return fmt.Sprintf("garbled_count=%d", snap.get(StoreRespGarbled))
-	default:
-		return formatToolArgs(snap.Args)
+// hookTrigger renders the audit trigger context for a fired hook. Hooks that
+// carry a DescribeTrigger describe themselves (keeping trigger details and
+// thresholds next to the hook logic); anything else falls back to tool args.
+func hookTrigger(h Hook, snap *Snapshot) string {
+	if h.DescribeTrigger != nil {
+		return h.DescribeTrigger(snap)
 	}
+	return formatToolArgs(snap.Args)
 }
 
 func quoteArg(v any) string {
@@ -286,6 +265,9 @@ func (r *Registry) ResetSession() {
 	r.audit = nil
 }
 
+// GovernanceStats formats accumulated hook counts and audit events.
+// Side effect: it resets the counters and audit buffer (read-and-reset
+// semantics), so each call reports only what happened since the last call.
 func (r *Registry) GovernanceStats() string {
 	r.mu.Lock()
 	c := r.counts
@@ -373,7 +355,10 @@ func (r *Registry) ResetTurn() {
 		}
 	}
 	for k := range r.strVals {
-		if strings.HasPrefix(k, KeyPrefixValue) || strings.HasPrefix(k, KeyPrefixTurn) {
+		// Same lifecycle rule as the int store (see keys.go): gauge/value/
+		// turn/flag keys are turn-scoped. No gauge/flag str keys exist yet,
+		// but strVals follows the same rule to stay consistent.
+		if isTurnScopedKey(k) {
 			delete(r.strVals, k)
 		}
 	}

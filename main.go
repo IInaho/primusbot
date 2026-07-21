@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"nekocode/interaction/gui/app"
-	"nekocode/runtime/view"
+	controlruntime "nekocode/runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -62,7 +62,7 @@ func (a *App) ContextReport() string {
 	return a.impl.ContextReport()
 }
 
-func (a *App) ContextSnapshot() view.ContextSnapshot {
+func (a *App) ContextSnapshot() controlruntime.ContextSnapshot {
 	return a.impl.ContextSnapshot()
 }
 
@@ -74,35 +74,35 @@ func (a *App) ClearSelectedSkill() {
 	a.impl.ClearSelectedSkill()
 }
 
-func (a *App) GetConfig() view.ConfigView {
+func (a *App) GetConfig() controlruntime.ConfigView {
 	return a.impl.GetConfig()
 }
 
-func (a *App) SaveConfig(cfg view.ConfigView) (view.ConfigView, error) {
+func (a *App) SaveConfig(cfg controlruntime.ConfigView) (controlruntime.ConfigView, error) {
 	return a.impl.SaveConfig(cfg)
 }
 
-func (a *App) GetSkillManagement() view.SkillManagementView {
+func (a *App) GetSkillManagement() controlruntime.SkillManagementView {
 	return a.impl.GetSkillManagement()
 }
 
-func (a *App) RefreshSkillManagement() view.SkillManagementView {
+func (a *App) RefreshSkillManagement() controlruntime.SkillManagementView {
 	return a.impl.RefreshSkillManagement()
 }
 
-func (a *App) SetPluginEnabled(name string, enabled bool) (view.SkillManagementView, error) {
+func (a *App) SetPluginEnabled(name string, enabled bool) (controlruntime.SkillManagementView, error) {
 	return a.impl.SetPluginEnabled(name, enabled)
 }
 
-func (a *App) ListSessions() []view.SessionMeta {
+func (a *App) ListSessions() []controlruntime.SessionMeta {
 	return a.impl.ListSessions()
 }
 
-func (a *App) NewSession() (view.SessionMeta, error) {
+func (a *App) NewSession() (controlruntime.SessionMeta, error) {
 	return a.impl.NewSession()
 }
 
-func (a *App) LoadSession(id string) ([]view.DisplayMessage, error) {
+func (a *App) LoadSession(id string) ([]controlruntime.DisplayMessage, error) {
 	return a.impl.LoadSession(id)
 }
 

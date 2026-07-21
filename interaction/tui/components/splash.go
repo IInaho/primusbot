@@ -5,11 +5,21 @@ package components
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"nekocode/interaction/tui/styles"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// TickMsg 驱动 Splash 猫眼闪烁的定时消息。
+type TickMsg struct{}
+
+// BlinkTick 每 500ms 产生一个 TickMsg。
+func BlinkTick() tea.Cmd {
+	return tea.Every(time.Millisecond*500, func(t time.Time) tea.Msg { return TickMsg{} })
+}
 
 const inputReserved = 7 // Input.Height()=5 + 2 separator lines in View()
 

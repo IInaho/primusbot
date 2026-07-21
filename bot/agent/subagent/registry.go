@@ -1,5 +1,7 @@
 package subagent
 
+import commonview "nekocode/common/view"
+
 import (
 	_ "embed"
 	"nekocode/bot/view"
@@ -25,10 +27,12 @@ type AgentType struct {
 
 // ToolCallEvent is fired for each tool executed inside a sub-agent.
 type ToolCallEvent struct {
-	Action   string // "tool_start" | "execute_tool"
+	Action   commonview.StepAction
+	CallID   string
 	ToolName string
 	ToolArgs string
 	Output   string
+	IsError  bool
 }
 
 type RunConfig struct {

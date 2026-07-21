@@ -9,7 +9,7 @@ import (
 )
 
 func newCompactor(msgs []types.Message, budget int, boundary int) *Compactor {
-	ctx := &context.Content{Messages: msgs, CompactBoundary: boundary}
+	ctx := &content.Content{Messages: msgs, CompactBoundary: boundary}
 	return &Compactor{
 		Ctx: ctx, ContextWindow: &budget, Tracker: &testTracker{},
 		CompactCount: new(int), TrimCount: new(int), Cfg: DefaultConfig,
@@ -83,7 +83,7 @@ func TestMicroCompact_Runs(t *testing.T) {
 	// Low budget + high Tracker estimate should trigger microCompact.
 	budget := 4000
 	cm := &Compactor{
-		Ctx:           &context.Content{Messages: msgs},
+		Ctx:           &content.Content{Messages: msgs},
 		ContextWindow: &budget,
 		Tracker:       &testTracker{promptEst: 3500},
 		CompactCount:  new(int),

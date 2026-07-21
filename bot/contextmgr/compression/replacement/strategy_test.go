@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"nekocode/bot/contextmgr/compression"
-	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider/types"
 )
 
 func TestSummarizeReplacesHistoryWithArchiveAndRecentMessages(t *testing.T) {
-	ctx := ctxctx.New("system")
+	ctx := content.New("system")
 	for i := 1; i <= 8; i++ {
 		ctx.Messages = append(ctx.Messages,
 			types.Message{Role: "user", Content: "question " + string(rune('0'+i))},

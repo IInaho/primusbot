@@ -27,5 +27,8 @@ func QuotaHook() hooks.Hook {
 			}
 			return &hooks.Result{Hint: &hooks.Hint{Type: "quota", Severity: sev, Content: content}}
 		},
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("reads_left=%d last_warned=%d", s.Get(hooks.StoreQuotaReads), s.Get(hooks.CounterQuotaWarned))
+		},
 	}
 }

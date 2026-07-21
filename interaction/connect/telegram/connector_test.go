@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 )
 
 func TestParseStartPayload(t *testing.T) {
@@ -199,9 +198,9 @@ func TestEventKeyboard(t *testing.T) {
 		Type: controlruntime.EventQuestionRequested,
 		Payload: controlruntime.QuestionView{
 			ID: "q_1",
-			Questions: []view.QuestionItem{{
+			Questions: []controlruntime.QuestionItem{{
 				Question: "Proceed?",
-				Options:  []view.QuestionOption{{Label: "Yes"}},
+				Options:  []controlruntime.QuestionOption{{Label: "Yes"}},
 			}},
 		},
 	})

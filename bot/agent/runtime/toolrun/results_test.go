@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
+	commonview "nekocode/common/view"
 )
 
 func TestMergeResultsPreservesOriginalCallOrder(t *testing.T) {
@@ -33,8 +34,8 @@ func TestEmitResultCallbacksUsesEffectiveOutput(t *testing.T) {
 		[]core.ToolCallItem{{ID: "1", Name: "read", Args: map[string]any{"path": "a.go"}}},
 		nil,
 		[]core.ToolCallResult{{ID: "1", Name: "read", Output: "ok"}},
-		func(action, toolName, toolArgs, output string) {
-			gotOutput = output
+		func(ev commonview.StepEvent) {
+			gotOutput = ev.Output
 		},
 	)
 
@@ -65,7 +66,7 @@ func TestEmitResultCallbacksSkipsBlockedUIEvents(t *testing.T) {
 		[]core.ToolCallItem{{ID: "1", Name: "edit", Args: map[string]any{"path": "x.go"}}},
 		map[int]string{0: "blocked by policy"},
 		[]core.ToolCallResult{{ID: "1", Name: "edit", Error: "blocked by policy"}},
-		func(action, toolName, toolArgs, output string) {
+		func(ev commonview.StepEvent) {
 			callbacks++
 		},
 	)
@@ -84,10 +85,10 @@ func TestEmitStartCallbacksMarksBlockedCalls(t *testing.T) {
 	emitStartCallbacks([]core.ToolCallItem{
 		{Name: "read", Args: map[string]any{"path": "x.go"}},
 		{Name: "write", Args: map[string]any{"path": "x.go", "_preview": "preview should not show"}},
-	}, map[int]string{1: "blocked"}, func(action, toolName, toolArgs, output string) {
-		events = append(events, action+":"+toolName)
-		if action == "tool_blocked" {
-			blockedOutput = output
+	}, map[int]string{1: "blocked"}, func(ev commonview.StepEvent) {
+		events = append(events, string(ev.Action)+":"+ev.ToolName)
+		if ev.Action == commonview.StepActionToolBlocked {
+			blockedOutput = ev.Output
 		}
 	})
 

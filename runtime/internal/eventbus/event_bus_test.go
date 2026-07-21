@@ -113,3 +113,31 @@ func TestEventBusObserverReceivesPublishedEvent(t *testing.T) {
 		t.Fatalf("view = %#v", view)
 	}
 }
+
+func TestEventBusObserverCanQueryHistory(t *testing.T) {
+	bus := NewEventBus()
+	observed := make(chan int, 1)
+	bus.AddObserver(func(Event) {
+		observed <- len(bus.History(EventFilter{RunID: "run_1"}))
+	})
+
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		bus.Publish(Event{RunID: "run_1", Type: core.EventRunDone})
+	}()
+
+	select {
+	case count := <-observed:
+		if count != 1 {
+			t.Fatalf("history count = %d, want 1", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer could not query history")
+	}
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("publish did not return")
+	}
+}

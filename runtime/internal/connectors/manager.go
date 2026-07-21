@@ -61,7 +61,7 @@ func (m *Manager) Handle(ctx context.Context, args []string) (string, error) {
 	if name == "" {
 		return m.usage(), nil
 	}
-	conn, err := m.connector(name)
+	conn, err := m.connector(ctx, name)
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +143,7 @@ func (m *Manager) View() ConnectView {
 	return ConnectView{Connectors: views}
 }
 
-func (m *Manager) connector(name string) (Connector, error) {
+func (m *Manager) connector(ctx context.Context, name string) (Connector, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if conn, ok := m.connectors[name]; ok {
@@ -154,6 +154,9 @@ func (m *Manager) connector(name string) (Connector, error) {
 		return nil, fmt.Errorf("unknown connector %q. Available: %s", name, strings.Join(m.namesLocked(), ", "))
 	}
 	conn := factory(m.runtime)
+	if err := conn.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start connector %q: %w", name, err)
+	}
 	m.connectors[name] = conn
 	return conn, nil
 }
@@ -176,6 +179,28 @@ func (m *Manager) usageFor(command string) string {
 		return "No connectors registered."
 	}
 	return "Usage: /" + command + " <connector>\nAvailable: " + strings.Join(names, ", ")
+}
+
+func (m *Manager) Close() error {
+	m.mu.Lock()
+	connectors := make(map[string]Connector, len(m.connectors))
+	for name, conn := range m.connectors {
+		connectors[name] = conn
+	}
+	m.connectors = make(map[string]Connector)
+	m.factories = make(map[string]ConnectorFactory)
+	m.mu.Unlock()
+
+	var errs []error
+	for _, conn := range connectors {
+		if err := conn.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to stop connectors: %v", errs)
+	}
+	return nil
 }
 
 func (m *Manager) namesLocked() []string {

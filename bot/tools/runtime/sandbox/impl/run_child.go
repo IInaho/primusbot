@@ -44,20 +44,23 @@ func runChild(
 	cmd.Dir = dir
 	cmd.SysProcAttr = sysproc
 
-	// Kill the whole process group on timeout/cancel so nested children
-	// (e.g. `bash -c 'sleep 30'`) cannot outlive the deadline.
-	stop := context.AfterFunc(cmdCtx, func() {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-	})
-	defer stop()
-
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("sandbox execution failed: %v", err)
+	}
+
+	// Kill the whole process group on timeout/cancel so nested children
+	// (e.g. `bash -c 'sleep 30'`) cannot outlive the deadline. Registered
+	// after Start so cmd.Process is stable when the callback reads it.
+	stop := context.AfterFunc(cmdCtx, func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	})
+	defer stop()
+
+	if err := cmd.Wait(); err != nil {
 		outStr := truncateCapturedOutput(toolutil.StripAnsi(stdout.String()))
 		errStr := truncateCapturedOutput(toolutil.StripAnsi(stderr.String()))
 		if unavailableMatch != nil && unavailableMatch(stderr.String(), err) {

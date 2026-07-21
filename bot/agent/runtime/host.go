@@ -6,8 +6,8 @@ import (
 	"nekocode/bot/agent/runtime/toolrun"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/provider"
 	aggov "nekocode/bot/policy"
+	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/runner"
 )

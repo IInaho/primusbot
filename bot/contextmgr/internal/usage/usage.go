@@ -27,20 +27,20 @@ func (u *Meter) Stats() (int, int, bool) {
 }
 
 func (u *Meter) RecordUsage(prompt, completion int) {
-	u.State.Mu.RLock()
-	defer u.State.Mu.RUnlock()
+	u.State.Mu.Lock()
+	defer u.State.Mu.Unlock()
 	u.State.Tracker.RecordUsage(prompt, completion)
 }
 
 func (u *Meter) RecordCache(hit, miss int) {
-	u.State.Mu.RLock()
-	defer u.State.Mu.RUnlock()
+	u.State.Mu.Lock()
+	defer u.State.Mu.Unlock()
 	u.State.Tracker.RecordCache(hit, miss)
 }
 
 func (u *Meter) ResetCache() {
-	u.State.Mu.RLock()
-	defer u.State.Mu.RUnlock()
+	u.State.Mu.Lock()
+	defer u.State.Mu.Unlock()
 	u.State.Tracker.ResetCache()
 }
 
@@ -51,8 +51,8 @@ func (u *Meter) TokenUsage() (int, int) {
 }
 
 func (u *Meter) RecordSubagent(tokens, hit, miss int) {
-	u.State.Mu.RLock()
-	defer u.State.Mu.RUnlock()
+	u.State.Mu.Lock()
+	defer u.State.Mu.Unlock()
 	u.State.Tracker.RecordSubagent(tokens, hit, miss)
 }
 

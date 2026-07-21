@@ -1,13 +1,15 @@
 package broker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"nekocode/runtime/internal/eventbus"
-	"nekocode/runtime/view"
 )
 
 type ApprovalBroker struct {
@@ -21,7 +23,13 @@ type ApprovalBroker struct {
 
 type approvalRecord struct {
 	view ApprovalView
-	req  view.ConfirmRequest
+	req  ConfirmRequest
+}
+
+type approvalHashInput struct {
+	ToolName string      `json:"tool_name"`
+	Kind     ConfirmKind `json:"kind"`
+	ArgsHash string      `json:"args_hash"`
 }
 
 func NewApprovalBroker(eventBus *eventbus.EventBus, source SourceRef, runID func() RunID) *ApprovalBroker {
@@ -33,18 +41,21 @@ func NewApprovalBroker(eventBus *eventbus.EventBus, source SourceRef, runID func
 	}
 }
 
-func (b *ApprovalBroker) Request(req view.ConfirmRequest) view.ConfirmReply {
+func (b *ApprovalBroker) Request(req ConfirmRequest) ConfirmReply {
 	if req.Response == nil {
-		req.Response = make(chan view.ConfirmReply, 1)
+		req.Response = make(chan ConfirmReply, 1)
 	}
 	id := fmt.Sprintf("apr_%d", atomic.AddUint64(&b.nextID, 1))
 	now := time.Now()
+	argsHash := stableHash(req.Args)
 	rec := &approvalRecord{
 		req: req,
 		view: ApprovalView{
 			ID:                    id,
 			ToolName:              req.ToolName,
 			Args:                  req.Args,
+			ArgsHash:              argsHash,
+			ToolCallHash:          stableHash(approvalHashInput{ToolName: req.ToolName, Kind: req.Kind, ArgsHash: argsHash}),
 			Kind:                  string(req.Kind),
 			CanEscalatePermission: req.CanEscalatePermission,
 			Status:                ApprovalPending,
@@ -55,10 +66,14 @@ func (b *ApprovalBroker) Request(req view.ConfirmRequest) view.ConfirmReply {
 
 	b.mu.Lock()
 	b.pending[id] = rec
+	viewCopy := rec.view
 	b.mu.Unlock()
 
-	b.publish(EventApprovalRequested, rec.view)
+	b.publish(EventApprovalRequested, viewCopy)
 	reply := <-req.Response
+	if !req.CanEscalatePermission {
+		reply.AllowWithPermission = false
+	}
 
 	b.mu.Lock()
 	if current, ok := b.pending[id]; ok && current.view.Status == ApprovalPending {
@@ -99,7 +114,11 @@ func (b *ApprovalBroker) Decide(id string, decision ApprovalDecision) error {
 	viewCopy := rec.view
 	b.mu.Unlock()
 
-	rec.req.Response <- decision.ConfirmReply()
+	reply := decision.ConfirmReply()
+	if !viewCopy.CanEscalatePermission {
+		reply.AllowWithPermission = false
+	}
+	rec.req.Response <- reply
 	b.publish(EventApprovalResolved, viewCopy)
 	return nil
 }
@@ -127,7 +146,7 @@ func (b *ApprovalBroker) RejectAll() {
 	b.mu.Unlock()
 
 	for _, rec := range records {
-		rec.req.Response <- view.ConfirmReply{Allowed: false}
+		rec.req.Response <- ConfirmReply{Allowed: false}
 		b.publish(EventApprovalResolved, rec.view)
 	}
 }
@@ -149,4 +168,13 @@ func (b *ApprovalBroker) currentRunID() RunID {
 		return ""
 	}
 	return b.runID()
+}
+
+func stableHash(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

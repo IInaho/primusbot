@@ -3,6 +3,7 @@ package runtime
 import (
 	"nekocode/bot/hooks"
 	"nekocode/common/debug"
+	commonview "nekocode/common/view"
 )
 
 // maxAgentSteps is the hard ceiling on agent loop iterations. Prevents
@@ -28,7 +29,7 @@ type RunResult struct {
 	Interrupted bool
 }
 
-type RunCallback func(action, toolName, toolArgs, output string)
+type RunCallback func(ev commonview.StepEvent)
 
 type Loop struct {
 	Done             func() bool
@@ -158,7 +159,7 @@ func (r *loopRunner) finishRun(callback RunCallback) *RunResult {
 	output := a.modelRunner.Synthesize()
 	a.run.finalPersisted = true
 	if callback != nil {
-		callback("chat", "", "", output)
+		callback(commonview.StepEvent{Action: commonview.StepActionChat, Output: output})
 	}
 	return &RunResult{FinalOutput: output, Steps: a.run.step}
 }

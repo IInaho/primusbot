@@ -6,8 +6,12 @@ import (
 	"context"
 	"time"
 
-	"nekocode/runtime/view"
+	commonview "nekocode/common/view"
 )
+
+// ---------------------------------------------------------------------------
+// Runtime-specific protocol types
+// ---------------------------------------------------------------------------
 
 type RunID string
 
@@ -112,8 +116,18 @@ type PhasePayload struct {
 	Phase string `json:"phase"`
 }
 
+type CmdResult = commonview.CmdResult
+
+const (
+	CmdNone           = commonview.CmdNone
+	CmdHandled        = commonview.CmdHandled
+	CmdConfirming     = commonview.CmdConfirming
+	CmdSessionResumed = commonview.CmdSessionResumed
+)
+
 type ToolPayload struct {
 	ToolName string `json:"tool_name"`
+	CallID   string `json:"call_id,omitempty"`
 	Args     string `json:"args,omitempty"`
 	Output   string `json:"output,omitempty"`
 	Preview  string `json:"preview,omitempty"`
@@ -140,8 +154,8 @@ type ApprovalDecision struct {
 	AllowWithPermission bool `json:"allow_with_permission,omitempty"`
 }
 
-func (d ApprovalDecision) ConfirmReply() view.ConfirmReply {
-	return view.ConfirmReply{
+func (d ApprovalDecision) ConfirmReply() ConfirmReply {
+	return ConfirmReply{
 		Allowed:             d.Allowed,
 		Remember:            d.Remember,
 		AllowWithPermission: d.AllowWithPermission,
@@ -149,23 +163,25 @@ func (d ApprovalDecision) ConfirmReply() view.ConfirmReply {
 }
 
 type ApprovalView struct {
-	ID                    string                 `json:"id"`
-	ToolName              string                 `json:"tool_name"`
-	Args                  map[string]any         `json:"args,omitempty"`
-	Kind                  string                 `json:"kind,omitempty"`
-	CanEscalatePermission bool                   `json:"can_escalate_permission,omitempty"`
-	Status                ApprovalStatus         `json:"status"`
-	CreatedAt             time.Time              `json:"created_at"`
-	ResolvedAt            *time.Time             `json:"resolved_at,omitempty"`
-	Source                SourceRef              `json:"source"`
-	Metadata              map[string]interface{} `json:"metadata,omitempty"`
+	ID                    string         `json:"id"`
+	ToolName              string         `json:"tool_name"`
+	Args                  map[string]any `json:"args,omitempty"`
+	ArgsHash              string         `json:"args_hash,omitempty"`
+	ToolCallHash          string         `json:"tool_call_hash,omitempty"`
+	Kind                  string         `json:"kind,omitempty"`
+	CanEscalatePermission bool           `json:"can_escalate_permission,omitempty"`
+	Status                ApprovalStatus `json:"status"`
+	CreatedAt             time.Time      `json:"created_at"`
+	ResolvedAt            *time.Time     `json:"resolved_at,omitempty"`
+	Source                SourceRef      `json:"source"`
+	Metadata              map[string]any `json:"metadata,omitempty"`
 }
 
-func (v ApprovalView) ToConfirmRequest() view.ConfirmRequest {
-	return view.ConfirmRequest{
+func (v ApprovalView) ToConfirmRequest() ConfirmRequest {
+	return ConfirmRequest{
 		ToolName:              v.ToolName,
 		Args:                  v.Args,
-		Kind:                  view.ConfirmKind(v.Kind),
+		Kind:                  ConfirmKind(v.Kind),
 		CanEscalatePermission: v.CanEscalatePermission,
 	}
 }
@@ -175,16 +191,12 @@ type Runtime interface {
 	Steer(ctx context.Context, runID RunID, input Input) error
 	Abort(ctx context.Context, runID RunID) error
 	Approve(ctx context.Context, approvalID string, decision ApprovalDecision) error
-	Answer(ctx context.Context, questionID string, reply view.QuestionReply) error
+	Answer(ctx context.Context, questionID string, reply QuestionReply) error
 	Subscribe(ctx context.Context, filter EventFilter) (<-chan Event, error)
-}
-
-type QueryRuntime interface {
-	CurrentRunView() (RunView, bool)
-	RunView(runID RunID) (RunView, bool)
-	ListRunViews(limit int) []RunView
-	ArtifactView(runID RunID) (ArtifactView, bool)
-	ConnectView() ConnectView
+	Connect(ctx context.Context, name string, args []string) (string, error)
+	Disconnect(name string) (string, error)
+	// Publish injects an event into the runtime event stream (e.g. connector status).
+	Publish(ev Event)
 }
 
 type RunView struct {
@@ -227,6 +239,8 @@ type ToolView struct {
 type ArtifactView struct {
 	RunID   RunID          `json:"run_id"`
 	Diffs   []ArtifactItem `json:"diffs,omitempty"`
+	Patches []ArtifactItem `json:"patches,omitempty"`
+	Reviews []ArtifactItem `json:"reviews,omitempty"`
 	Results []ArtifactItem `json:"results,omitempty"`
 	Errors  []ArtifactItem `json:"errors,omitempty"`
 	Events  int            `json:"events"`
@@ -279,14 +293,105 @@ const (
 )
 
 type QuestionView struct {
-	ID         string              `json:"id"`
-	Questions  []view.QuestionItem `json:"questions"`
-	Status     QuestionStatus      `json:"status"`
-	CreatedAt  time.Time           `json:"created_at"`
-	ResolvedAt *time.Time          `json:"resolved_at,omitempty"`
-	Source     SourceRef           `json:"source"`
+	ID         string         `json:"id"`
+	Questions  []QuestionItem `json:"questions"`
+	Status     QuestionStatus `json:"status"`
+	CreatedAt  time.Time      `json:"created_at"`
+	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
+	Source     SourceRef      `json:"source"`
 }
 
-func (v QuestionView) ToQuestionRequest() view.QuestionRequest {
-	return view.QuestionRequest{Questions: v.Questions}
+func (v QuestionView) ToQuestionRequest() QuestionRequest {
+	return QuestionRequest{Questions: v.Questions}
 }
+
+// ---------------------------------------------------------------------------
+// Shared UI-facing DTO types (aliased from common/view)
+// ---------------------------------------------------------------------------
+
+type StepAction = commonview.StepAction
+type StepEvent = commonview.StepEvent
+
+const (
+	StepActionChat           = commonview.StepActionChat
+	StepActionThink          = commonview.StepActionThink
+	StepActionToolStart      = commonview.StepActionToolStart
+	StepActionToolBlocked    = commonview.StepActionToolBlocked
+	StepActionToolPreview    = commonview.StepActionToolPreview
+	StepActionExecuteTool    = commonview.StepActionExecuteTool
+	StepActionSubToolStart   = commonview.StepActionSubToolStart
+	StepActionSubExecuteTool = commonview.StepActionSubExecuteTool
+	StepActionSubAgentStart  = commonview.StepActionSubAgentStart
+	StepActionSubAgentEnd    = commonview.StepActionSubAgentEnd
+)
+
+type RunCallbacks = commonview.RunCallbacks
+
+type ControlCallbacks = commonview.ControlCallbacks
+
+type TodoItem = commonview.TodoItem
+
+type BotStats = commonview.BotStats
+
+type ContextSegment = commonview.ContextSegment
+
+type ContextSnapshot = commonview.ContextSnapshot
+
+type MemoryScope = commonview.MemoryScope
+
+const (
+	MemoryScopeProject = commonview.MemoryScopeProject
+)
+
+type MemorySection = commonview.MemorySection
+
+type MemoryView = commonview.MemoryView
+
+type SessionMeta = commonview.SessionMeta
+
+type DisplayBlock = commonview.DisplayBlock
+
+type ImageRef = commonview.ImageRef
+
+type DisplayMessage = commonview.DisplayMessage
+
+type ConfigView = commonview.ConfigView
+
+type ModelConfig = commonview.ModelConfig
+
+type ImageGenConfig = commonview.ImageGenConfig
+
+type MCPServerConfig = commonview.MCPServerConfig
+
+type PermissionsConfig = commonview.PermissionsConfig
+
+type SandboxConfig = commonview.SandboxConfig
+
+type WorkspaceConfig = commonview.WorkspaceConfig
+
+type SkillManagementView = commonview.SkillManagementView
+
+type SkillView = commonview.SkillView
+
+type PluginView = commonview.PluginView
+
+type MCPServerView = commonview.MCPServerView
+
+type ConfirmKind = commonview.ConfirmKind
+
+const (
+	ConfirmKindPermission = commonview.ConfirmKindPermission
+	ConfirmKindInstall    = commonview.ConfirmKindInstall
+)
+
+type ConfirmRequest = commonview.ConfirmRequest
+
+type ConfirmReply = commonview.ConfirmReply
+
+type QuestionOption = commonview.QuestionOption
+
+type QuestionItem = commonview.QuestionItem
+
+type QuestionReply = commonview.QuestionReply
+
+type QuestionRequest = commonview.QuestionRequest

@@ -11,7 +11,7 @@ import (
 
 func newTestStore() (*Store, *state.State) {
 	st := &state.State{
-		Ctx:     context.New("test prompt"),
+		Ctx:     content.New("test prompt"),
 		Tracker: &token.Tracker{},
 	}
 	return &Store{State: st}, st

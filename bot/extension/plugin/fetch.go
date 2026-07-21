@@ -3,11 +3,17 @@ package plugin
 import (
 	"fmt"
 	"io"
-	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/util/runtime"
 	"net/http"
 	"time"
+
+	utilhttp "nekocode/util/http"
+	"nekocode/util/runtime"
 )
+
+var fetchClient = &http.Client{
+	Transport: utilhttp.SharedTransport,
+	Timeout:   10 * time.Second,
+}
 
 func FetchURL(url string) ([]byte, error) {
 	ctx, cancel := runtime.ShortContext()
@@ -16,7 +22,7 @@ func FetchURL(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := toolutil.NewToolHTTPClient(10 * time.Second).Do(req)
+	resp, err := fetchClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

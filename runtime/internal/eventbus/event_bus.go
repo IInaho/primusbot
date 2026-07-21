@@ -37,6 +37,7 @@ type EventBus struct {
 	observers    []func(Event)
 	history      []Event
 	historyLimit int
+	closed       bool
 }
 
 type subscriber struct {
@@ -112,18 +113,24 @@ func (b *EventBus) Publish(ev Event) Event {
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	if b.closed {
+		b.mu.Unlock()
+		return ev
+	}
 	b.history = append(b.history, ev)
 	if b.historyLimit > 0 && len(b.history) > b.historyLimit {
 		b.history = append([]Event(nil), b.history[len(b.history)-b.historyLimit:]...)
-	}
-	for _, observer := range b.observers {
-		observer(ev)
 	}
 	for _, sub := range b.subscribers {
 		if eventMatches(sub.filter, ev) {
 			deliverEvent(sub.ch, ev)
 		}
+	}
+	observers := append([]func(Event){}, b.observers...)
+	b.mu.Unlock()
+
+	for _, observer := range observers {
+		observer(ev)
 	}
 	return ev
 }
@@ -175,6 +182,25 @@ func (b *EventBus) History(filter EventFilter) []Event {
 		}
 	}
 	return out
+}
+
+func (b *EventBus) Close() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	b.closed = true
+	subscribers := b.subscribers
+	b.subscribers = nil
+	b.observers = nil
+	b.mu.Unlock()
+	for _, sub := range subscribers {
+		close(sub.ch)
+	}
 }
 
 func (b *EventBus) ImportHistory(events []Event) {

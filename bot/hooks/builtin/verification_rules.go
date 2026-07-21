@@ -1,6 +1,10 @@
 package builtin
 
-import "nekocode/bot/hooks"
+import (
+	"fmt"
+
+	"nekocode/bot/hooks"
+)
 
 func VerificationHook() hooks.Hook {
 	return hooks.Hook{
@@ -25,18 +29,10 @@ func VerificationHook() hooks.Hook {
 				Reason: "你还有未完成的任务，但本轮没有调用任何工具。请继续完成任务；如果只能报告进度，必须明确说明哪些任务未完成。",
 			}}
 		},
-	}
-}
-
-func GarbledCircuitBreaker() hooks.Hook {
-	return hooks.Hook{
-		Name: "garbled_circuit_breaker", Point: hooks.PostTurn,
-		On: func(s hooks.State) *hooks.Result {
-			if s.Get(hooks.StoreRespGarbled) >= 5 {
-				stop := hooks.StopFormatError
-				return &hooks.Result{Stop: &stop}
-			}
-			return nil
+		DescribeTrigger: func(s hooks.State) string {
+			return fmt.Sprintf("has_tasks=%d tasks_all_done=%d turn_tool_calls=%d final_intent=%s",
+				s.Get(hooks.StoreHasTasks), s.Get(hooks.StoreTasksAllDone), s.Get(hooks.StoreTurnToolCalls),
+				dashIfEmpty(s.GetStr(hooks.StoreFinalIntent)))
 		},
 	}
 }

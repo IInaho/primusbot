@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	ctxfmt "nekocode/bot/contextmgr/context"
+	"nekocode/bot/prompt/system"
 )
 
 func (e *Engine) newContextManager(cfg RunConfig) *ctxmgr.Manager {
@@ -19,7 +19,7 @@ func buildSystemPrompt(cfg RunConfig) string {
 			"Search across ALL packages, naming conventions, and locations. Read at least 5 files. Be exhaustive.", 1)
 	}
 	if cfg.Cwd != "" {
-		parts = append(parts, ctxfmt.FormatCwd(cfg.Cwd))
+		parts = append(parts, system.FormatCwd(cfg.Cwd))
 	}
 	if cfg.Handoff != "" {
 		parts = append(parts, "<handoff>\n"+cfg.Handoff+"\n</handoff>")

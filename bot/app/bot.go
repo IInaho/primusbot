@@ -157,10 +157,10 @@ func (b *Bot) initHooks() {
 
 func (b *Bot) initAgent() {
 	am := b.cfg.ActiveModelConfig()
-	llmClient := provider.NewClientWithProtocol(am.Provider, am.APIKey, am.BaseURL, am.Model, am.Protocol)
+	llmClient := provider.NewClientWithProtocol(am.APIKey, am.BaseURL, am.Model, am.Protocol)
 
 	fm := b.cfg.ResolveModel(b.cfg.FlashModel)
-	mergeClient := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
+	mergeClient := provider.NewClientWithProtocol(fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 	mergeClient.SetDisableThinking(true)
 	mergeClient.SetMaxTokens(2000)
 	b.ctxMgr.SetMergeClient(mergeClient)

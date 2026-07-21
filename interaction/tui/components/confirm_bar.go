@@ -3,16 +3,16 @@ package components
 
 import (
 	"fmt"
-	"nekocode/runtime/view"
 	"strings"
 
 	"nekocode/interaction/tui/styles"
+	controlruntime "nekocode/runtime"
 
 	"charm.land/lipgloss/v2"
 )
 
 type ConfirmBar struct {
-	req      *view.ConfirmRequest
+	req      *controlruntime.ConfirmRequest
 	sty      *styles.Styles
 	selected int
 	respond  func(ok bool, remember bool)
@@ -22,13 +22,13 @@ func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
 	return &ConfirmBar{sty: sty, selected: 0}
 }
 
-func (c *ConfirmBar) SetRequest(req *view.ConfirmRequest) {
+func (c *ConfirmBar) SetRequest(req *controlruntime.ConfirmRequest) {
 	c.req = req
 	c.selected = 0
 	c.respond = nil
 }
 
-func (c *ConfirmBar) SetRequestWithResponder(req *view.ConfirmRequest, respond func(ok bool, remember bool)) {
+func (c *ConfirmBar) SetRequestWithResponder(req *controlruntime.ConfirmRequest, respond func(ok bool, remember bool)) {
 	c.req = req
 	c.selected = 0
 	c.respond = respond
@@ -72,7 +72,7 @@ func (c *ConfirmBar) Respond(ok bool, remember bool) {
 	if c.respond != nil {
 		c.respond(ok, remember)
 	} else if c.req.Response != nil {
-		c.req.Response <- view.ConfirmReply{Allowed: ok, Remember: ok && remember}
+		c.req.Response <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	}
 	c.req = nil
 	c.respond = nil
@@ -222,7 +222,7 @@ func (c *ConfirmBar) titleText() string {
 	if c.isPermissionConfirm() {
 		return "权限确认"
 	}
-	if c.req.Kind == view.ConfirmKindInstall {
+	if c.req.Kind == controlruntime.ConfirmKindInstall {
 		return "安装确认"
 	}
 	return "Confirm"
@@ -236,7 +236,7 @@ func (c *ConfirmBar) levelText() string {
 		}
 		return c.sty.Yellow.Render("可记住")
 	}
-	if c.req.Kind == view.ConfirmKindInstall {
+	if c.req.Kind == controlruntime.ConfirmKindInstall {
 		return c.sty.Yellow.Render("插件")
 	}
 	return c.sty.Yellow.Render("确认")
@@ -302,7 +302,7 @@ func (c *ConfirmBar) formatPermissionDesc() string {
 	return strings.Join(lines, "\n")
 }
 
-func permissionSummary(req *view.ConfirmRequest) string {
+func permissionSummary(req *controlruntime.ConfirmRequest) string {
 	if req == nil {
 		return "需要确认权限"
 	}

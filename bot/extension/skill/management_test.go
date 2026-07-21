@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"nekocode/bot/extension"
+	commonview "nekocode/common/view"
 )
 
 func TestBuildManagementView(t *testing.T) {
@@ -15,7 +15,7 @@ func TestBuildManagementView(t *testing.T) {
 	})
 	reg.MarkLoaded("builtin")
 
-	plugins := []extension.PluginView{{
+	plugins := []commonview.PluginView{{
 		Name:   "p",
 		Skills: []string{"/plugins/p/skills"},
 	}}
@@ -36,7 +36,7 @@ func TestBuildManagementView(t *testing.T) {
 }
 
 func TestSourceForDirKinds(t *testing.T) {
-	plugins := []extension.PluginView{{Name: "p", Skills: []string{"/plugins/p/skills"}}}
+	plugins := []commonview.PluginView{{Name: "p", Skills: []string{"/plugins/p/skills"}}}
 	cases := []struct {
 		dir       string
 		wantKind  string

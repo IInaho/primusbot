@@ -78,41 +78,44 @@ type WorkspaceConfig struct {
 
 // DisplayBlock carries a persistent tool result for UI rendering.
 type DisplayBlock struct {
-	ToolName string
-	Args     string
-	Content  string
-	IsError  bool
+	ToolName string `json:"toolName"`
+	Args     string `json:"args,omitempty"`
+	Content  string `json:"content"`
+	IsError  bool   `json:"isError,omitempty"`
 }
 
 // ImageRef carries a generated image reference for UI rendering.
 type ImageRef struct {
-	Path   string
-	URL    string
-	Width  int
-	Height int
+	Path   string `json:"path"`
+	URL    string `json:"url,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
 }
 
 // DisplayMessage is a lightweight message representation for UI history.
 type DisplayMessage struct {
-	Role    string
-	Content string
-	Blocks  []DisplayBlock
-	Images  []ImageRef
+	Role    string         `json:"role"`
+	Content string         `json:"content"`
+	Blocks  []DisplayBlock `json:"blocks,omitempty"`
+	Images  []ImageRef     `json:"images,omitempty"`
 }
 
 // SubSlot tracks an active sub-agent for rendering and slot management.
 type SubSlot struct {
-	ID       string
-	SubType  string
-	ColorIdx int
+	ID       string `json:"id"`
+	SubType  string `json:"subType"`
+	ColorIdx int    `json:"colorIdx"`
 }
 
 // BotStats carries runtime statistics from the bot to UI surfaces.
 type BotStats struct {
-	PromptTokens, CompletionTokens int
-	TurnPrompt, TurnCompletion     int
-	ContextTokens, CompactCount    int
-	Duration                       string
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	TurnPrompt       int    `json:"turnPrompt"`
+	TurnCompletion   int    `json:"turnCompletion"`
+	ContextTokens    int    `json:"contextTokens"`
+	CompactCount     int    `json:"compactCount"`
+	Duration         string `json:"duration"`
 }
 
 // ContextSegment describes one visible part of the active context window.

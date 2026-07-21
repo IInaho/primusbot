@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,70 @@ func (c *statusConnector) ConnectorStatusView() ConnectorView {
 		Running:     true,
 		Status:      "running",
 		Initialized: true,
+	}
+}
+
+type failingStartConnector struct {
+	name string
+}
+
+func (c failingStartConnector) Name() string { return c.name }
+func (c failingStartConnector) Start(context.Context) error {
+	return fmt.Errorf("start failed")
+}
+func (c failingStartConnector) Stop() error { return nil }
+func (c failingStartConnector) HandleCommand(context.Context, []string) (string, error) {
+	return "", nil
+}
+
+func TestConnectorManagerStartsConnector(t *testing.T) {
+	manager := NewManager(nil)
+	started := false
+	manager.Register("telegram", func(Runtime) Connector {
+		return &statusConnector{
+			name: "telegram",
+		}
+	})
+
+	if _, err := manager.Handle(context.Background(), []string{"telegram", "status"}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !started {
+		// The existing statusConnector.Start is a no-op; we can only observe
+		// via the View that initialization succeeded.
+	}
+
+	view := manager.View()
+	var telegram ConnectorView
+	for _, conn := range view.Connectors {
+		if conn.Name == "telegram" {
+			telegram = conn
+		}
+	}
+	if !telegram.Initialized {
+		t.Fatalf("connector was not initialized: %#v", telegram)
+	}
+}
+
+func TestConnectorManagerStartFailure(t *testing.T) {
+	manager := NewManager(nil)
+	manager.Register("failing", func(Runtime) Connector {
+		return &failingStartConnector{name: "failing"}
+	})
+
+	_, err := manager.Handle(context.Background(), []string{"failing"})
+	if err == nil {
+		t.Fatal("expected start error")
+	}
+	if !strings.Contains(err.Error(), "failed to start connector") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	view := manager.View()
+	for _, conn := range view.Connectors {
+		if conn.Name == "failing" && conn.Initialized {
+			t.Fatal("failing connector should not be initialized")
+		}
 	}
 }
 

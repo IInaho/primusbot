@@ -3,9 +3,10 @@ package toolrun
 import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/hooks"
-	"nekocode/bot/provider/types"
 	"nekocode/bot/policy/ledger"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
+	commonview "nekocode/common/view"
 )
 
 func emitStartCallbacks(calls []core.ToolCallItem, blocked map[int]string, callback Callback) {
@@ -13,13 +14,13 @@ func emitStartCallbacks(calls []core.ToolCallItem, blocked map[int]string, callb
 		return
 	}
 	for i, c := range calls {
-		action := "tool_start"
+		action := commonview.StepActionToolStart
 		preview, _ := c.Args["_preview"].(string)
 		if reason, ok := blocked[i]; ok {
-			action = "tool_blocked"
+			action = commonview.StepActionToolBlocked
 			preview = reason
 		}
-		callback(action, c.Name, core.FormatArgs(c.Args), preview)
+		callback(commonview.StepEvent{Action: action, CallID: c.ID, ToolName: c.Name, ToolArgs: core.FormatArgs(c.Args), Output: preview})
 	}
 }
 
@@ -46,7 +47,7 @@ func emitResultCallbacks(calls []core.ToolCallItem, blocked map[int]string, resu
 			if _, isBlocked := blocked[i]; isBlocked {
 				continue
 			}
-			callback("execute_tool", r.Name, core.FormatArgs(calls[i].Args), content)
+			callback(commonview.StepEvent{Action: commonview.StepActionExecuteTool, CallID: r.ID, ToolName: r.Name, ToolArgs: core.FormatArgs(calls[i].Args), Output: content, IsError: r.Error != ""})
 		}
 	}
 	return msgs
@@ -56,7 +57,7 @@ func (r *Runner) executeAllowedTools(allowed []core.ToolCallItem, callback Callb
 	executor := r.host.Executor()
 	if callback != nil {
 		executor.SetPreviewFn(func(toolName string, _ map[string]any, preview string) {
-			callback("tool_preview", toolName, "", preview)
+			callback(commonview.StepEvent{Action: commonview.StepActionToolPreview, ToolName: toolName, Output: preview})
 		})
 	} else {
 		executor.SetPreviewFn(nil)

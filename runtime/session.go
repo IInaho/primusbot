@@ -1,18 +1,27 @@
 package runtime
 
-import (
-	"nekocode/runtime/internal/botcore"
-	"nekocode/runtime/internal/session"
-)
-
-type RuntimeBot = botcore.RuntimeBot
-type GUIBot = botcore.GUIBot
+import "nekocode/runtime/internal/session"
 
 type SessionRuntime struct {
 	*session.SessionRuntime
-	bot RuntimeBot
+	modelManagement   CoreModelManager
+	contextManagement CoreContextManager
+	skillManagement   CoreSkillManager
+	configManagement  CoreConfigManager
+	sessionManagement CoreSessionManager
 }
 
-func NewSessionRuntime(b RuntimeBot) *SessionRuntime {
-	return &SessionRuntime{SessionRuntime: session.NewSessionRuntime(b), bot: b}
+var _ Runtime = (*SessionRuntime)(nil)
+var _ QueryRuntime = (*SessionRuntime)(nil)
+var _ ManagementRuntime = (*SessionRuntime)(nil)
+
+func NewSessionRuntimeWithCoreOptions(opts CoreSessionRuntimeOptions) *SessionRuntime {
+	return &SessionRuntime{
+		SessionRuntime:    session.NewSessionRuntimeWithPorts(coreSessionPortsFromOptions(opts)),
+		modelManagement:   opts.ModelManagement,
+		contextManagement: opts.ContextManagement,
+		skillManagement:   opts.SkillManagement,
+		configManagement:  opts.ConfigManagement,
+		sessionManagement: opts.SessionManagement,
+	}
 }

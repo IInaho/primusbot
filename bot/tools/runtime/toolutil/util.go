@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/bot/tools/runtime/core"
-
 	"nekocode/bot/tools/runtime/workspace"
 	utilhttp "nekocode/util/http"
 )
@@ -65,21 +63,6 @@ func NewToolHTTPClient(timeout time.Duration) *nethttp.Client {
 		Transport: utilhttp.SharedTransport,
 		Timeout:   timeout,
 	}
-}
-
-func IsAllExploratory(calls []core.ToolCallItem) bool {
-	if len(calls) == 0 {
-		return false
-	}
-	for _, c := range calls {
-		switch c.Name {
-		case "read", "grep", "glob", "list", "web_search", "web_fetch":
-			continue
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // NormalizeToLF converts all line endings to LF.

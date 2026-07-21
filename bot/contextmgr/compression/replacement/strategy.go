@@ -5,16 +5,16 @@ import (
 	"strings"
 
 	"nekocode/bot/contextmgr/compression"
-	ctxctx "nekocode/bot/contextmgr/context"
+	"nekocode/bot/contextmgr/context"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider/types"
 	"nekocode/common/debug"
 )
 
-const defaultBudget = 64000
+const defaultBudget = compression.DefaultBudget
 
 type Options struct {
-	Ctx           *ctxctx.Content
+	Ctx           *content.Content
 	ContextWindow *int
 	Tracker       *token.Tracker
 	TrimCount     *int
@@ -28,7 +28,7 @@ type Options struct {
 // the archive plus recent messages instead of retaining hidden pre-boundary
 // messages in ctx.Messages.
 type Strategy struct {
-	ctx           *ctxctx.Content
+	ctx           *content.Content
 	contextWindow *int
 	tracker       *token.Tracker
 	trimCount     *int

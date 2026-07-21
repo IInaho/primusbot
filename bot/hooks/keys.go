@@ -26,13 +26,13 @@ const (
 	StoreHasEdits       = KeyPrefixTurn + "has_edits"
 
 	// Turn input and task state. Written by runtime/policy at turn start.
-	StoreQuotaReads      = KeyPrefixGauge + "quota_reads"
-	StoreExploreScore    = KeyPrefixGauge + "explore"
-	StoreTasksAllDone    = KeyPrefixGauge + "tasks_done"
-	StoreHasTasks        = KeyPrefixTurn + "has_tasks"
-	StoreStepInputLen    = KeyPrefixTurn + "step_len"
-	StoreStepInput       = KeyPrefixValue + "step"
-	StoreFinalIntent     = KeyPrefixValue + "final_intent"
+	StoreQuotaReads   = KeyPrefixGauge + "quota_reads"
+	StoreExploreScore = KeyPrefixGauge + "explore"
+	StoreTasksAllDone = KeyPrefixGauge + "tasks_done"
+	StoreHasTasks     = KeyPrefixTurn + "has_tasks"
+	StoreStepInputLen = KeyPrefixTurn + "step_len"
+	StoreStepInput    = KeyPrefixValue + "step"
+	StoreFinalIntent  = KeyPrefixValue + "final_intent"
 
 	// Ledger snapshot. Written by policy.SyncLedgerToHooks.
 	StoreLedgerProgress = KeyPrefixTurn + "ledger_progress"

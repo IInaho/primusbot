@@ -13,7 +13,7 @@ import (
 
 func newTestState() *state.State {
 	return &state.State{
-		Ctx:     context.New("test prompt"),
+		Ctx:     content.New("test prompt"),
 		Tracker: &token.Tracker{},
 	}
 }

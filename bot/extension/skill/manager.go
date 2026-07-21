@@ -6,7 +6,7 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/tools"
-	"nekocode/bot/extension"
+	commonview "nekocode/common/view"
 )
 
 type Manager struct {
@@ -135,7 +135,7 @@ func (m *Manager) RegisterTool() {
 	m.tools.Register(NewSkillTool(m.reg))
 }
 
-func (m *Manager) ManagementView(plugins []extension.PluginView, mcp []extension.MCPServerView) extension.SkillManagementView {
+func (m *Manager) ManagementView(plugins []commonview.PluginView, mcp []commonview.MCPServerView) commonview.SkillManagementView {
 	return BuildManagementView(m.Registry(), plugins, mcp)
 }
 

@@ -16,19 +16,19 @@ Bot 层按子系统组织，目录结构和依赖方向都应接近树状：上�
 bot/
 ├── app/                 # 对外 Bot API + 生命周期装配，保持薄层
 ├── agent/runtime/       # Agent 主循环：turn、LLM 调用、工具反馈、停止条件
+├── agent/subagent/      # 子 Agent 执行引擎
 ├── contextmgr/          # 上下文、压缩、memory、token 统计
-├── llm/                 # LLM 协议、客户端工厂、stream/http 类型
-├── tools/               # 工具定义、注册、执行、执行状态、内置工具
+├── provider/            # LLM 协议、客户端工厂、stream/http 类型
+├── tools/               # 工具定义、注册、执行（builtin/ 实现 + runtime/ 执行编排）
 ├── policy/              # 策略系统：manager、ledger、budget、tool semantics
 ├── hooks/               # Hook 事件系统：内置策略与插件声明式 hooks
 ├── extension/           # plugin、skill、mcp 扩展实现与管理
-├── agent/subagent/      # 子 Agent 执行引擎
-├── index/               # 代码索引公开接口和内部实现
 ├── command/             # slash command 注册和生命周期命令
 ├── session/             # 会话持久化
 ├── prompt/              # system/plan prompt 构建
-├── config/
-└── debug/
+├── view/                # common/view 类型 re-export + bot 内部类型 → view DTO 转换
+├── todo/                # Todo 列表管理
+└── config/
 ```
 
 依赖规则：
@@ -50,8 +50,12 @@ nekocode/
 ├── main.go                         # Wails GUI 入口 + interaction/gui/web/dist embed
 ├── wails.json                      # Wails 构建配置
 ├── cmd/
-│   └── nekocode-tui/
-│       └── main.go                 # TUI 程序入口
+│   ├── tui/
+│   │   └── main.go                 # TUI 程序入口
+│   ├── tui_snapshot/
+│   │   └── main.go                 # TUI 快照调试入口
+│   └── daemon/
+│       └── main.go                 # HTTP API daemon 入口
 ├── interaction/gui/app/            # Wails 后端桥接实现
 │   ├── app.go                      #   App 结构体 + 事件推送
 │   ├── appicon.icns                #   macOS 应用图标（多分辨率）
@@ -70,46 +74,43 @@ nekocode/
 │           ├── appicon.ico          #     Windows 导出
 │           ├── icon_16..1024.png    #     中间产物
 │           └── build_icns.js        #     任意平台生成 ICNS 的脚本
-├── common/                         # 公共类型
-│   ├── types.go                    #   TodoItem / BotStats / CmdResult / SubSlot
-│   ├── confirm.go                  #   ConfirmRequest / ConfirmFunc / PhaseFunc / TodoFunc
-│   └── util.go                     #   通用辅助函数
-├── llm/                            # LLM 抽象层
-│   ├── types/                      #   核心类型定义
-│   │   └── types.go                #     LLM 接口 + Message/Response/ToolDef + HTTP 客户端
-│   ├── anthropic/                  #   Anthropic 兼容协议
-│   │   └── client.go               #     Anthropic Messages API 兼容实现
-│   ├── openai/                     #   OpenAI 兼容协议（DeepSeek / MiniMax 等）
-│   │   └── client.go               #     OpenAI Chat Completions 兼容实现
-│   ├── factory.go                  #   NewClient / NewClientWithProtocol 工厂
-│   └── retry.go                    #   指数退避重试
+├── common/
+│   ├── view/                       # 跨层共享的 view DTO（bot / runtime / interaction 统一使用）
+│   └── debug/                      # 全局调试日志
+├── util/                           # 通用工具包（duration / fs / http / registry / sse / text / url / yaml）
+├── runtime/                        # 交互控制层（TUI/GUI/HTTP/connector 的统一入口）
+│   ├── protocol.go                 #   Runtime 契约类型的对外 re-export
+│   ├── ports.go                    #   Bot 能力窄接口（CoreAgentRunner 等）
+│   ├── session.go                  #   SessionRuntime 对外门面
+│   ├── management.go               #   管理操作（session/config/skill 等）
+│   ├── defaultbot/                 #   默认组装：NewSessionRuntimeWithTelegram()
+│   │   ├── defaultbot.go           #     Bot + connector 装配
+│   │   └── adapter.go              #     bot → runtime 适配（confirm 桥接）
+│   ├── httpapi/                    #   HTTP/SSE API server
+│   └── internal/                   #   内部实现
+│       ├── core/                   #     契约类型（view DTO alias 到 common/view）
+│       ├── session/                #     SessionRuntime 核心实现
+│       ├── broker/                 #     事件分发
+│       ├── eventbus/               #     事件总线
+│       ├── runstore/               #     run 状态存储
+│       ├── recording/              #     事件录制
+│       ├── redaction/              #     事件脱敏
+│       ├── connectors/             #     connector 注册表
+│       └── artifact/               #     产物管理
 ├── bot/                            # 核心逻辑
 │   ├── bot.go                      #   package bot 入口（类型别名导出）
 │   ├── app/                        #   Bot 应用层（依赖注入 + 生命周期编排）
 │   │   ├── bot.go                  #     Bot 结构体 + New() 初始化编排
-│   │   ├── api.go                  #     bot.UI 基础方法（Steer/Abort/ProviderModel/CommandNames/ExecuteCommand/SkillHint）
-│   │   ├── api_run.go              #     Run / Configure / 兼容 RunAgent
-│   │   ├── api_context.go          #     ContextStatus / ContextReport / ContextSnapshot
-│   │   ├── api_config.go           #     ConfigView / ApplyConfig
-│   │   ├── api_skills.go           #     Skill/Plugin/MCP 管理视图
-│   │   ├── api_skill_selection.go  #     GUI skill 选择
-│   │   ├── api_model.go            #     SwitchModel
-│   │   ├── api_stats.go            #     Stats
-│   │   ├── context_snapshot.go     #     Context GUI/API 视图 DTO 构建
-│   │   ├── init_agent.go           #     Agent 初始化
-│   │   ├── init_tools.go           #     ToolRegistry + Hooks 初始化
-│   │   ├── init_commands.go        #     Commands 初始化
-│   │   ├── context.go              #     Config / CtxMgr / 项目上下文 / 上下文守卫
-│   │   ├── facade_extension.go     #     extension facade 核心依赖
-│   │   ├── extension_plugin.go     #     plugin.Manager 接线 + /plugin 命令转发
-│   │   ├── extension_skill.go      #     skill.Manager 接线
-│   │   ├── extension_mcp.go        #     MCP server 启停 + 工具注册
+│   │   ├── api.go                  #     Bot 对外方法：run/query/config/skill/session/runtime views
+│   │   ├── facade_extension_plugin.go #   plugin.Manager 接线 + /plugin 命令转发
+│   │   ├── facade_extension_mcp.go #     MCP server 启停 + 工具注册
 │   │   ├── facade_callback.go      #     前端回调接线
 │   │   ├── facade_extension.go     #     Skill/Plugin/MCP facade + command adapter
 │   │   ├── facade_session.go       #     session.Manager 接线
 │   │   ├── facade_subagent.go      #     task tool 到 subagent engine 接线
-│   │   ├── extension_mcp.go        #     MCP server/tool 接线
-│   │   └── extension_plugin.go     #     plugin lifecycle + plugin command
+│   │   ├── api_config_test.go
+│   │   ├── command_result_test.go
+│   │   └── task_test.go
 │   ├── agent/                      #   Agent 循环
 │   │   ├── runtime/                #     Agent 运行时核心
 │   │   │   ├── agent.go            #       Agent 结构体 + New()
@@ -126,6 +127,7 @@ nekocode/
 │   │   │       ├── results.go      #         工具结果处理
 │   │   │       ├── slots.go        #         子代理槽位管理（最多 8 个）
 │   │   │       └── subagents.go    #         子代理回调路由
+│   │   ├── llmstream/              #     LLM 流式调用 + 工具调用解析
 │   │   ├── subagent/               #     子 Agent 系统
 │   │   │   ├── agents.go           #       内置 agent 类型定义（3 种：executor/verify/researcher）
 │   │   │   ├── agent_md.go         #       AgentMD 解析（Claude Code 格式）
@@ -149,46 +151,40 @@ nekocode/
 │   │   ├── parser.go               #     Parser + Callbacks
 │   │   └── lifecycle.go            #     SummarizeIfNeeded / ForceFreshStart / ContextStats
 │   ├── contextmgr/                 #   上下文管理
-│   │   ├── manager.go              #     Manager：Build() 入口 + NewSub + MakeSummarizer
-│   │   ├── build.go                #     Build 管线（孤儿过滤）
-│   │   ├── storage.go              #     消息存取（Add/AddAssistantResponse/AddAssistantToolCall/AddToolResultsBatch）
-│   │   ├── history.go              #     历史操作（TruncateTo/RemoveMessages/FreshStart）
-│   │   ├── compaction.go           #     AutoCompactIfNeeded / Summarize / CompactStats
-│   │   ├── settings.go             #     SetSystemPrompt / SetSkillList / SetHints / SetTodos
-│   │   ├── snapshot.go             #     Snapshot / Restore（会话持久化）
-│   │   ├── stats.go                #     Len / Stats / visibleMessages
-│   │   ├── token_usage.go          #     RecordUsage / RecordCache / ResetCache / TokenUsage
-│   │   ├── report.go               #     上下文诊断报告 + 彩色 bar
-│   │   ├── compact/                #     压缩子系统
-│   │   │   ├── compact.go          #       FullCompact
-│   │   │   ├── compactor.go        #       Compactor 核心
+│   │   ├── manager.go              #     Manager 组装（8 个 internal 子组件）+ New/NewSub + MakeSummarizer
+│   │   ├── api.go                  #     Manager 对外方法 + 公开 DTO（ManagerSnapshot/ContextReport）
+│   │   ├── compression/            #     压缩子系统
 │   │   │   ├── levels.go           #       五级预警阈值
-│   │   │   ├── micro.go            #       MicroCompact
+│   │   │   ├── strategy.go         #       Strategy 接口
 │   │   │   ├── budget.go           #       工具结果预算截断
-│   │   │   ├── collapse.go         #       Context Collapsing
-│   │   │   ├── merge.go            #       Archive 摘要合并
 │   │   │   ├── prompt.go           #       压缩 prompt 模板
-│   │   │   └── snipe.go            #       冷历史切除
-│   │   ├── context/                #     上下文内容定义
+│   │   │   ├── merge.go            #       Archive 摘要合并
+│   │   │   ├── replacement/        #       现行压缩策略（摘要替换式）
+│   │   │   └── legacy/             #       旧 5 层管线（保留未用）
+│   │   ├── context/                #     上下文内容定义（package content）
 │   │   │   └── content.go          #       Content 结构体 + BuildLayer*（含 Memory 字段）
-│   │   ├── memory/                 #     Session Memory
-│   │   │   ├── memory.go           #       Memory 结构体
-│   │   │   ├── load.go             #       加载
-│   │   │   ├── save.go             #       保存
-│   │   │   ├── parse.go            #       解析
-│   │   │   ├── build.go            #       构建
-│   │   │   ├── merge.go            #       合并
-│   │   │   ├── append.go           #       追加
-│   │   │   └── fields.go           #       字段定义
+│   │   ├── internal/               #     内部实现
+│   │   │   ├── builder/            #       Build 管线（孤儿过滤）
+│   │   │   ├── compaction/         #       压缩控制器
+│   │   │   ├── history/            #       消息存取与截断
+│   │   │   ├── report/             #       上下文诊断报告 + 彩色 bar
+│   │   │   ├── settings/           #       系统提示/技能/Hints/Todo setter
+│   │   │   ├── snapshot/           #       Snapshot / Restore（会话持久化）
+│   │   │   ├── state/              #       共享状态结构
+│   │   │   └── usage/              #       token 用量统计
+│   │   ├── memory/                 #     Session Memory（五段式项目记忆文件）
 │   │   └── token/                  #     Token 估算
 │   │       ├── estimate.go         #       启发式估算
 │   │       └── tracker.go          #       API 校准追踪
-│   ├── debug/                      #   全局调试日志（独立子系统）
-│   │   ├── logger.go               #     debug.Log（时间戳 + 来源 + subagent 标签 + 10MB rotate）
-│   │   ├── file.go                 #     文件管理
-│   │   └── format.go               #     格式化
+│   ├── provider/                   #   LLM 抽象层
+│   │   ├── types/                  #     核心类型定义（Message/Response/ToolDef + HTTP 客户端）
+│   │   ├── anthropic/              #     Anthropic Messages API 兼容实现
+│   │   ├── openai/                 #     OpenAI Chat Completions 兼容实现（DeepSeek / MiniMax 等）
+│   │   ├── llm.go                  #     LLM 接口定义
+│   │   ├── factory.go              #     NewClientWithProtocol 工厂
+│   │   └── retry.go                #     指数退避重试
 │   ├── hooks/                      #   Hook 系统（事件驱动）
-│   │   ├── events.go               #     HookPoint / Hint / StopReason 定义（7 种触发点）
+│   │   ├── types.go                #     HookPoint / Hint / StopReason 定义（7 种触发点）
 │   │   ├── keys.go                 #     事件 key 常量（22 个：counter:/turn:/gauge:/flag:/value:/session:/policy:）
 │   │   ├── registry.go             #     Registry + Evaluate
 │   │   ├── state.go                #     Snapshot 状态存储
@@ -201,10 +197,8 @@ nekocode/
 │   │   │   ├── tool_rules.go       #       工具安全与工具结果 guardrail
 │   │   │   ├── exploration_rules.go#       探索预算与探索防护
 │   │   │   ├── progress_rules.go   #       防卡进度规则
-│   │   │   ├── quality_rules.go    #       完成质量规则
-│   │   │   ├── verification_rules.go #     验证与格式熔断规则
-│   │   │   ├── final_rules.go      #       最终回答校验规则
-│   │   │   └── text_match.go       #       文本声明/否定匹配 helper
+│   │   │   ├── verification_rules.go #     验证规则
+│   │   │   └── garbled_rules.go    #       乱码响应熔断
 │   │   └── plugin/                 #     声明式 Hook 实现
 │   │       ├── types.go            #       Point / Event / Hint / Result / Hook 类型
 │   │       ├── config.go           #       配置加载
@@ -217,17 +211,24 @@ nekocode/
 │   │   │   ├── protocol.go         #       JSON-RPC 2.0 协议
 │   │   │   ├── process.go          #       Server 进程管理
 │   │   │   ├── types.go            #       类型定义
-│   │   │   ├── tools.go            #       工具列举
+│   │   │   ├── client_tools.go     #       工具列举（ListTools/CallTool）
 │   │   │   └── tool.go             #       MCPTool 适配器
 │   │   ├── plugin/                 #     Plugin 系统
+│   │   │   ├── manager.go          #       生命周期 + runtime 编排
+│   │   │   ├── views.go            #       插件视图 DTO 构建（common/view 类型）
 │   │   │   ├── registry.go         #       Registry（安装/卸载/启用/禁用 + LoadAll）
 │   │   │   ├── manifest.go         #       Manifest 解析（plugin.json）
 │   │   │   ├── model.go            #       Plugin 数据模型
 │   │   │   ├── state.go            #       状态管理
 │   │   │   ├── discovery.go        #       插件发现
 │   │   │   ├── install.go          #       安装逻辑
+│   │   │   ├── source.go           #       源解析 / env 展开
+│   │   │   ├── fetch.go            #       远程 plugin.json 获取
+│   │   │   ├── format.go           #       插件展示文本
 │   │   │   └── exec.go             #       git clone + 文件复制 + install.sh 检测
 │   │   └── skill/                  #     Skill 系统
+│   │       ├── manager.go          #       加载、上下文刷新、skill tool 接线
+│   │       ├── management.go       #       skill/plugin 管理视图聚合
 │   │       ├── registry.go         #       Registry
 │   │       ├── model.go            #       Skill 数据模型
 │   │       ├── load.go             #       YAML 加载
@@ -236,17 +237,6 @@ nekocode/
 │   │       ├── format.go           #       格式化
 │   │       ├── tool_skill.go       #       技能工具注册
 │   │       └── bundled/            #       内置技能（go:embed）
-│   ├── index/                      #   代码索引
-│   │   ├── index.go                #     Manager interface + Apply
-│   │   └── internal/               #     索引内部实现
-│   │       ├── db/                 #       SQLite 持久化 + FTS5 搜索
-│   │       ├── graph/              #       图数据结构、查询、格式化
-│   │       ├── indexer/            #       扫描、缓存判定、增量更新
-│   │       ├── parser/             #       Tree-sitter 解析
-│   │       ├── projectctx/         #       NEKOCODE.md 发现
-│   │       ├── service/            #       服务层
-│   │       ├── syncer/             #       fsnotify 监听 + 防抖
-│   │       └── treesitter/         #       语言注册 + 查询定义
 │   ├── prompt/                     #   System Prompt 构建
 │   │   ├── system/                 #     System Prompt 子模块
 │   │   │   ├── builder.go          #       构建器
@@ -258,107 +248,47 @@ nekocode/
 │   │   ├── session.go              #     Snapshot / Meta 持久化
 │   │   ├── manager.go              #     Session Manager / 导出 / 恢复
 │   │   └── view_messages.go        #     DisplayMessages 转换
-│   ├── extension/                  #   扩展系统
-│   │   ├── plugin/                 #     Plugin Manager + 源解析/格式化/远程获取
-│   │   │   ├── manager.go          #       生命周期 + runtime 编排
-│   │   │   ├── views.go            #       GUI/API 插件视图 DTO 构建
-│   │   │   ├── source.go           #       源解析 / env 展开
-│   │   │   ├── fetch.go            #       远程 plugin.json 获取
-│   │   │   └── format.go           #       插件展示文本
-│   │   ├── skill/                  #     Skill 管理
-│   │   │   ├── manager.go          #       加载、上下文刷新、skill tool 接线
-│   │   │   └── management.go       #       skill/plugin 管理视图聚合
-│   │   └── mcp/                    #     MCP 客户端
+│   ├── view/                       #   View DTO 转换层
+│   │   ├── view.go                 #     common/view 类型 re-export + 通用转换
+│   │   ├── config.go               #     配置视图转换
+│   │   ├── messages.go             #     消息显示转换
+│   │   └── image.go                #     图片引用转换
+│   ├── todo/                       #   Todo 列表管理
 │   ├── policy/                    #   策略系统
-│   │   ├── gov.go                 #     Manager（HookReg + Ledger + Exploration）
-│   │   ├── gov_lifecycle.go       #     生命周期（Reset/ResetTurn/ResetSession）
-│   │   ├── gov_record.go          #     事件记录
+│   │   ├── manager.go             #     Manager（HookReg + Ledger + Exploration）
+│   │   ├── manager_lifecycle.go   #     生命周期（Reset/ResetTurn/ResetSession）
+│   │   ├── manager_record.go      #     事件记录
 │   │   ├── ledger/                #     工具执行账本
 │   │   ├── budget/                #     探索预算与工具配额
 │   │   └── semantics/             #     工具语义分类
 │   │   └── semantics.go            #     Semantics（SourceProducing/Mutating/Verifying）
-│   ├── sdk/                        #   外部服务 SDK
-│   │   └── volcengine/             #     火山引擎 SigV4
-│   │       ├── signer.go           #       签名器
-│   │       ├── crypto.go           #       加密
-│   │       └── canonical.go        #       规范化
 │   └── tools/                      #   工具系统
-│       ├── types.go                #     Tool 接口 + ToolCallItem + ToolCallResult + Descriptor
-│       ├── executor.go             #     Executor + 权限检查 + ExecuteBatch
-│       ├── registry.go             #     注册表
-│       ├── file_cache.go           #     文件缓存（Seed/Merge/LRU）
-│       ├── util.go                 #     辅助函数（HashLine / StripAnsi / ValidatePath）
-│       ├── streaming.go            #     流式输出
-│       ├── task.go                 #     TaskRunnerTool 接口
-│       ├── catalog/                #     工具注册清单
-│       │   └── register.go         #       RegisterAll()
-│       ├── core/                   #     核心类型
-│       │   ├── types.go            #       Tool 接口定义
-│       │   └── format.go           #       格式化
-│       ├── runner/                 #     工具执行器
-│       │   ├── executor.go         #       执行引擎
-│       │   ├── execute_one.go      #       单工具执行
-│       │   ├── batch.go            #       批量执行
-│       │   ├── output.go           #       输出处理
-│       │   ├── paths.go            #       路径处理
-│       │   └── preview.go          #       预览
-│       ├── execution/              #     执行状态
-│       │   ├── state.go            #       状态管理
-│       │   ├── cache.go            #       缓存
-│       │   ├── cache_transfer.go   #       缓存传输
-│       │   └── ranges.go           #       范围管理
-│       ├── editcore/               #     编辑共享 primitives
-│       │   ├── hash.go             #       文件内容哈希计算
-│       │   └── snapshot.go         #       快照管理
-│       ├── filesystem/             #   文件系统工具
-│       │   ├── read/               #     tool_read
-│       │   ├── write/              #     tool_write
-│       │   ├── edit/               #     tool_edit（oldString/newString 内容锚定 + gofmt lint）
-│       │   │   ├── tool_edit.go    #       Edit 工具入口
-│       │   │   ├── intent.go       #       内容锚定匹配与替换
-│       │   │   ├── edit_commit.go  #       编辑提交
-│       │   │   ├── edit_lint.go    #       gofmt 语法检查
-│       │   │   ├── diff.go         #       Diff 生成
-│       │   │   ├── diff_hunks.go   #       Hunk 级别 diff
-│       │   │   ├── diff_lines.go   #       行级别 diff
-│       │   │   ├── diff_model.go   #       结构化 diff 模型
-│       │   │   └── edit_description.md#   工具描述
-│       │   ├── list/               #     tool_list
-│       │   ├── tree/               #     tool_tree
-│       │   └── search/             #     tool_glob + tool_grep
-│       ├── shell/                  #   Shell 工具
-│       │   ├── tool_bash.go        #     Bash 执行
-│       │   ├── runner.go           #     运行器
-│       │   ├── danger.go           #     危险等级分级
-│       │   └── redirection.go      #     重定向
-│       ├── web/                    #   Web 工具
-│       │   ├── tool_websearch.go   #     Web 搜索
-│       │   ├── tool_webfetch.go    #     Web 抓取
-│       │   └── html2md.go          #     HTML→Markdown
-│       ├── media/                  #   媒体工具
-│       │   ├── tool_image_gen.go   #     图片生成（即梦文生图）
-│       │   ├── jimeng.go           #     即梦 API
-│       │   ├── image_model.go      #     模型配置
-│       │   └── image_artifacts.go  #     产物管理
-│       ├── tasktool/               #   子 Agent 任务工具
-│       │   └── tool_task.go        #     task 工具
-│       ├── todo/                   #   Todo 工具
-│       │   └── tool_todo.go        #     todo_write 工具
-│       ├── llmstream/              #   LLM 流式处理
-│       │   ├── call.go             #     调用
-│       │   ├── consume.go          #     消费
-│       │   ├── tool_calls.go       #     工具调用解析
-│       │   └── types.go            #     类型
-│       ├── netclient/              #   HTTP 客户端
-│       │   └── http.go             #     HTTP 请求
-│       ├── pathutil/               #   路径工具
-│       │   └── path.go             #     路径验证
-│       ├── semantics/              #   工具语义
-│       │   └── exploratory.go      #     探索性检测
-│       ├── textutil/               #   文本工具
-│       │   └── text.go             #     文本处理
-│       └── toolhelpers/            #   工具辅助
-│           └── helpers.go          #     辅助函数
+│       ├── registry.go             #     工具注册表
+│       ├── builtin/                #     内置工具实现
+│       │   ├── catalog/            #       RegisterAll() 注册清单
+│       │   ├── filesystem/         #       read/write/edit/list/tree/glob/grep
+│       │   ├── shell/              #       Bash 执行 + 危险分级
+│       │   ├── web/                #       web_search / web_fetch / html2md
+│       │   ├── media/              #       image_gen（即梦文生图）
+│       │   ├── task/               #       子 Agent 任务工具
+│       │   ├── todo/               #       todo_write 工具
+│       │   ├── question/           #       question 工具
+│       │   ├── diff/               #       diff 工具
+│       │   └── index/              #       代码索引工具（条件注册）
+│       └── runtime/                #     工具执行编排
+│           ├── core/               #       Tool 接口 + ToolCallItem/Result + Descriptor
+│           ├── runner/             #       执行引擎（单工具/批量/预览/权限）
+│           ├── execution/          #       执行状态 + 缓存
+│           ├── permission/         #       权限确认
+│           ├── sandbox/            #       沙箱隔离
+│           ├── workspace/          #       工作区访问控制
+│           ├── snapshot/           #       文件快照
+│           ├── taskbridge/         #       task 工具到 subagent 的桥接
+│           ├── toolhelpers/        #       辅助函数
+│           └── toolutil/           #       路径/文本等通用工具
+├── interaction/connect/            # 外部 IM connector
+│   ├── telegram/                   #   Telegram connector
+│   └── feishu/                     #   飞书 connector
 ├── interaction/tui/                # TUI 交互界面
 │   ├── tui.go                      #   package tui 入口（Run 函数）
 │   ├── agent.go                    #   Agent 桥接 + startChat
@@ -366,7 +296,7 @@ nekocode/
 │   ├── update.go                   #   Update() 消息分发
 │   ├── view.go                     #   View() 视图布局组装
 │   ├── handlers.go                 #   按键处理
-│   ├── helpers.go                  #   辅助函数
+│   ├── helpers.go                  #   token 统计文案（工具简报已统一到 common/view/toolbrief.go）
 │   ├── types.go                    #   状态枚举 + 消息类型
 │   ├── components/                 #   UI 组件
 │   │   ├── block/                  #     内容块渲染
@@ -393,32 +323,27 @@ nekocode/
 │   │   ├── list_widget.go          #     列表组件
 │   │   ├── suggestions.go          #     命令补全
 │   │   └── scrollbar.go            #     滚动指示器
-│   ├── styles/                     #   样式
+│   └── styles/                     #   样式
 │   │   ├── colors.go               #     色彩体系
 │   │   └── charset.go              #     制表符字符集
-│   └── tui_snapshot/               #   TUI 快照测试
-│       └── main.go                 #     快照入口
 ```
 
-## UI 契约
+## Runtime 控制契约
 
 ```go
-type UI interface {
-    Run(input string, callbacks common.RunCallbacks) (string, error)
-    ExecuteCommand(input string) (string, common.CmdResult)
-    SkillHint() (string, bool)
-    Stats() common.BotStats
-    CommandNames() []string
-    Configure(confirmFn common.ConfirmFunc, phaseFn common.PhaseFunc, todoFn common.TodoFunc, notifyFn func(string), confirmCh chan common.ConfirmRequest, questionFn common.QuestionFunc)
-    Steer(msg string)
-    Abort()
-    ProviderModel() (provider, model string)
-    SwitchModel(name string) (model, provider string, err error)
-    SessionMessages() []common.DisplayMessage
+type Runtime interface {
+    Submit(ctx context.Context, input Input) (RunID, error)
+    Steer(ctx context.Context, runID RunID, input Input) error
+    Abort(ctx context.Context, runID RunID) error
+    Approve(ctx context.Context, approvalID string, decision ApprovalDecision) error
+    Answer(ctx context.Context, questionID string, reply view.QuestionReply) error
+    Subscribe(ctx context.Context, filter EventFilter) (<-chan Event, error)
+    Connect(ctx context.Context, name string, args []string) (string, error)
+    Disconnect(name string) (string, error)
 }
 ```
 
-定义在 `bot/ui.go`，由 `bot/app/` 中的 `Bot` 结构体实现。TUI 依赖 `bot.UI`，GUI 依赖扩展后的 `bot.GUI`。
+定义在 `runtime/internal/core` 并由 `runtime.SessionRuntime` 对外暴露。其中的 view DTO（ConfirmRequest / QuestionRequest / DisplayMessage / BotStats 等）全部 alias 到 `common/view`，bot、runtime、interaction 三层共享同一份类型定义，跨层传递无需转换。TUI、GUI、HTTP、Telegram 等交互层都依赖 runtime 契约；入口统一通过 `runtime/defaultbot.NewSessionRuntimeWithTelegram()` 装配，不再各自注册 connector。
 
 ## Bot 应用层（bot/app/）
 
@@ -435,7 +360,7 @@ New()
       ├── extension.InitPlugins()
       ├── extension.InitConfigMCPServers()
       ├── extension.InitSkills()
-      ├── initAgent()            → llm.NewClientWithProtocol() + runtime.New()
+      ├── initAgent()            → provider.NewClientWithProtocol() + runtime.New()
       ├── initSummarizer()       → ctxMgr.CM.Summarizer = MakeSummarizer()
       └── initCommands()         → command.RegisterAll() + session/export/plugin 命令
 ```
@@ -557,51 +482,55 @@ type Tool interface {
 
 ### 工具注册
 
-`bot/tools/catalog/register.go` 中的 `RegisterAll()` 注册所有内置工具（bash/read/write/list/tree/glob/edit/grep/web_search/web_fetch/todo_write/task）。`image_gen` 在 `RegisterAll` 中条件注册（需要 imageGenModels 非空），`index` 在 `bot/app/init_tools.go` 中条件注册（需要 indexMgr 可用），`skill` 在 `bot/app/plugin.go` 中动态注册。
+`bot/tools/builtin/catalog/register.go` 中的 `RegisterAll()` 注册内置工具（bash/read/write/list/tree/glob/edit/grep/web_search/web_fetch/todo_write/task）。`image_gen` 在 `RegisterAll` 中条件注册（需要 imageGenModels 非空）；`bot/app/bot.go` 负责把工具注册表、skill manager 和 command parser 接线，`skill` 作为 slash command 的上下文注入入口，不是独立工具。
 
 ### 内置工具
 
 | 工具 | 模式 | 危险等级 | 位置 |
 |------|------|----------|------|
-| bash | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `tools/shell/` |
-| read | Parallel | Safe | `tools/filesystem/read/` |
-| write | Sequential | Write | `tools/filesystem/write/` |
-| edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `tools/filesystem/edit/` |
-| list | Parallel | Safe | `tools/filesystem/list/` |
-| glob | Parallel | Safe | `tools/filesystem/search/` |
-| grep | Parallel | Safe | `tools/filesystem/search/` |
-| web_search | Parallel | Safe | `tools/web/` |
-| web_fetch | Parallel | Safe | `tools/web/` |
-| question | Sequential | Safe | `tools/question/` |
-| diff | Parallel | Safe | `tools/diff/` |
-| task | Parallel | Safe | `tools/tasktool/` |
-| todo_write | Sequential | Safe | `tools/todo/` |
-| tree | Parallel | Safe | `tools/filesystem/tree/` |
+| bash | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `bot/tools/builtin/shell/` |
+| read | Parallel | Safe | `bot/tools/builtin/filesystem/read/` |
+| write | Sequential | Write | `bot/tools/builtin/filesystem/write/` |
+| edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `bot/tools/builtin/filesystem/edit/` |
+| list | Parallel | Safe | `bot/tools/builtin/filesystem/list/` |
+| glob | Parallel | Safe | `bot/tools/builtin/filesystem/search/` |
+| grep | Parallel | Safe | `bot/tools/builtin/filesystem/search/` |
+| web_search | Parallel | Safe | `bot/tools/builtin/web/` |
+| web_fetch | Parallel | Safe | `bot/tools/builtin/web/` |
+| question | Sequential | Safe | `bot/tools/builtin/question/` |
+| diff | Parallel | Safe | `bot/tools/builtin/diff/` |
+| task | Parallel | Safe | `bot/tools/builtin/task/` |
+| todo_write | Sequential | Safe | `bot/tools/builtin/todo/` |
+| tree | Parallel | Safe | `bot/tools/builtin/filesystem/tree/` |
 | index | Parallel | Safe（条件注册） | `bot/tools/builtin/index/` |
-| image_gen | Sequential | Safe（条件注册） | `tools/media/` |
+| image_gen | Sequential | Safe（条件注册） | `bot/tools/builtin/media/` |
 | skill | Parallel | Safe（动态注册） | `bot/extension/skill/` |
 
 ### 工具系统子包
 
 | 子包 | 职责 |
 |------|------|
-| `catalog/` | RegisterAll() 注册清单 |
-| `core/` | Tool 接口 + 格式化 |
-| `runner/` | 工具执行引擎（单工具/批量/预览） |
-| `execution/` | 执行状态 + 缓存传输 |
-| `editcore/` | 编辑共享 primitives（哈希/换行归一化/快照） |
-| `filesystem/{read,write,edit,list,tree,search}/` | 文件系统工具 |
-| `shell/` | Bash 执行 + 危险分级 |
-| `web/` | Web 搜索/抓取/HTML2MD |
-| `media/` | 图片生成（即梦文生图） |
-| `tasktool/` | 子 Agent 任务工具 |
-| `todo/` | Todo 管理工具 |
-| `llmstream/` | LLM 流式调用 + 工具调用解析 |
-| `netclient/` | HTTP 客户端 |
-| `pathutil/` | 路径验证 |
-| `semantics/` | 探索性检测 |
-| `textutil/` | 文本处理 |
-| `toolhelpers/` | 辅助函数 |
+| `builtin/catalog/` | RegisterAll() 注册清单 |
+| `builtin/filesystem/{read,write,edit,list,tree,search}/` | 文件系统工具 |
+| `builtin/shell/` | Bash 执行 + 危险分级 |
+| `builtin/web/` | Web 搜索/抓取/HTML2MD |
+| `builtin/media/` | 图片生成（即梦文生图） |
+| `builtin/task/` | 子 Agent 任务工具 |
+| `builtin/todo/` | Todo 管理工具 |
+| `builtin/question/` | 用户提问工具 |
+| `builtin/diff/` | Diff 工具 |
+| `builtin/index/` | 代码索引工具（条件注册） |
+| `runtime/core/` | Tool 接口 + ToolCallItem/Result + Descriptor |
+| `runtime/runner/` | 工具执行引擎（单工具/批量/预览/权限） |
+| `runtime/execution/` | 执行状态 + 缓存 |
+| `runtime/permission/` | 权限确认 |
+| `runtime/sandbox/` | 沙箱隔离 |
+| `runtime/workspace/` | 工作区访问控制 |
+| `runtime/snapshot/` | 文件快照 |
+| `agent/llmstream/` | LLM 流式调用 + 工具调用解析 |
+| `runtime/taskbridge/` | task 工具到 subagent 的桥接 |
+| `runtime/toolhelpers/` | 辅助函数 |
+| `runtime/toolutil/` | 路径/文本等通用工具 |
 
 ## Hook 系统（事件驱动）
 
@@ -753,7 +682,7 @@ PolicyExploreExhausted="policy:explore_exhausted"
 
 ### ResponseGate（响应门控）
 
-`bot/agent/runtime/control/response_gate.go`：防止治理内部信号泄漏到模型可见输出。默认最多 2 次重试。
+`bot/agent/runtime/state.go`：防止治理内部信号泄漏到模型可见输出。默认最多 2 次重试。
 
 ### 工具语义分类
 
@@ -774,14 +703,18 @@ Model
 ├── Suggestions    — 命令补全
 ├── Input          — 消息输入框（3 行固定高度，SetPromptFunc 控制换行）
 ├── ConfirmBar     — 确认栏（工具 + 插件安装）
-└── notifyCh       — 异步通知通道
+├── QuestionBar    — 多选/文本问题栏
+└── runtimeEvents  — runtime 事件订阅
 ```
 
 ## 模块职责
 
 | 模块 | 位置 | 职责 |
 |------|------|------|
-| Bot 应用层 | `bot/app/` | 依赖注入 + 生命周期编排 + `bot.UI` / `bot.GUI` 实现 |
+| Runtime 控制层 | `runtime/` | 交互层统一入口：契约 + SessionRuntime + HTTP API |
+| 共享 DTO | `common/view/` | 跨层 view 类型定义（bot/runtime/interaction 共用） |
+| Bot 应用层 | `bot/app/` | 依赖注入 + 生命周期编排 + Bot 公开兼容面实现 |
+| View 转换 | `bot/view/` | bot 内部类型 → view DTO 转换 |
 | Agent 循环 | `bot/agent/runtime/` | Reason→Execute→Feedback，中断，重试 |
 | 治理系统 | `bot/policy/` | Manager：HookReg + Ledger + Exploration |
 | 工具账本 | `bot/policy/ledger/` | 工具执行追踪（读/写/阻止/错误/验证） |
@@ -790,17 +723,16 @@ Model
 | 子 Agent | `bot/agent/subagent/` | 独立循环，3 种内置类型 + 插件扩展 |
 | 子槽位 | `bot/agent/runtime/toolrun/slots.go` | 并发控制（8 槽位 + 颜色） |
 | 预算配额 | `bot/policy/budget/` | 探索检测 + 工具配额 |
-| LLM 网关 | `llm/` | OpenAI/Anthropic 双协议，统一接口 |
-| 工具系统 | `bot/tools/` | Tool 接口 + Executor + Registry + FileCache |
-| 工具注册 | `bot/tools/catalog/` | RegisterAll() 内置工具注册清单 |
-| 工具执行 | `bot/tools/runner/` | 执行引擎（单工具/批量/预览） |
-| 编辑 primitives | `bot/tools/editcore/` | 哈希计算 · 换行归一化 · snapshot |
-| 文件系统工具 | `bot/tools/filesystem/` | read/write/edit/list/tree/glob/grep |
-| Shell 工具 | `bot/tools/shell/` | bash 执行与风险分级 |
-| Web 工具 | `bot/tools/web/` | web_search/web_fetch/html2md |
-| 媒体工具 | `bot/tools/media/` | image_gen（即梦文生图） |
-| 任务工具 | `bot/tools/tasktool/`, `bot/tools/todo/` | sub-agent task 与 todo_write |
-| SDK | `bot/sdk/` | 外部服务 SDK（火山引擎 SigV4 签名） |
+| LLM 网关 | `bot/provider/` | OpenAI/Anthropic 双协议，统一接口 |
+| 工具系统 | `bot/tools/` | Registry + builtin 实现 + runtime 执行编排 |
+| 工具注册 | `bot/tools/builtin/catalog/` | RegisterAll() 内置工具注册清单 |
+| 工具执行 | `bot/tools/runtime/runner/` | 执行引擎（单工具/批量/预览/权限） |
+| 文件系统工具 | `bot/tools/builtin/filesystem/` | read/write/edit/list/tree/glob/grep |
+| Shell 工具 | `bot/tools/builtin/shell/` | bash 执行与风险分级 |
+| Web 工具 | `bot/tools/builtin/web/` | web_search/web_fetch/html2md |
+| 媒体工具 | `bot/tools/builtin/media/` | image_gen（即梦文生图） |
+| 任务工具 | `bot/tools/builtin/task/`, `bot/tools/builtin/todo/` | sub-agent task 与 todo_write |
+| 代码索引工具 | `bot/tools/builtin/index/` | 代码索引（条件注册） |
 | 上下文管理 | `bot/contextmgr/` | Build 管线 + 五级压缩 + token 估算 |
 | Session Memory | `bot/contextmgr/memory/` | Memory 文件持久化 |
 | Plugin 系统 | `bot/extension/plugin/` | manager 编排 + manifest/registry |
@@ -809,10 +741,9 @@ Model
 | Hook 系统 | `bot/hooks/` | 事件驱动（5 种触发点）+ 声明式（plugin/） |
 | 内置 Hook | `bot/hooks/builtin/` | 9 个内置 Hook 实现 |
 | 声明式 Hook | `bot/hooks/plugin/` | JSON 配置驱动 Hook |
-| Tree-sitter | `bot/index/internal/treesitter/` | 多语言解析器注册 + AST 查询 |
-| 代码索引 | `bot/index/` | SQLite + FTS5 + Tree-sitter 代码索引 |
 | 命令系统 | `bot/command/` | 斜杠命令解析 |
-| 调试日志 | `bot/debug/` | 全局 debug.Log（时间戳 + subagent 标签） |
+| 调试日志 | `common/debug/` | 全局 debug.Log（时间戳 + subagent 标签） |
 | 工具语义 | `bot/policy/semantics/` | Semantics 分类（SourceProducing/Mutating/Verifying） |
 | Session 视图 | `bot/session/` | DisplayMessages 转换 |
 | TUI | `interaction/tui/` | Bubble Tea v2 组件化 |
+| Connector | `interaction/connect/` | Telegram 等外部 IM 接入 |

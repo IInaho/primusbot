@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"nekocode/bot/view"
 
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
@@ -12,6 +11,8 @@ import (
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/taskbridge"
+	"nekocode/bot/view"
+	commonview "nekocode/common/view"
 )
 
 type subagentWiring struct {
@@ -40,7 +41,7 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 		return
 	}
 	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
-		subLLM := provider.NewClientWithProtocol(fm.Provider, fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
+		subLLM := provider.NewClientWithProtocol(fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 		subLLM.SetDisableThinking(true)
 		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient())
 		cfg, ok := w.buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, ag)
@@ -107,13 +108,31 @@ func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, b
 	}
 	if subCB, ok := taskbridge.TaskCallbackFromCtx(input.Context); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {
-			subCB("sub_"+ev.Action, ev.ToolName, ev.ToolArgs, ev.Output)
+			subCB(commonview.StepEvent{
+				Action:   subagentStepAction(ev.Action),
+				CallID:   ev.CallID,
+				ToolName: ev.ToolName,
+				ToolArgs: ev.ToolArgs,
+				Output:   ev.Output,
+				IsError:  ev.IsError,
+			})
 		}
 	}
 	if input.PhaseFn != nil {
 		cfg.OnPhase = func(p string) { input.PhaseFn(at.Name + " · " + p) }
 	}
 	return cfg, true
+}
+
+func subagentStepAction(action commonview.StepAction) commonview.StepAction {
+	switch action {
+	case commonview.StepActionToolStart:
+		return commonview.StepActionSubToolStart
+	case commonview.StepActionExecuteTool:
+		return commonview.StepActionSubExecuteTool
+	default:
+		return action
+	}
 }
 
 func subagentTaskResult(result *subagent.Result) *taskbridge.TaskResult {

@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"nekocode/bot/provider/types"
-	urlutil "nekocode/util/url"
+	"nekocode/util/url"
 )
 
 type streamChunk struct {
@@ -60,7 +60,7 @@ func (c *Client) headers() map[string]string {
 }
 
 func (c *Client) endpoint(path string) string {
-	return urlutil.JoinURLPathWithVersion(c.BaseURL, "v1", path)
+	return url.JoinURLPathWithVersion(c.BaseURL, "v1", path)
 }
 
 // newStreamRequest creates an *http.Request for streaming, reusing pre-marshaled body.

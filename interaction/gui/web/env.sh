@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # NekoCode GUI 开发环境初始化
-# 在 nix-shell 内执行: source gui/env.sh
+# 在 nix-shell 内、仓库根目录执行: source interaction/gui/web/env.sh
 
-PROJ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJ_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 BUILD_DIR="$PROJ_DIR/build"
 
 # 1. Go bin to PATH
@@ -11,7 +12,7 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 # 2. 编译 sigwrap
 mkdir -p "$BUILD_DIR"
 if [ ! -f "$BUILD_DIR/libsigwrap.so" ]; then
-    gcc -shared -fPIC -o "$BUILD_DIR/libsigwrap.so" "$PROJ_DIR/gui/sigwrap.c" -ldl
+    gcc -shared -fPIC -o "$BUILD_DIR/libsigwrap.so" "$SCRIPT_DIR/sigwrap.c" -ldl
     echo "sigwrap: compiled $BUILD_DIR/libsigwrap.so"
 fi
 

@@ -61,7 +61,7 @@ func TestVisibleEstimatedTokens(t *testing.T) {
 	}
 	budget := 64000
 	cm := &Compactor{
-		Ctx:           &context.Content{Messages: msgs, CompactBoundary: 2, Archive: "summary text"},
+		Ctx:           &content.Content{Messages: msgs, CompactBoundary: 2, Archive: "summary text"},
 		ContextWindow: &budget, Tracker: &testTracker{},
 		CompactCount: new(int), TrimCount: new(int), Cfg: DefaultConfig,
 	}

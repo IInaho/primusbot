@@ -3,12 +3,7 @@ package tui
 
 import (
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 )
-
-type notifyMsg struct {
-	content string
-}
 
 type chatState int
 
@@ -24,18 +19,6 @@ type doneMsg struct {
 	duration string
 	tokens   string
 	err      error
-}
-
-type confirmMsg struct {
-	req view.ConfirmRequest
-}
-
-type questionMsg struct {
-	req view.QuestionRequest
-}
-
-type summarizeDoneMsg struct {
-	content string
 }
 
 type runtimeEventMsg struct {

@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"nekocode/interaction/connect/telegram"
-	controlruntime "nekocode/runtime"
 	"nekocode/runtime/defaultbot"
 	"nekocode/runtime/httpapi"
 )
@@ -25,10 +23,7 @@ func main() {
 	token := flag.String("token", os.Getenv("NEKOCODE_DAEMON_TOKEN"), "optional bearer token for HTTP API")
 	flag.Parse()
 
-	rt := defaultbot.NewSessionRuntime()
-	rt.RegisterConnector("telegram", func(runtime controlruntime.Runtime) controlruntime.Connector {
-		return telegram.New(runtime)
-	})
+	rt := defaultbot.NewSessionRuntimeWithTelegram()
 	defer rt.Close()
 
 	handler := httpapi.New(rt).Handler()

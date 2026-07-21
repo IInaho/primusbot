@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -24,6 +26,57 @@ type BashMatcher struct{}
 
 func (BashMatcher) Match(spec string, info map[string]any) (bool, error) {
 	return BashRuleMatches(spec, info, MatchAllSubcommands), nil
+}
+
+// MatchForEffect implements EffectAwareMatcher: allow rules must cover EVERY
+// subcommand of a compound command (a narrow allow must not be bypassed by
+// chaining a disallowed command), while deny/ask rules fire when ANY
+// subcommand matches (a denied or guarded subcommand must not slip through
+// inside a chain).
+func (BashMatcher) MatchForEffect(spec string, info map[string]any, effect Effect) (bool, error) {
+	mode := MatchAllSubcommands
+	if effect == EffectDeny || effect == EffectAsk {
+		mode = MatchAnySubcommand
+	}
+	return BashRuleMatches(spec, info, mode), nil
+}
+
+// CompoundAllowCoverage implements AllowCoverer: the command is split into
+// subcommands and coverage holds when EVERY subcommand is matched by at
+// least one allow specifier. deciding is the index (into specs) of the first
+// specifier that covers a subcommand. hasBareAllow short-circuits coverage:
+// a match-all allow covers every subcommand (deciding = -1, the engine maps
+// it back to the bare rule). Non-compound commands (a single subcommand)
+// report covered = false so the engine falls back to per-rule Match.
+func (BashMatcher) CompoundAllowCoverage(hasBareAllow bool, specs []string, callInfo map[string]any) (deciding int, covered bool) {
+	cmd, _ := callInfo["command"].(string)
+	subcmds := shellCommands(cmd)
+	if len(subcmds) <= 1 {
+		return -1, false
+	}
+	if hasBareAllow {
+		return -1, true
+	}
+	if len(specs) == 0 {
+		return -1, false
+	}
+	deciding = -1
+	for _, sub := range subcmds {
+		subCovered := false
+		for i, spec := range specs {
+			if matchBashPattern(normalizeBashSpec(spec), sub) {
+				subCovered = true
+				if deciding < 0 {
+					deciding = i
+				}
+				break
+			}
+		}
+		if !subCovered {
+			return -1, false
+		}
+	}
+	return deciding, true
 }
 
 type BashMatchMode int
@@ -141,7 +194,36 @@ func isAllDigits(s string) bool {
 	return true
 }
 
+// shellParseCacheMax bounds the memoization of shell parses; once full, the
+// cache is cleared wholesale and refilled. A full clear avoids per-entry
+// eviction bookkeeping on the hot path, and permission evaluation tolerates
+// the occasional re-parse.
+const shellParseCacheMax = 256
+
+var (
+	shellParseCache sync.Map // command string → []string subcommands
+	shellParseCount atomic.Int64
+)
+
+// shellCommands splits a command line into its rendered subcommands via a
+// full shell parse (mvdan.cc/sh). The result is memoized: the same command is
+// re-matched against many rules (deny/ask/allow passes plus allow coverage)
+// on every tool call, and the parse dominates that cost. Callers must not
+// mutate the returned slice — it is shared from the cache.
 func shellCommands(cmd string) []string {
+	if v, ok := shellParseCache.Load(cmd); ok {
+		return v.([]string)
+	}
+	out := parseShellCommands(cmd)
+	if shellParseCount.Add(1) > shellParseCacheMax {
+		shellParseCache.Clear()
+		shellParseCount.Store(1)
+	}
+	shellParseCache.Store(cmd, out)
+	return out
+}
+
+func parseShellCommands(cmd string) []string {
 	parser := syntax.NewParser()
 	file, err := parser.Parse(strings.NewReader(cmd), "")
 	if err != nil {

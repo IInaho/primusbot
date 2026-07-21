@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 )
 
 type Runtime interface {
@@ -34,8 +33,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /connect", s.handleConnect)
 	mux.HandleFunc("POST /connect/{name}", s.handleConnectCommand)
 	mux.HandleFunc("POST /disconnect/{name}", s.handleDisconnectCommand)
+	mux.HandleFunc("GET /model", s.handleModel)
+	mux.HandleFunc("GET /commands", s.handleCommands)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /context", s.handleContext)
+	mux.HandleFunc("GET /memory", s.handleMemory)
 	mux.HandleFunc("GET /sessions", s.handleSessions)
 	mux.HandleFunc("GET /sessions/current/messages", s.handleSessionMessages)
 	mux.HandleFunc("POST /input", s.handleInput)
@@ -49,12 +51,12 @@ func (s *Server) Handler() http.Handler {
 }
 
 type submitRequest struct {
-	Text      string                   `json:"text"`
-	Kind      controlruntime.InputKind `json:"kind,omitempty"`
-	Source    controlruntime.SourceRef `json:"source,omitempty"`
-	Sender    controlruntime.SenderRef `json:"sender,omitempty"`
-	SessionID string                   `json:"session_id,omitempty"`
-	ReplyTo   string                   `json:"reply_to,omitempty"`
+	Text      string                    `json:"text"`
+	Kind      controlruntime.InputKind  `json:"kind,omitempty"`
+	Source    *controlruntime.SourceRef `json:"source,omitempty"`
+	Sender    *controlruntime.SenderRef `json:"sender,omitempty"`
+	SessionID string                    `json:"session_id,omitempty"`
+	ReplyTo   string                    `json:"reply_to,omitempty"`
 }
 
 type submitResponse struct {
@@ -74,27 +76,6 @@ type questionRequest struct {
 
 type connectRequest struct {
 	Args []string `json:"args,omitempty"`
-}
-
-type statsRuntime interface {
-	Stats() view.BotStats
-}
-
-type contextRuntime interface {
-	ContextSnapshot() view.ContextSnapshot
-}
-
-type sessionRuntime interface {
-	ListSessions() []view.SessionMeta
-	SessionMessages() []view.DisplayMessage
-}
-
-type connectorCommandRuntime interface {
-	Connect(ctx context.Context, name string, args []string) (string, error)
-}
-
-type connectorDisconnectRuntime interface {
-	Disconnect(name string) (string, error)
 }
 
 type eventHistoryRuntime interface {
@@ -128,17 +109,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleConnectCommand(w http.ResponseWriter, r *http.Request) {
-	rt, ok := s.rt.(connectorCommandRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "connector commands are not supported")
-		return
-	}
 	var req connectRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp, err := rt.Connect(r.Context(), r.PathValue("name"), req.Args)
+	resp, err := s.rt.Connect(r.Context(), r.PathValue("name"), req.Args)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -147,12 +123,7 @@ func (s *Server) handleConnectCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDisconnectCommand(w http.ResponseWriter, r *http.Request) {
-	rt, ok := s.rt.(connectorDisconnectRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "connector disconnect is not supported")
-		return
-	}
-	resp, err := rt.Disconnect(r.PathValue("name"))
+	resp, err := s.rt.Disconnect(r.PathValue("name"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -160,40 +131,36 @@ func (s *Server) handleDisconnectCommand(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"message": resp})
 }
 
+func (s *Server) handleModel(w http.ResponseWriter, _ *http.Request) {
+	provider, model := s.rt.ProviderModel()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"provider": provider,
+		"model":    model,
+	})
+}
+
+func (s *Server) handleCommands(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"commands": s.rt.CommandNames()})
+}
+
 func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(statsRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "stats are not supported")
-		return
-	}
-	writeJSON(w, http.StatusOK, rt.Stats())
+	writeJSON(w, http.StatusOK, s.rt.Stats())
 }
 
 func (s *Server) handleContext(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(contextRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "context snapshot is not supported")
-		return
-	}
-	writeJSON(w, http.StatusOK, rt.ContextSnapshot())
+	writeJSON(w, http.StatusOK, s.rt.ContextSnapshot())
+}
+
+func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.rt.MemoryView(controlruntime.MemoryScope(r.URL.Query().Get("scope"))))
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(sessionRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "sessions are not supported")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": rt.ListSessions()})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.rt.ListSessions()})
 }
 
 func (s *Server) handleSessionMessages(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(sessionRuntime)
-	if !ok {
-		writeError(w, http.StatusNotImplemented, "session messages are not supported")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": rt.SessionMessages()})
+	writeJSON(w, http.StatusOK, map[string]any{"messages": s.rt.SessionMessages()})
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
@@ -226,13 +193,21 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if req.Source.Kind == "" {
-		req.Source.Kind = "http"
+	source := controlruntime.SourceRef{Kind: "http"}
+	if req.Source != nil {
+		source = *req.Source
+		if source.Kind == "" {
+			source.Kind = "http"
+		}
+	}
+	var sender controlruntime.SenderRef
+	if req.Sender != nil {
+		sender = *req.Sender
 	}
 	runID, err := s.rt.Submit(r.Context(), controlruntime.Input{
 		Kind:      req.Kind,
-		Source:    req.Source,
-		Sender:    req.Sender,
+		Source:    source,
+		Sender:    sender,
 		Text:      req.Text,
 		SessionID: req.SessionID,
 		ReplyTo:   req.ReplyTo,
@@ -277,7 +252,7 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	err := s.rt.Answer(r.Context(), r.PathValue("questionID"), view.QuestionReply{
+	err := s.rt.Answer(r.Context(), r.PathValue("questionID"), controlruntime.QuestionReply{
 		Answers:  req.Answers,
 		Rejected: req.Rejected,
 	})
@@ -336,9 +311,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func decodeJSON(r *http.Request, out any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(out); err != nil {
+	if err := decodeSingleJSON(r.Body, out); err != nil {
 		return fmt.Errorf("invalid json: %w", err)
 	}
 	return nil
@@ -349,13 +322,26 @@ func decodeOptionalJSON(r *http.Request, out any) error {
 		return nil
 	}
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(out); err != nil {
+	if err := decodeSingleJSON(r.Body, out); err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		return fmt.Errorf("invalid json: %w", err)
+	}
+	return nil
+}
+
+func decodeSingleJSON(body io.Reader, out any) error {
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return errors.New("multiple json values")
+	} else if !errors.Is(err, io.EOF) {
+		return err
 	}
 	return nil
 }

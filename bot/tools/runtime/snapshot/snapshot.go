@@ -1,8 +1,8 @@
 package editcore
 
 import (
-	"sync"
 	"nekocode/bot/tools/runtime/toolutil"
+	"sync"
 	"time"
 )
 
@@ -139,4 +139,3 @@ func (s *SnapshotStore) evictOldest() {
 	}
 	delete(s.versions, oldest)
 }
-

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"nekocode/bot/extension"
+	commonview "nekocode/common/view"
 )
 
 func TestViewBundleFields(t *testing.T) {
@@ -61,7 +61,7 @@ func TestMCPServersFor(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("expected 3 mcp views, got %d", len(got))
 	}
-	byName := map[string]extension.MCPServerView{}
+	byName := map[string]commonview.MCPServerView{}
 	for _, s := range got {
 		byName[s.Name] = s
 	}

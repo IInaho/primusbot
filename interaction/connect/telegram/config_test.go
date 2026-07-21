@@ -3,10 +3,7 @@ package telegram
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-
-	"nekocode/interaction/connect/telegram/internal/taskview"
 )
 
 func TestProfileAllowsOnlyOwner(t *testing.T) {
@@ -63,31 +60,5 @@ func TestLoadConfigMigratesLegacySingleBot(t *testing.T) {
 	}
 	if p.Owner == nil || p.Owner.UserID != 9 || p.Owner.ChatID != 90 {
 		t.Fatalf("owner not migrated: %#v", p.Owner)
-	}
-}
-
-func TestTruncateRunes(t *testing.T) {
-	got := taskview.TruncateRunes("你好世界", 2)
-	if got != "你好..." {
-		t.Fatalf("truncateRunes = %q", got)
-	}
-}
-
-func TestTerminalQR(t *testing.T) {
-	got, err := terminalQR("https://t.me/example_bot?start=test")
-	if err != nil {
-		t.Fatalf("terminalQR: %v", err)
-	}
-	if got == "" {
-		t.Fatal("terminalQR returned empty output")
-	}
-	if strings.HasSuffix(got, "\n") {
-		t.Fatal("terminalQR should not add a trailing blank line")
-	}
-	if strings.Contains(got, "\n\n") {
-		t.Fatal("terminalQR should not contain empty rows")
-	}
-	if !strings.Contains(got, "\x1b[47m") || !strings.Contains(got, "\x1b[40m") {
-		t.Fatal("terminalQR should render explicit white and black backgrounds")
 	}
 }

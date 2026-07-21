@@ -3,21 +3,24 @@ package redaction
 import "testing"
 
 func TestRedactInputText(t *testing.T) {
-	got := RedactInputText("/connect telegram token 123:secret-token")
-	want := "/connect telegram token [redacted]"
-	if got != want {
-		t.Fatalf("redacted input = %q, want %q", got, want)
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"/connect telegram token 123:secret-token", "/connect telegram token [redacted]"},
+		{"/connect telegram add personal 123:secret-token", "/connect telegram add personal [redacted]"},
+		{"/connect telegram add 123:secret-token", "/connect telegram add [redacted]"},
+		{"/connect slack token xoxb-secret-token", "/connect slack token [redacted]"},
+		{"/connect slack add workspace xoxb-secret-token", "/connect slack add workspace [redacted]"},
+		{"/connect discord token secret-token", "/connect discord token [redacted]"},
+		{"/connect telegram status", "/connect telegram status"},
+		{"hello world", "hello world"},
 	}
 
-	got = RedactInputText("/connect telegram add personal 123:secret-token")
-	want = "/connect telegram add personal [redacted]"
-	if got != want {
-		t.Fatalf("redacted add input = %q, want %q", got, want)
-	}
-
-	got = RedactInputText("/connect telegram add 123:secret-token")
-	want = "/connect telegram add [redacted]"
-	if got != want {
-		t.Fatalf("redacted short add input = %q, want %q", got, want)
+	for _, tc := range cases {
+		got := RedactInputText(tc.input)
+		if got != tc.want {
+			t.Fatalf("RedactInputText(%q) = %q, want %q", tc.input, got, tc.want)
+		}
 	}
 }

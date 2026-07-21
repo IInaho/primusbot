@@ -38,13 +38,13 @@ func TestAnthropicClient(t *testing.T) {
 }
 
 func TestFactory(t *testing.T) {
-	if NewClientWithProtocol("deepseek", "k", "", "m", "openai") == nil {
+	if NewClientWithProtocol("k", "", "m", "openai") == nil {
 		t.Error("deepseek should return LLM")
 	}
-	if NewClientWithProtocol("mimo", "k", "https://api.xiaomimimo.com/anthropic/v1", "mimo-v3", "anthropic") == nil {
+	if NewClientWithProtocol("k", "https://api.xiaomimimo.com/anthropic/v1", "mimo-v3", "anthropic") == nil {
 		t.Error("mimo + anthropic should return LLM")
 	}
-	if NewClientWithProtocol("mimo", "k", "", "mimo-v3", "openai") == nil {
+	if NewClientWithProtocol("k", "", "mimo-v3", "openai") == nil {
 		t.Error("mimo + openai should return LLM")
 	}
 }

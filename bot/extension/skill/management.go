@@ -5,28 +5,28 @@ import (
 	"sort"
 	"strings"
 
-	"nekocode/bot/extension"
+	commonview "nekocode/common/view"
 )
 
-func BuildManagementView(reg *Registry, plugins []extension.PluginView, mcp []extension.MCPServerView) extension.SkillManagementView {
-	return extension.SkillManagementView{
+func BuildManagementView(reg *Registry, plugins []commonview.PluginView, mcp []commonview.MCPServerView) commonview.SkillManagementView {
+	return commonview.SkillManagementView{
 		Skills:  BuildViews(reg, plugins),
 		Plugins: plugins,
 		MCP:     mcp,
 	}
 }
 
-func BuildViews(reg *Registry, plugins []extension.PluginView) []extension.SkillView {
+func BuildViews(reg *Registry, plugins []commonview.PluginView) []commonview.SkillView {
 	if reg == nil {
 		return nil
 	}
 	skills := reg.List()
-	out := make([]extension.SkillView, 0, len(skills))
+	out := make([]commonview.SkillView, 0, len(skills))
 	for _, sk := range skills {
 		kind, source, pluginName := SourceForDir(sk.Dir, plugins)
 		files := append([]string(nil), sk.Files...)
 		sort.Strings(files)
-		out = append(out, extension.SkillView{
+		out = append(out, commonview.SkillView{
 			Name:        sk.Name,
 			Description: sk.Description,
 			Dir:         sk.Dir,
@@ -47,7 +47,7 @@ func BuildViews(reg *Registry, plugins []extension.PluginView) []extension.Skill
 //
 // It returns (kind, label, pluginName). label is a Chinese display string
 // ("内置" / "插件" / "本地"); kind is the stable machine-readable value.
-func SourceForDir(dir string, plugins []extension.PluginView) (string, string, string) {
+func SourceForDir(dir string, plugins []commonview.PluginView) (string, string, string) {
 	if dir == "" {
 		return "builtin", "内置", ""
 	}

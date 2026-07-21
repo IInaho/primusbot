@@ -12,7 +12,6 @@ import (
 	"nekocode/interaction/tui/components/message"
 	"nekocode/interaction/tui/components/processing"
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/view"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -23,26 +22,6 @@ const (
 )
 
 // --- done ---
-
-func (m *Model) handleSummarizeDone(msg summarizeDoneMsg) tea.Cmd {
-	m.transitionTo(stateReady)
-
-	content := msg.content
-	if strings.TrimSpace(content) == "" {
-		content = "Summarize completed with no output."
-	}
-	m.Messages.AddMessage(message.ChatMessage{
-		Role: "system", Title: "/summarize",
-		Content: content, RenderedContent: content,
-	})
-
-	st := m.Runtime.Stats()
-	m.Header.SetTokens(st.PromptTokens + st.CompletionTokens)
-	if m.Messages.Follow {
-		m.Messages.GotoBottom()
-	}
-	return nil
-}
 
 func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 	finalBlocks := block.FilterFinalBlocks(m.Messages.ProcessingBlocks())
@@ -119,7 +98,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.state = m.preConfirmState
 	m.resizeMessages()
 	if m.state == stateProcessing {
-		return m, tea.Batch(listenConfirm(m.confirmCh), spinnerTick())
+		return m, spinnerTick()
 	}
 	return m, nil
 }
@@ -155,7 +134,7 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.state = m.preConfirmState
 	m.resizeMessages()
 	if m.state == stateProcessing {
-		return m, tea.Batch(listenConfirm(m.confirmCh), listenQuestion(m.questionCh), spinnerTick())
+		return m, spinnerTick()
 	}
 	return m, nil
 }
@@ -398,21 +377,21 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 			m.setPhase(p.Phase)
 		}
 	case controlruntime.EventTodosUpdated:
-		if items, ok := ev.Payload.([]view.TodoItem); ok {
+		if items, ok := ev.Payload.([]controlruntime.TodoItem); ok {
 			m.Messages.SetTodos(todoItemsText(items))
 		}
 	case controlruntime.EventToolStarted:
-		m.applyRuntimeToolEvent(ev, "tool_start")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionToolStart)
 	case controlruntime.EventToolBlocked:
-		m.applyRuntimeToolEvent(ev, "tool_blocked")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionToolBlocked)
 	case controlruntime.EventToolPreview:
-		m.applyRuntimeToolEvent(ev, "tool_preview")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionToolPreview)
 	case controlruntime.EventToolCompleted:
-		m.applyRuntimeToolEvent(ev, "execute_tool")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionExecuteTool)
 	case controlruntime.EventSubAgentStarted:
-		m.applyRuntimeToolEvent(ev, "sub_agent_start")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionSubAgentStart)
 	case controlruntime.EventSubAgentEnded:
-		m.applyRuntimeToolEvent(ev, "sub_agent_end")
+		m.applyRuntimeToolEvent(ev, controlruntime.StepActionSubAgentEnd)
 	case controlruntime.EventApprovalRequested:
 		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
 			req := p.ToConfirmRequest()
@@ -435,7 +414,7 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 	case controlruntime.EventQuestionRequested:
 		if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
 			req := p.ToQuestionRequest()
-			m.QuestionBar.SetRequestWithResponder(&req, func(reply view.QuestionReply) {
+			m.QuestionBar.SetRequestWithResponder(&req, func(reply controlruntime.QuestionReply) {
 				_ = m.Runtime.Answer(context.Background(), p.ID, reply)
 			})
 			m.preConfirmState = m.state
@@ -483,9 +462,9 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 	return nil
 }
 
-func (m *Model) applyRuntimeToolEvent(ev controlruntime.Event, action string) {
+func (m *Model) applyRuntimeToolEvent(ev controlruntime.Event, action controlruntime.StepAction) {
 	if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
 		final := ""
-		m.onAgentStep(&final)(action, p.ToolName, p.Args, p.Output)
+		m.onAgentStep(&final)(action, p.ToolName, p.Args, p.Output, p.IsError)
 	}
 }

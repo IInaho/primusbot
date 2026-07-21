@@ -2,166 +2,203 @@ package runtime
 
 import (
 	"fmt"
-
-	"nekocode/runtime/view"
 )
 
-func (r *SessionRuntime) guiBot() (GUIBot, error) {
-	gui, ok := r.bot.(GUIBot)
-	if !ok {
-		return nil, fmt.Errorf("runtime: bot does not implement GUI interface")
+func unsupportedManagementCapability(name string) error {
+	return fmt.Errorf("runtime: bot does not support %s management", name)
+}
+
+func (r *SessionRuntime) modelManager() (CoreModelManager, error) {
+	if r.modelManagement == nil {
+		return nil, unsupportedManagementCapability("model")
 	}
-	return gui, nil
+	return r.modelManagement, nil
+}
+
+func (r *SessionRuntime) contextManager() (CoreContextManager, error) {
+	if r.contextManagement == nil {
+		return nil, unsupportedManagementCapability("context")
+	}
+	return r.contextManagement, nil
+}
+
+func (r *SessionRuntime) skillManager() (CoreSkillManager, error) {
+	if r.skillManagement == nil {
+		return nil, unsupportedManagementCapability("skill")
+	}
+	return r.skillManagement, nil
+}
+
+func (r *SessionRuntime) configManager() (CoreConfigManager, error) {
+	if r.configManagement == nil {
+		return nil, unsupportedManagementCapability("config")
+	}
+	return r.configManagement, nil
+}
+
+func (r *SessionRuntime) sessionManager() (CoreSessionManager, error) {
+	if r.sessionManagement == nil {
+		return nil, unsupportedManagementCapability("session")
+	}
+	return r.sessionManagement, nil
 }
 
 func (r *SessionRuntime) SwitchModel(name string) (string, string, error) {
-	gui, err := r.guiBot()
+	manager, err := r.modelManager()
 	if err != nil {
 		return "", "", err
 	}
-	return gui.SwitchModel(name)
+	return manager.SwitchModel(name)
 }
 
 func (r *SessionRuntime) ContextStatus() string {
-	gui, err := r.guiBot()
+	manager, err := r.contextManager()
 	if err != nil {
 		return ""
 	}
-	return gui.ContextStatus()
+	return manager.ContextStatus()
 }
 
 func (r *SessionRuntime) ContextReport() string {
-	gui, err := r.guiBot()
+	manager, err := r.contextManager()
 	if err != nil {
 		return err.Error()
 	}
-	return gui.ContextReport()
+	return manager.ContextReport()
 }
 
-func (r *SessionRuntime) ContextSnapshot() view.ContextSnapshot {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) ContextSnapshot() ContextSnapshot {
+	manager, err := r.contextManager()
 	if err != nil {
-		return view.ContextSnapshot{}
+		return ContextSnapshot{}
 	}
-	return gui.ContextSnapshot()
+	return manager.ContextSnapshot()
+}
+
+func (r *SessionRuntime) MemoryView(scope MemoryScope) MemoryView {
+	manager, err := r.contextManager()
+	if err != nil {
+		return MemoryView{}
+	}
+	return manager.MemoryView(scope)
 }
 
 func (r *SessionRuntime) SelectSkill(name string) error {
-	gui, err := r.guiBot()
+	manager, err := r.skillManager()
 	if err != nil {
 		return err
 	}
-	return gui.SelectSkill(name)
+	return manager.SelectSkill(name)
 }
 
 func (r *SessionRuntime) ClearSelectedSkill() {
-	gui, err := r.guiBot()
+	manager, err := r.skillManager()
 	if err != nil {
 		return
 	}
-	gui.ClearSelectedSkill()
+	manager.ClearSelectedSkill()
 }
 
-func (r *SessionRuntime) ConfigView() view.ConfigView {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) ConfigView() ConfigView {
+	manager, err := r.configManager()
 	if err != nil {
-		return view.ConfigView{}
+		return ConfigView{}
 	}
-	return gui.ConfigView()
+	return manager.ConfigView()
 }
 
-func (r *SessionRuntime) ApplyConfig(cfg view.ConfigView) (view.ConfigView, error) {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) ApplyConfig(cfg ConfigView) (ConfigView, error) {
+	manager, err := r.configManager()
 	if err != nil {
-		return view.ConfigView{}, err
+		return ConfigView{}, err
 	}
-	return gui.ApplyConfig(cfg)
+	return manager.ApplyConfig(cfg)
 }
 
-func (r *SessionRuntime) SkillManagementView() view.SkillManagementView {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) SkillManagementView() SkillManagementView {
+	manager, err := r.skillManager()
 	if err != nil {
-		return view.SkillManagementView{}
+		return SkillManagementView{}
 	}
-	return gui.SkillManagementView()
+	return manager.SkillManagementView()
 }
 
-func (r *SessionRuntime) RefreshSkillManagement() view.SkillManagementView {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) RefreshSkillManagement() SkillManagementView {
+	manager, err := r.skillManager()
 	if err != nil {
-		return view.SkillManagementView{}
+		return SkillManagementView{}
 	}
-	return gui.RefreshSkillManagement()
+	return manager.RefreshSkillManagement()
 }
 
-func (r *SessionRuntime) SetPluginEnabled(name string, enabled bool) (view.SkillManagementView, error) {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) SetPluginEnabled(name string, enabled bool) (SkillManagementView, error) {
+	manager, err := r.skillManager()
 	if err != nil {
-		return view.SkillManagementView{}, err
+		return SkillManagementView{}, err
 	}
-	return gui.SetPluginEnabled(name, enabled)
+	return manager.SetPluginEnabled(name, enabled)
 }
 
 func (r *SessionRuntime) CWD() string {
-	gui, err := r.guiBot()
+	manager, err := r.contextManager()
 	if err != nil {
 		return ""
 	}
-	return gui.CWD()
+	return manager.CWD()
 }
 
 func (r *SessionRuntime) ClearContext() {
-	gui, err := r.guiBot()
+	manager, err := r.contextManager()
 	if err != nil {
 		return
 	}
-	gui.ClearContext()
+	manager.ClearContext()
 }
 
 func (r *SessionRuntime) CurrentSessionID() string {
-	gui, err := r.guiBot()
+	manager, err := r.sessionManager()
 	if err != nil {
 		return ""
 	}
-	return gui.CurrentSessionID()
+	return manager.CurrentSessionID()
 }
 
 func (r *SessionRuntime) SetSession(id string) error {
-	gui, err := r.guiBot()
+	manager, err := r.sessionManager()
 	if err != nil {
 		return err
 	}
-	return gui.SetSession(id)
+	return manager.SetSession(id)
 }
 
 func (r *SessionRuntime) ResumeSession(id string) error {
-	gui, err := r.guiBot()
+	manager, err := r.sessionManager()
 	if err != nil {
 		return err
 	}
-	return gui.ResumeSession(id)
+	return manager.ResumeSession(id)
 }
 
-func (r *SessionRuntime) ListSessions() []view.SessionMeta {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) ListSessions() []SessionMeta {
+	manager, err := r.sessionManager()
 	if err != nil {
 		return nil
 	}
-	return gui.ListSessions()
+	return manager.ListSessions()
 }
 
-func (r *SessionRuntime) NewSession() (view.SessionMeta, error) {
-	gui, err := r.guiBot()
+func (r *SessionRuntime) NewSession() (SessionMeta, error) {
+	manager, err := r.sessionManager()
 	if err != nil {
-		return view.SessionMeta{}, err
+		return SessionMeta{}, err
 	}
-	return gui.NewSession()
+	return manager.NewSession()
 }
 
 func (r *SessionRuntime) DeleteSession(id string) error {
-	gui, err := r.guiBot()
+	manager, err := r.sessionManager()
 	if err != nil {
 		return err
 	}
-	return gui.DeleteSession(id)
+	return manager.DeleteSession(id)
 }
