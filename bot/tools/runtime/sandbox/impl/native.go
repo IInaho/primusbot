@@ -97,6 +97,12 @@ func prepareNativeLaunch(command string, profile Profile) (*nativeLaunch, error)
 	}
 	profile.WritePaths = writePaths
 
+	readPaths, err := resolveWritePaths(profile.ReadPaths)
+	if err != nil {
+		return nil, err
+	}
+	profile.ReadPaths = readPaths
+
 	// The parent creates the staging mountpoint and the caller cleans it up
 	// after the child exits. Using a unique dir avoids collisions between
 	// concurrent sandbox runs. When MkdirTemp fails we fall back to a shared
@@ -407,6 +413,15 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 	// the sandbox only handles mount mechanics.
 	for _, wp := range profile.WritePaths {
 		if err := bindHostPath(root, wp, false); err != nil {
+			return err
+		}
+	}
+
+	// ReadPaths: bind read-only at their host-absolute paths. These are
+	// extra authorized workspace roots that must be visible (but not
+	// writable) inside the sandbox.
+	for _, rp := range profile.ReadPaths {
+		if err := bindHostPath(root, rp, true); err != nil {
 			return err
 		}
 	}

@@ -38,6 +38,29 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 	}
 }
 
+func TestWorkspacePermissionConfirmShowsPath(t *testing.T) {
+	sty := styles.DefaultStyles()
+	cb := NewConfirmBar(&sty)
+	cb.SetRequest(&controlruntime.ConfirmRequest{
+		ToolName: "workspace",
+		Args: map[string]any{
+			"path":              "/repo/other",
+			"access":            "read-only",
+			"requested_path":    "/repo/other/src/a.go",
+			"permission_reason": "add read-only workspace for read",
+		},
+		Kind:     controlruntime.ConfirmKindPermission,
+		Response: make(chan controlruntime.ConfirmReply, 1),
+	})
+
+	view := cb.View(100, 40)
+	for _, want := range []string{"/repo/other", "/repo/other/src/a.go"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("workspace confirm missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)

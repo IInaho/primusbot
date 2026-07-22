@@ -23,14 +23,19 @@ type Root struct {
 
 var current = struct {
 	sync.RWMutex
-	roots []Root
+	// configured roots come from Configure (cwd + config file + remembered
+	// roots) and are replaced wholesale on every reload.
+	configured []Root
+	// session roots come from AddSessionRoot (user approved a workspace
+	// during the session) and survive Configure reloads.
+	session []Root
 }{}
 
 func Configure(primary string, extra []Root) {
 	roots := []Root{{Path: primary, Access: AccessReadWrite}}
 	roots = append(roots, extra...)
 	current.Lock()
-	current.roots = normalizeRoots(roots)
+	current.configured = normalizeRoots(roots)
 	current.Unlock()
 }
 
@@ -41,13 +46,16 @@ func AddSessionRoot(path string, access Access) (Root, error) {
 	}
 	current.Lock()
 	defer current.Unlock()
-	current.roots = upsertRoot(current.roots, root)
+	current.session = upsertRoot(current.session, root)
 	return root, nil
 }
 
 func Snapshot() []Root {
 	current.RLock()
-	roots := append([]Root(nil), current.roots...)
+	roots := append([]Root(nil), current.configured...)
+	for _, r := range current.session {
+		roots = upsertRoot(roots, r)
+	}
 	current.RUnlock()
 	if len(roots) > 0 {
 		return roots
@@ -80,7 +88,7 @@ func check(path string, need Access) (string, Root, bool, error) {
 }
 
 func Resolve(path string) (string, error) {
-	abs, err := filepath.Abs(path)
+	abs, err := filepath.Abs(expandHome(path))
 	if err != nil {
 		return "", fmt.Errorf("path resolution failed: %w", err)
 	}
@@ -125,11 +133,7 @@ func normalizeRoot(r Root) (Root, error) {
 	if p == "" {
 		return Root{}, fmt.Errorf("workspace path is required")
 	}
-	if strings.HasPrefix(p, "~/") {
-		if home, _ := os.UserHomeDir(); home != "" {
-			p = filepath.Join(home, strings.TrimPrefix(p, "~/"))
-		}
-	}
+	p = expandHome(p)
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return Root{}, err
@@ -142,6 +146,17 @@ func normalizeRoot(r Root) (Root, error) {
 		r.Access = AccessReadOnly
 	}
 	return r, nil
+}
+
+// expandHome resolves a leading ~/ to the user's home directory so paths
+// handed to Resolve and root normalization behave consistently.
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, _ := os.UserHomeDir(); home != "" {
+			p = filepath.Join(home, strings.TrimPrefix(p, "~/"))
+		}
+	}
+	return p
 }
 
 func upsertRoot(roots []Root, root Root) []Root {

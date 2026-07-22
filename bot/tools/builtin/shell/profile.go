@@ -2,11 +2,14 @@ package shell
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/sandbox"
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 // backend is the sandbox executor used by the shell tool. It defaults to
@@ -61,6 +64,30 @@ func buildProfileFromRequest(workspace string, req sandboxRequest, authorizedCap
 		profile.WritePaths = append(profile.WritePaths, req.WritableRoots...)
 	}
 	return profile, nil
+}
+
+// applyWorkspaceRoots mounts every authorized workspace root into the sandbox
+// profile: read-write roots become WritePaths, read-only roots ReadPaths.
+// Without this the sandbox only exposes the process cwd, and commands touching
+// an added workspace fail with "cannot access". These roots are already
+// user-authorized (same semantics as the file tools), so no capability check.
+func applyWorkspaceRoots(profile *sandbox.Profile, cwd string) {
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+	for _, root := range workspace.Snapshot() {
+		if root.Path == cwd {
+			continue // already covered by profile.Workspace
+		}
+		if info, err := os.Stat(root.Path); err != nil || !info.IsDir() {
+			continue // stale root (deleted since authorization); mounting it would fail
+		}
+		if root.Access == workspace.AccessReadWrite {
+			profile.WritePaths = append(profile.WritePaths, root.Path)
+		} else {
+			profile.ReadPaths = append(profile.ReadPaths, root.Path)
+		}
+	}
 }
 
 func hasCapability(caps []string, target string) bool {

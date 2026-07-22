@@ -40,6 +40,13 @@ type Profile struct {
 	// Paths may use ~/ prefixes; they are resolved to absolute paths.
 	WritePaths []string
 
+	// ReadPaths are extra host directories bind-mounted read-only inside
+	// the sandbox, in addition to Workspace. Use case: additional workspace
+	// roots the user authorized as read-only — without this the native
+	// backend hides them entirely and commands fail with "cannot access".
+	// Paths may use ~/ prefixes; they are resolved to absolute paths.
+	ReadPaths []string
+
 	// StagingRoot is an internal field used by the native backend to pass
 	// the host-side mountpoint to the re-exec'd child process (via JSON).
 	// Callers should not set it — it is assigned automatically.

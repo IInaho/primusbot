@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -52,5 +53,41 @@ func TestWorkspaceExtraReadWriteRoot(t *testing.T) {
 
 	if _, _, ok, err := CheckWrite(filepath.Join(extra, "cache.txt")); err != nil || !ok {
 		t.Fatalf("extra read-write root should be writable: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestConfigurePreservesSessionRoots(t *testing.T) {
+	primary := t.TempDir()
+	sessionRoot := t.TempDir()
+
+	Configure(primary, nil)
+	if _, err := AddSessionRoot(sessionRoot, AccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a hot reload (ApplyConfig -> reinit -> Configure): the
+	// session root added during the session must survive.
+	Configure(primary, nil)
+
+	if _, _, ok, err := CheckRead(filepath.Join(sessionRoot, "note.md")); err != nil || !ok {
+		t.Fatalf("session root should survive Configure: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestResolveExpandsHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory available")
+	}
+	if real, err := filepath.EvalSymlinks(home); err == nil {
+		home = real
+	}
+	resolved, err := Resolve("~/nekocode-test-file")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, "nekocode-test-file")
+	if resolved != want {
+		t.Fatalf("Resolve(~/) = %q, want %q", resolved, want)
 	}
 }

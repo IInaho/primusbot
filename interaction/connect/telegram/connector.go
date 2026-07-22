@@ -19,6 +19,7 @@ type Connector struct {
 	cancel      context.CancelFunc
 	running     bool
 	active      string
+	generation  int
 	taskTracker *taskview.Tracker
 }
 
@@ -95,16 +96,37 @@ func (c *Connector) Start(ctx context.Context) error {
 		c.cancel()
 	}
 	client := newAPIClient(profile.BotToken)
-	runCtx, cancel := context.WithCancel(ctx)
+	// Detach from the caller's context: it may be a single HTTP request or a
+	// finished run whose cancellation would silently kill the polling loops.
+	// The connector must live until Stop/Close is called explicitly.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	c.cancel = cancel
 	c.running = true
 	c.active = profile.Name
+	c.generation++
+	generation := c.generation
 	c.mu.Unlock()
 
 	c.publishStatus("running", "")
-	go c.pollLoop(runCtx, client)
+	go c.pollLoop(runCtx, client, generation)
 	go c.eventLoop(runCtx, client)
 	return nil
+}
+
+// markStopped clears the running state when the polling loop exits on its own
+// (e.g. its context was cancelled). The generation guard prevents a stale loop
+// from clobbering the state of a newer Start.
+func (c *Connector) markStopped(generation int) {
+	c.mu.Lock()
+	if c.generation != generation || !c.running {
+		c.mu.Unlock()
+		return
+	}
+	c.cancel = nil
+	c.running = false
+	c.active = ""
+	c.mu.Unlock()
+	c.publishStatus("stopped", "Telegram connector stopped.")
 }
 
 func (c *Connector) Stop() error {
@@ -120,7 +142,8 @@ func (c *Connector) Stop() error {
 	return nil
 }
 
-func (c *Connector) pollLoop(ctx context.Context, client *apiClient) {
+func (c *Connector) pollLoop(ctx context.Context, client *apiClient, generation int) {
+	defer c.markStopped(generation)
 	for {
 		cfg, err := loadConfig()
 		if err != nil {
@@ -336,6 +359,9 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 }
 
 func (c *Connector) publishStatus(status, message string) {
+	if c.rt == nil {
+		return
+	}
 	c.rt.Publish(controlruntime.Event{
 		Type:   controlruntime.EventConnectorStatus,
 		Source: controlruntime.SourceRef{Kind: "telegram"},

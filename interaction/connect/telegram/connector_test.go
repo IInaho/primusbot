@@ -219,3 +219,29 @@ func TestParseAnswerCommand(t *testing.T) {
 		t.Fatalf("parse implicit = %q %q", id, answer)
 	}
 }
+
+func TestMarkStoppedClearsState(t *testing.T) {
+	c := New(nil)
+	c.mu.Lock()
+	c.running = true
+	c.active = "personal"
+	c.generation = 2
+	c.cancel = func() {}
+	c.mu.Unlock()
+
+	// A stale generation (from an older Start) must not clear the state.
+	c.markStopped(1)
+	c.mu.Lock()
+	stillRunning := c.running
+	c.mu.Unlock()
+	if !stillRunning {
+		t.Fatal("stale generation should not clear running state")
+	}
+
+	c.markStopped(2)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running || c.active != "" || c.cancel != nil {
+		t.Fatalf("markStopped did not clear state: running=%v active=%q", c.running, c.active)
+	}
+}

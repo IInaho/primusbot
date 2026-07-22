@@ -178,6 +178,7 @@ func (t *ShellTool) start(ctx context.Context, args map[string]any, registry *Ta
 				profile.Network = true
 			}
 		}
+		applyWorkspaceRoots(&profile, workspace)
 	}
 	task, initial, err := registry.Start(ctx, StartRequest{
 		Command:    command,

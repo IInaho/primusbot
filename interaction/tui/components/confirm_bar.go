@@ -290,6 +290,13 @@ func (c *ConfirmBar) formatPermissionDesc() string {
 	if reason, ok := c.req.Args["permission_reason"].(string); ok && reason != "" {
 		lines = append(lines, "原因: "+friendlyPermissionReason(reason))
 	}
+	if path, ok := c.req.Args["path"].(string); ok && path != "" {
+		lines = append(lines, "路径: "+path)
+	}
+	reqPath, _ := c.req.Args["requested_path"].(string)
+	if reqPath != "" && reqPath != c.req.Args["path"] {
+		lines = append(lines, "请求: "+reqPath)
+	}
 	if caps, ok := c.req.Args["permission_capabilities"].(string); ok && caps != "" {
 		lines = append(lines, "权限: "+friendlyCapabilities(caps))
 	}

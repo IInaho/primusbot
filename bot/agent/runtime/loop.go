@@ -90,7 +90,13 @@ func (r *loopRunner) run(input string, callback RunCallback) *RunResult {
 		FinishStep:       func() { a.life.finished.Store(true) },
 		EvaluateStop:     r.evaluateStop,
 	})
-	return r.finishRun(callback)
+	result := r.finishRun(callback)
+	// Flush any steering messages that arrived too late to be drained during
+	// the run, so they are still recorded in the context instead of being
+	// lost. Done after finishRun so the interrupted-run truncation cannot
+	// cut them away.
+	a.drainSteering()
+	return result
 }
 
 func (r *loopRunner) startRun(input string) {
