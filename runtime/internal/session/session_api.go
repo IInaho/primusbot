@@ -153,12 +153,37 @@ func (r *SessionRuntime) Stats() BotStats {
 }
 
 func (r *SessionRuntime) CommandNames() []string {
-	names := append([]string(nil), r.catalog.CommandNames()...)
+	seen := make(map[string]bool)
+	names := make([]string, 0)
+	for _, name := range r.catalog.CommandNames() {
+		display := commandDisplayName(name)
+		if display == "" || seen[display] {
+			continue
+		}
+		seen[display] = true
+		names = append(names, display)
+	}
 	for name := range r.runtimeCommands {
-		names = append(names, name)
+		display := commandDisplayName(name)
+		if seen[display] {
+			continue
+		}
+		seen[display] = true
+		names = append(names, display)
 	}
 	sort.Strings(names)
 	return names
+}
+
+func commandDisplayName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "$") {
+		return name
+	}
+	return "/" + name
 }
 
 func (r *SessionRuntime) ProviderModel() (string, string) {

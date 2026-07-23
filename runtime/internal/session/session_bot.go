@@ -171,7 +171,11 @@ func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, 
 	if len(fields) == 0 {
 		return false
 	}
-	name := strings.TrimPrefix(strings.ToLower(fields[0]), "/")
+	head := strings.ToLower(fields[0])
+	if !strings.HasPrefix(head, "/") {
+		return false
+	}
+	name := strings.TrimPrefix(head, "/")
 	handler, ok := r.runtimeCommands[name]
 	if !ok {
 		return false

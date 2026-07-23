@@ -28,14 +28,19 @@ func (s *Suggestions) Refresh(prefix string, commands []string) {
 	s.scrollOff = 0
 	s.visible = false
 
-	if !strings.HasPrefix(prefix, "/") {
+	commandPrefix := suggestionPrefix(prefix)
+	if commandPrefix == "" {
 		return
 	}
 
-	p := strings.TrimPrefix(prefix, "/")
+	p := strings.TrimPrefix(prefix, commandPrefix)
 	for _, name := range commands {
-		if strings.HasPrefix(name, p) {
-			s.items = append(s.items, "/"+name)
+		display := commandDisplayName(name)
+		if !strings.HasPrefix(display, commandPrefix) {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimPrefix(display, commandPrefix), p) {
+			s.items = append(s.items, display)
 		}
 	}
 	if len(s.items) == 1 && s.items[0] == prefix {
@@ -44,6 +49,23 @@ func (s *Suggestions) Refresh(prefix string, commands []string) {
 	if len(s.items) > 0 {
 		s.visible = true
 	}
+}
+
+func suggestionPrefix(value string) string {
+	if strings.HasPrefix(value, "/") {
+		return "/"
+	}
+	if strings.HasPrefix(value, "$") {
+		return "$"
+	}
+	return ""
+}
+
+func commandDisplayName(name string) string {
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "$") {
+		return name
+	}
+	return "/" + name
 }
 
 func (s *Suggestions) Accept() string {

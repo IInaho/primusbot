@@ -2,63 +2,115 @@ package command
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
+const (
+	SlashPrefix  = "/"
+	DollarPrefix = "$"
+)
+
 type Command struct {
-	Name string
-	Args []string
-	Raw  string
+	Prefix string
+	Name   string
+	Args   []string
+	Raw    string
 }
 
 type Handler func(cmd *Command) (string, bool)
 
 type Parser struct {
-	handlers map[string]Handler
+	handlers map[commandKey]commandEntry
+}
+
+type commandKey struct {
+	Prefix string
+	Name   string
+}
+
+type commandEntry struct {
+	DisplayName string
+	Handler     Handler
 }
 
 func NewParser() *Parser {
-	return &Parser{handlers: make(map[string]Handler)}
+	return &Parser{handlers: make(map[commandKey]commandEntry)}
 }
 
 func (p *Parser) Register(name string, handler Handler) {
-	p.handlers[name] = handler
+	p.RegisterWithPrefix(SlashPrefix, name, handler)
+}
+
+func (p *Parser) RegisterDynamic(name string, handler Handler) {
+	p.RegisterWithPrefix(DollarPrefix, name, handler)
+}
+
+func (p *Parser) RegisterWithPrefix(prefix, name string, handler Handler) {
+	prefix = normalizePrefix(prefix)
+	displayName := strings.TrimSpace(name)
+	if displayName == "" {
+		return
+	}
+	keyName := strings.ToLower(displayName)
+	p.handlers[commandKey{Prefix: prefix, Name: keyName}] = commandEntry{DisplayName: displayName, Handler: handler}
 }
 
 func (p *Parser) Commands() []string {
 	names := make([]string, 0, len(p.handlers))
-	for name := range p.handlers {
-		names = append(names, name)
+	for key, entry := range p.handlers {
+		names = append(names, key.Prefix+entry.DisplayName)
 	}
+	sort.Strings(names)
 	return names
 }
 
 func (p *Parser) Parse(input string) *Command {
 	trimmed := strings.TrimSpace(input)
-	if !strings.HasPrefix(trimmed, "/") {
+	prefix := commandPrefix(trimmed)
+	if prefix == "" {
 		return &Command{Name: "", Raw: input}
 	}
 	parts := strings.Fields(trimmed)
 	if len(parts) == 0 {
 		return &Command{Name: "", Raw: input}
 	}
-	name := strings.ToLower(strings.TrimPrefix(parts[0], "/"))
+	name := strings.ToLower(strings.TrimPrefix(parts[0], prefix))
 	args := []string{}
 	if len(parts) > 1 {
 		args = parts[1:]
 	}
-	return &Command{Name: name, Args: args, Raw: input}
+	return &Command{Prefix: prefix, Name: name, Args: args, Raw: input}
 }
 
 func (p *Parser) Execute(cmd *Command) (string, bool) {
 	if cmd.Name == "" {
 		return "", false
 	}
-	handler, exists := p.handlers[cmd.Name]
+	prefix := normalizePrefix(cmd.Prefix)
+	name := strings.ToLower(strings.TrimSpace(cmd.Name))
+	entry, exists := p.handlers[commandKey{Prefix: prefix, Name: name}]
 	if !exists {
-		return "Unknown command: /" + cmd.Name + ". Type /help for available commands.", true
+		return "Unknown command: " + prefix + name + ". Type /help for available commands.", true
 	}
-	return handler(cmd)
+	return entry.Handler(cmd)
+}
+
+func normalizePrefix(prefix string) string {
+	if prefix == DollarPrefix {
+		return DollarPrefix
+	}
+	return SlashPrefix
+}
+
+func commandPrefix(input string) string {
+	if strings.HasPrefix(input, SlashPrefix) {
+		return SlashPrefix
+	}
+	if strings.HasPrefix(input, DollarPrefix) {
+		return DollarPrefix
+	}
+	return ""
 }
 
 // RegisterDefaults registers the built-in slash commands using Deps directly.
@@ -66,7 +118,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 	getConfig := func() string { pr, m := deps.GetConfigFn(); return pr + "/" + m }
 
 	p.Register("help", func(cmd *Command) (string, bool) {
-		return `Available commands:
+		return `Built-in slash commands:
   /help        Show this help message
   /new         Start a new conversation (keeps summary)
   /clear       Clear all conversation history
@@ -78,6 +130,9 @@ func RegisterDefaults(p *Parser, deps Deps) {
   /plugin      Manage plugins (install, list, uninstall, etc.)
   /sessions    Manage saved sessions
   /export      Export conversation context to JSON file
+
+Dynamic dollar commands:
+  $<skill>     Load a dynamically registered skill
 `, true
 	})
 

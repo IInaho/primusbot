@@ -69,10 +69,10 @@ func RegisterAll(p *Parser, deps Deps, st *SkillState) {
 		return "", false
 	})
 
-	// /skill-name for each loaded skill.
+	// $skill-name for each loaded skill.
 	for _, sk := range deps.Skills.ListForCommands() {
 		name := sk.Name
-		p.Register(name, func(cmd *Command) (string, bool) {
+		p.RegisterDynamic(name, func(cmd *Command) (string, bool) {
 			sk, ok := deps.Skills.GetForCommand(name)
 			if !ok {
 				return fmt.Sprintf("Skill %q not found.", name), true

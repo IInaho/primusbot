@@ -8,17 +8,22 @@ func TestParserParse(t *testing.T) {
 	p := NewParser()
 
 	tests := []struct {
-		input    string
-		wantName string
-		wantArgs int
+		input      string
+		wantPrefix string
+		wantName   string
+		wantArgs   int
 	}{
-		{"/help", "help", 0},
-		{"/plan do something", "plan", 2},
-		{"not a command", "", 0},
-		{"/STATS", "stats", 0},
+		{"/help", "/", "help", 0},
+		{"/plan do something", "/", "plan", 2},
+		{"not a command", "", "", 0},
+		{"/STATS", "/", "stats", 0},
+		{"$review fix this", "$", "review", 2},
 	}
 	for _, tt := range tests {
 		cmd := p.Parse(tt.input)
+		if cmd.Prefix != tt.wantPrefix {
+			t.Errorf("Parse(%q).Prefix = %q, want %q", tt.input, cmd.Prefix, tt.wantPrefix)
+		}
 		if cmd.Name != tt.wantName {
 			t.Errorf("Parse(%q).Name = %q, want %q", tt.input, cmd.Name, tt.wantName)
 		}
@@ -31,6 +36,7 @@ func TestParserParse(t *testing.T) {
 func TestParserExecute(t *testing.T) {
 	p := NewParser()
 	p.Register("test", func(cmd *Command) (string, bool) { return "ok", true })
+	p.RegisterDynamic("review", func(cmd *Command) (string, bool) { return "dynamic", true })
 
 	// Unknown command.
 	msg, handled := p.Execute(&Command{Name: "unknown"})
@@ -44,6 +50,12 @@ func TestParserExecute(t *testing.T) {
 		t.Errorf("unexpected: %q, %v", msg, handled)
 	}
 
+	// Dynamic command.
+	msg, handled = p.Execute(&Command{Prefix: "$", Name: "review"})
+	if !handled || msg != "dynamic" {
+		t.Errorf("unexpected: %q, %v", msg, handled)
+	}
+
 	// Empty command.
 	_, handled = p.Execute(&Command{Name: ""})
 	if handled {
@@ -54,9 +66,15 @@ func TestParserExecute(t *testing.T) {
 func TestParserCommands(t *testing.T) {
 	p := NewParser()
 	p.Register("a", nil)
-	p.Register("b", nil)
+	p.RegisterDynamic("b", nil)
 	names := p.Commands()
-	if len(names) != 2 {
-		t.Errorf("expected 2 commands, got %d", len(names))
+	want := []string{"$b", "/a"}
+	if len(names) != len(want) {
+		t.Fatalf("expected %d commands, got %d: %v", len(want), len(names), names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("Commands()[%d] = %q, want %q (all: %v)", i, names[i], want[i], names)
+		}
 	}
 }

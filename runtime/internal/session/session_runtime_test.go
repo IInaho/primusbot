@@ -584,10 +584,64 @@ func TestSessionRuntimeCustomRuntimeCommand(t *testing.T) {
 	}
 }
 
+func TestSessionRuntimeCommandNamesIncludePrefixes(t *testing.T) {
+	rt := newTestRuntime(&testBot{
+		commands: []string{"/help", "$review", "model"},
+	})
+
+	got := rt.CommandNames()
+	for _, want := range []string{"/connect", "/devices", "/disconnect", "/help", "/model", "$review"} {
+		if !hasString(got, want) {
+			t.Fatalf("CommandNames() missing %q in %v", want, got)
+		}
+	}
+}
+
+func TestSessionRuntimeRuntimeCommandsRequireSlash(t *testing.T) {
+	agentInput := make(chan string, 1)
+	bot := &testBot{
+		run: func(input string, _ RunCallbacks) (string, error) {
+			agentInput <- input
+			return "agent ran", nil
+		},
+	}
+	rt := newTestRuntime(bot)
+	rt.RegisterRuntimeCommand("hello", func(_ context.Context, _ *SessionRuntime, _ []string) (string, error) {
+		return "runtime command ran", nil
+	})
+
+	runID, err := rt.Submit(context.Background(), Input{
+		Source: SourceRef{Kind: "test"},
+		Text:   "hello world",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+
+	select {
+	case got := <-agentInput:
+		if got != "hello world" {
+			t.Fatalf("agent input = %q, want hello world", got)
+		}
+	default:
+		t.Fatal("bare runtime command text should run the agent")
+	}
+}
+
 func TestSessionRuntimeCloseIsIdempotent(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
 	rt.Close()
 	rt.Close() // should not panic
+}
+
+func hasString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSessionRuntimeRecoversFromRunPanic(t *testing.T) {
