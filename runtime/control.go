@@ -1,13 +1,12 @@
-package session
+package runtime
 
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 )
 
-func (r *SessionRuntime) Submit(ctx context.Context, input Input) (RunID, error) {
+func (r *Manager) Submit(ctx context.Context, input Input) (RunID, error) {
 	if strings.TrimSpace(input.Text) == "" {
 		return "", fmt.Errorf("runtime: empty input")
 	}
@@ -16,6 +15,10 @@ func (r *SessionRuntime) Submit(ctx context.Context, input Input) (RunID, error)
 	}
 
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return "", fmt.Errorf("runtime: closed")
+	}
 	if r.status == RunWaitingApproval || r.status == RunWaitingQuestion {
 		runID := r.currentRun
 		status := r.status
@@ -50,8 +53,12 @@ func (r *SessionRuntime) Submit(ctx context.Context, input Input) (RunID, error)
 	return runID, nil
 }
 
-func (r *SessionRuntime) Steer(_ context.Context, runID RunID, input Input) error {
+func (r *Manager) Steer(_ context.Context, runID RunID, input Input) error {
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return fmt.Errorf("runtime: closed")
+	}
 	if runID == "" {
 		runID = r.currentRun
 	}
@@ -75,7 +82,7 @@ func (r *SessionRuntime) Steer(_ context.Context, runID RunID, input Input) erro
 	}
 	r.mu.Unlock()
 
-	r.control.Steer(input.Text)
+	r.backend.Steer(input.Text)
 	r.events.Publish(Event{
 		RunID:  runID,
 		Type:   EventInputAccepted,
@@ -90,7 +97,10 @@ func (r *SessionRuntime) Steer(_ context.Context, runID RunID, input Input) erro
 	return nil
 }
 
-func (r *SessionRuntime) Abort(_ context.Context, runID RunID) error {
+func (r *Manager) Abort(_ context.Context, runID RunID) error {
+	if err := r.ensureOpen(); err != nil {
+		return err
+	}
 	runID, active, err := r.beginAbort(runID)
 	if err != nil {
 		return err
@@ -98,7 +108,7 @@ func (r *SessionRuntime) Abort(_ context.Context, runID RunID) error {
 	if !active {
 		return nil
 	}
-	r.control.Abort()
+	r.backend.Abort()
 	r.approvals.RejectAll()
 	r.questions.RejectAll()
 	r.events.Publish(Event{
@@ -110,86 +120,54 @@ func (r *SessionRuntime) Abort(_ context.Context, runID RunID) error {
 	return nil
 }
 
-func (r *SessionRuntime) Approve(_ context.Context, approvalID string, decision ApprovalDecision) error {
+func (r *Manager) Approve(_ context.Context, approvalID string, decision ApprovalDecision) error {
+	if err := r.ensureOpen(); err != nil {
+		return err
+	}
 	return r.approvals.Decide(approvalID, decision)
 }
 
-func (r *SessionRuntime) Answer(_ context.Context, questionID string, reply QuestionReply) error {
+func (r *Manager) Answer(_ context.Context, questionID string, reply QuestionReply) error {
+	if err := r.ensureOpen(); err != nil {
+		return err
+	}
 	return r.questions.Answer(questionID, reply)
 }
 
-func (r *SessionRuntime) Connect(ctx context.Context, name string, args []string) (string, error) {
-	return r.connectors.Handle(ctx, append([]string{name}, args...))
-}
-
-func (r *SessionRuntime) Disconnect(name string) (string, error) {
-	return r.connectors.Disconnect(name)
-}
-
-func (r *SessionRuntime) RegisterConnector(name string, factory ConnectorFactory) {
-	r.connectors.Register(name, factory)
-}
-
-func (r *SessionRuntime) Close() {
+func (r *Manager) Close() {
 	r.closeOnce.Do(func() {
-		r.control.Close()
+		r.mu.Lock()
+		r.closed = true
+		runID := r.currentRun
+		active := r.status == RunRunning || r.status == RunWaitingApproval || r.status == RunWaitingQuestion
+		if active {
+			r.aborted[runID] = struct{}{}
+			r.status = RunAborted
+		}
+		r.mu.Unlock()
+
 		if r.connectors != nil {
 			_ = r.connectors.Close()
 		}
+		if active {
+			r.backend.Abort()
+		}
+		r.approvals.Close()
+		r.questions.Close()
+		if active {
+			r.events.Publish(Event{
+				RunID:   runID,
+				Type:    EventRunAborted,
+				Source:  SourceRef{Kind: "runtime"},
+				Payload: DonePayload{Error: "runtime closed"},
+			})
+		}
+		r.backend.Close()
 		if r.recorder != nil {
 			_ = r.recorder.Close()
 		}
 		if r.events != nil {
 			r.events.Close()
 		}
-		if r.confirmDone != nil {
-			close(r.confirmDone)
-		}
 	})
-}
-
-func (r *SessionRuntime) Stats() BotStats {
-	return r.stats.Stats()
-}
-
-func (r *SessionRuntime) CommandNames() []string {
-	seen := make(map[string]bool)
-	names := make([]string, 0)
-	for _, name := range r.catalog.CommandNames() {
-		display := commandDisplayName(name)
-		if display == "" || seen[display] {
-			continue
-		}
-		seen[display] = true
-		names = append(names, display)
-	}
-	for name := range r.runtimeCommands {
-		display := commandDisplayName(name)
-		if seen[display] {
-			continue
-		}
-		seen[display] = true
-		names = append(names, display)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func commandDisplayName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return ""
-	}
-	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "$") {
-		return name
-	}
-	return "/" + name
-}
-
-func (r *SessionRuntime) ProviderModel() (string, string) {
-	return r.model.ProviderModel()
-}
-
-func (r *SessionRuntime) SessionMessages() []DisplayMessage {
-	return r.messages.SessionMessages()
 }

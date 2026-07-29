@@ -350,7 +350,7 @@ bash 命令执行采用多层沙箱隔离，与权限引擎独立互补——权
 
 Agent 运行时通过钩子系统在关键节点注入策略控制，分为内置钩子和插件钩子两类。
 
-**内置钩子（10 个）**，在 Agent 循环的关键节点触发：
+**内置钩子（9 个）**，由 `Policy` 在 Agent 循环的关键节点触发：
 
 | 钩子 | 触发点 | 职责 |
 |------|--------|------|
@@ -363,11 +363,12 @@ Agent 运行时通过钩子系统在关键节点注入策略控制，分为内�
 | ExploreCascadeHook | PostTool | 探索级联提醒 |
 | ProgressStallHook | PostTool | 进度停滞提醒 |
 | GarbledCircuitBreaker | PostTurn | 乱码断路器 |
-| FinalCheckHook | PostTurn | 最终检查 |
-
-**钩子事件点**：PreTurn → PreModelRequest → PreToolUse → PostTool → PostTurn
+**钩子事件点**：PreTurn → PreModelRequest → PreToolUse → PostToolUse → PostTool → PostTurn
 
 **钩子动作**：`Hint`（建议）、`BlockTool`（阻止工具）、`RequireTool`（强制工具）、`BlockFinal`（阻止最终回复）
+
+运行时只调用 `Policy.BeginTurn/BeforeModel/BeforeTool/RecordTools/AfterTurn`。
+Hook 读取类型化 `Facts`，去重状态按 hook 隔离，不共享字符串 key。
 
 **插件钩子**：用户可通过 JSON 配置自定义钩子，支持 shell 命令和 JavaScript 两种执行方式。事件点包括 PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit、SessionStart、Stop。
 

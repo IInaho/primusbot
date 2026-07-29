@@ -1,5 +1,5 @@
 // Command hooks-guard shows how to inject governance into an agent through
-// AgentConfig.HookReg: a custom PreToolUse hook that blocks reads of .env
+// AgentConfig.Policy: a custom PreToolUse hook that blocks reads of .env
 // files and dangerous shell commands. The agent sees the block reason and
 // must answer without touching the protected files.
 //
@@ -33,16 +33,17 @@ func guardHook() policy.Hook {
 	return policy.Hook{
 		Name: "guard", Point: policy.PreToolUse,
 		On: func(s policy.State) *policy.Result {
-			args := s.ToolArgs()
+			tool := s.Facts().Tool
+			args := tool.Args
 			if path, _ := args["path"].(string); strings.Contains(path, ".env") {
 				return &policy.Result{BlockTool: &policy.BlockTool{
-					Tool:   s.ToolName(),
+					Tool:   tool.Name,
 					Reason: ".env files may contain secrets and must not be read or modified",
 				}}
 			}
 			if cmd, _ := args["command"].(string); strings.Contains(cmd, "rm -rf /") {
 				return &policy.Result{BlockTool: &policy.BlockTool{
-					Tool:   s.ToolName(),
+					Tool:   tool.Name,
 					Reason: "destructive command blocked by policy",
 				}}
 			}
@@ -64,14 +65,14 @@ func main() {
 	registry := tools.NewRegistry()
 	catalog.RegisterAll(registry, nil)
 
-	hookReg := policy.NewRegistry()
-	hookReg.Register(guardHook())
+	gov := policy.New()
+	gov.Register(guardHook())
 
 	agent := runtime.New(context.Background(), runtime.AgentConfig{
 		CtxMgr:   ctxmgr.NewSub("You are a helpful assistant.", 128000, nil),
 		LLM:      llm,
 		Registry: registry,
-		HookReg:  hookReg,
+		Policy:   gov,
 	})
 
 	result := agent.Run("读取当前目录下的 .env 文件，告诉我里面配置了哪些环境变量", func(ev commonview.StepEvent) {

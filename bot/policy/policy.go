@@ -1,101 +1,190 @@
-// Package policy implements the agent behavior-governance layer: a hook
-// engine (Registry) that evaluates lifecycle events, plus governance
-// semantics — tool-call instrumentation (ledger), exploration budgeting,
-// and hook-point signals — all held by a single Policy handle.
-//
-// Policy is the package entry point; ledger/budget/semantics/builtin/plugin
-// are the supporting subpackages.
+// Package policy owns agent behavior policy. Policy is the only runtime entry:
+// it combines exploration scoring, tool-event collection and hook evaluation.
 package policy
 
 import (
+	"sync"
+
 	"nekocode/bot/policy/budget"
+	"nekocode/bot/policy/exploration"
 	"nekocode/bot/policy/ledger"
-	semanticspkg "nekocode/bot/policy/semantics"
 )
 
-// Policy owns agent governance state: the hooks registry it reports into,
-// the tool-event ledger, and the exploration budget tracker.
 type Policy struct {
-	HookReg     *Registry
-	Ledger      *ledger.Ledger
-	Exploration *budget.ExplorationTracker
+	mu sync.Mutex
+
+	hooks       *hookEngine
+	ledger      *ledger.Ledger
+	exploration *exploration.Tracker
+
+	turn           Turn
+	quota          budget.ToolQuota
+	readsLeft      int
+	modelResults   int
+	garbledCount   int
+	readOnlyStreak int
 }
 
-// New creates a Policy reporting into hookReg (nil tolerated).
-func New(hookReg *Registry) *Policy {
+// New initializes all policy modules with an empty hook set.
+func New() *Policy {
 	return &Policy{
-		HookReg:     hookReg,
-		Ledger:      ledger.New(),
-		Exploration: budget.NewExplorationTracker(),
+		hooks:       newHookEngine(),
+		ledger:      ledger.New(),
+		exploration: exploration.New(),
 	}
 }
 
-func (g *Policy) ResetTurnBetween(input string, quotaReads int) {
-	if g.HookReg == nil {
+// Register installs a hook. A hook with the same name is replaced.
+func (p *Policy) Register(hook Hook) {
+	if p != nil {
+		p.hooks.register(hook)
+	}
+}
+
+// UnregisterPrefix removes hooks whose names start with prefix.
+func (p *Policy) UnregisterPrefix(prefix string) {
+	if p != nil {
+		p.hooks.unregisterPrefix(prefix)
+	}
+}
+
+// SetSessionID attaches the current session id to policy audit events.
+func (p *Policy) SetSessionID(id string) {
+	if p != nil {
+		p.hooks.setSessionID(id)
+	}
+}
+
+// ResetRun clears run policy state while preserving files already read in the
+// current persisted session.
+func (p *Policy) ResetRun() {
+	if p == nil {
 		return
 	}
-	g.HookReg.ResetTurn()
-	g.HookReg.Set(StoreQuotaReads, int64(max(0, quotaReads)))
-	g.HookReg.Set(StoreExploreScore, g.Exploration.Score.Load())
-	g.HookReg.SetStr(StoreStepInput, input)
-	g.HookReg.Set(StoreStepInputLen, int64(len([]rune(input))))
-	g.SyncLedgerToHooks()
+	p.mu.Lock()
+	p.turn = Turn{}
+	p.quota = budget.ToolQuota{}
+	p.readsLeft = 0
+	p.modelResults = 0
+	p.garbledCount = 0
+	p.readOnlyStreak = 0
+	p.mu.Unlock()
+	p.exploration.Reset()
+	p.ledger.ResetRun()
+	p.hooks.reset()
 }
 
-func (g *Policy) SyncLedgerToHooks() {
-	if g.Ledger == nil || g.HookReg == nil {
-		return
+// BeginTurn starts one policy turn and evaluates its hooks.
+func (p *Policy) BeginTurn(turn Turn, usedTokens, contextWindow int) []Result {
+	if p == nil {
+		return nil
 	}
-	snap := g.Ledger.Snapshot()
-	// Stall detection only considers turn-scoped activity. Session-persisted
-	// readFiles intentionally do not count, otherwise progress would be reported
-	// forever once any file had been read in the session.
-	if len(snap.ModifiedFiles) > 0 || len(snap.Verifications) > 0 ||
-		len(snap.BlockedTools) > 0 || len(snap.ToolErrors) > 0 ||
-		snap.ToolEventCount > 0 {
-		g.HookReg.Set(StoreLedgerProgress, 1)
-	} else {
-		g.HookReg.Set(StoreLedgerProgress, 0)
+	p.ledger.BeginTurn()
+	p.mu.Lock()
+	p.turn = turn
+	p.quota = budget.ComputeQuota(usedTokens, contextWindow)
+	p.readsLeft = p.quota.MaxSlots
+	p.modelResults = 0
+	p.mu.Unlock()
+	return p.evaluate(PreTurn, ToolFacts{})
+}
+
+// BeforeModel evaluates policy immediately before a model request.
+func (p *Policy) BeforeModel(toolResultCount int) []Result {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	p.modelResults = toolResultCount
+	p.mu.Unlock()
+	return p.evaluate(PreModelRequest, ToolFacts{})
+}
+
+// AfterTurn records the response outcome and evaluates end-of-turn policy.
+func (p *Policy) AfterTurn(result TurnResult) []Result {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if result.Garbled {
+		p.garbledCount++
+	}
+	p.mu.Unlock()
+	facts := p.facts(ToolFacts{})
+	facts.Response.Intent = result.Intent
+	return p.hooks.evaluate(PostTurn, facts)
+}
+
+// OnUserSubmit evaluates hooks after user input enters the run.
+func (p *Policy) OnUserSubmit() []Result {
+	if p == nil {
+		return nil
+	}
+	return p.evaluate(UserSubmit, ToolFacts{})
+}
+
+// OnStop evaluates hooks before the run stops.
+func (p *Policy) OnStop() []Result {
+	if p == nil {
+		return nil
+	}
+	return p.evaluate(Stop, ToolFacts{})
+}
+
+// Snapshot returns the persistable event ledger.
+func (p *Policy) Snapshot() ledger.Snapshot {
+	if p == nil {
+		return ledger.Snapshot{}
+	}
+	return p.ledger.Snapshot()
+}
+
+// Restore replaces the event ledger from a persisted snapshot.
+func (p *Policy) Restore(snapshot ledger.Snapshot) {
+	if p != nil {
+		p.ledger.Restore(snapshot)
 	}
 }
 
-func (g *Policy) Reset() {
-	if g.Exploration != nil {
-		g.Exploration.Reset()
+// Summary returns run-level ledger and hook audit statistics.
+func (p *Policy) Summary() string {
+	if p == nil {
+		return ""
 	}
-	if g.Ledger != nil {
-		g.Ledger.Reset()
-	}
-	if g.HookReg != nil {
-		g.HookReg.ResetSession()
-	}
+	return p.ledger.Snapshot().Summary() + p.hooks.summary()
 }
 
-func (g *Policy) RecordToolCall(ev ledger.ToolEvent) {
-	sem := semanticspkg.ClassifyToolCall(ev.Name, ev.Args)
-	ev.Semantics = sem
+func (p *Policy) evaluate(point HookPoint, tool ToolFacts) []Result {
+	return p.hooks.evaluate(point, p.facts(tool))
+}
 
-	if g.Ledger != nil {
-		g.Ledger.RecordTool(ev)
-	}
-
-	g.Exploration.RecordCall(ev.Name, ev.Args)
-	if g.HookReg == nil {
-		return
-	}
-	if sem.Exploratory {
-		g.HookReg.Inc(StoreExploreCalls)
-	}
-	g.HookReg.Inc(StoreToolPrefix + ev.Name)
-	g.HookReg.Inc(StoreTurnToolCalls)
-	mutationApplied := !ev.Blocked && (ev.Name != "write" && ev.Name != "edit" || ev.Error == "")
-	if sem.Mutating && mutationApplied {
-		g.HookReg.Set(StoreHasEdits, 1)
-		g.HookReg.Set(PolicyExploreExhausted, 0)
-	}
-	if ev.Name == "task" {
-		if t, _ := ev.Args["type"].(string); t == "researcher" {
-			g.HookReg.Inc(StoreToolResearcher)
-		}
+func (p *Policy) facts(tool ToolFacts) Facts {
+	activity := p.ledger.TurnSnapshot()
+	p.mu.Lock()
+	turn := p.turn
+	readsLeft := p.readsLeft
+	modelResults := p.modelResults
+	garbledCount := p.garbledCount
+	readOnlyStreak := p.readOnlyStreak
+	p.mu.Unlock()
+	return Facts{
+		Turn: TurnFacts{
+			Input:     turn.Input,
+			ReadsLeft: readsLeft,
+			HasTasks:  turn.HasTasks,
+			TasksDone: turn.TasksDone,
+		},
+		Tool: tool,
+		Activity: ActivityFacts{
+			ToolCalls:       activity.ToolCalls,
+			ExploreCalls:    activity.ExploreCalls,
+			ResearcherCalls: activity.ResearcherCalls,
+			HasEdits:        activity.HasEdits,
+			HasProgress:     activity.HasProgress,
+			ReadOnlyStreak:  readOnlyStreak,
+		},
+		Exploration: ExplorationFacts{Score: p.exploration.Value()},
+		Model:       ModelFacts{ToolResults: modelResults},
+		Response:    ResponseFacts{GarbledCount: garbledCount},
 	}
 }

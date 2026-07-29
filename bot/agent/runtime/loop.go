@@ -66,7 +66,7 @@ func (r *loopRunner) runTurn(input string, callback RunCallback) (finished bool)
 	a := r.agent
 	msgCountBefore := a.deps.ctxMgr.Len()
 
-	quota := a.turnRunner.prepareTurn(input)
+	a.turnRunner.prepareTurn(input)
 	defer a.deps.ctxMgr.SetHints("")
 
 	if a.turnRunner.interruptedBeforeReasoning(callback) {
@@ -82,7 +82,7 @@ func (r *loopRunner) runTurn(input string, callback RunCallback) (finished bool)
 	}
 
 	if len(reasoning.ToolCalls) > 0 {
-		return a.turnRunner.handleToolCalls(reasoning.ToolCalls, reasoning, &quota, callback)
+		return a.turnRunner.handleToolCalls(reasoning.ToolCalls, reasoning, callback)
 	}
 
 	return a.turnRunner.handleText(reasoning, callback)
@@ -97,7 +97,10 @@ func (r *loopRunner) startRun(input string) {
 
 func (r *loopRunner) applyUserSubmitHooks() {
 	a := r.agent
-	for _, h := range a.evalHints(policy.UserSubmit) {
+	if a.deps.gov == nil {
+		return
+	}
+	for _, h := range collectHints(a.deps.gov.OnUserSubmit()) {
 		h := h
 		a.injectHint(&h)
 	}
@@ -105,15 +108,10 @@ func (r *loopRunner) applyUserSubmitHooks() {
 
 func (r *loopRunner) logGovernanceSummary() {
 	a := r.agent
-	if a.deps.gov == nil || a.deps.gov.Ledger == nil {
+	if a.deps.gov == nil {
 		return
 	}
-	snap := a.deps.gov.Ledger.Snapshot()
-	hookStats := ""
-	if a.deps.gov.HookReg != nil {
-		hookStats = a.deps.gov.HookReg.GovernanceStats()
-	}
-	debug.Log("[GOVERNANCE] task complete: steps=%d, %s%s", a.run.step, snap.Summary(), hookStats)
+	debug.Log("[GOVERNANCE] task complete: steps=%d, %s", a.run.step, a.deps.gov.Summary())
 }
 
 func (r *loopRunner) stepLimitReached() bool {
@@ -165,10 +163,10 @@ func (r *loopRunner) resolveFinalOutput(callback RunCallback) string {
 
 func (r *loopRunner) evaluateStop() {
 	a := r.agent
-	if a.hookReg() == nil {
+	if a.deps.gov == nil {
 		return
 	}
-	for _, result := range a.hookReg().Evaluate(policy.Stop, "", false) {
+	for _, result := range a.deps.gov.OnStop() {
 		if result.Stop != nil {
 			a.run.stopReason = *result.Stop
 		}

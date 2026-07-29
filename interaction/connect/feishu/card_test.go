@@ -171,7 +171,7 @@ func TestIsAlreadyResolvedErr(t *testing.T) {
 // --- handleCardAction dispatch ---
 
 type stubRuntime struct {
-	controlruntime.Runtime
+	controlruntime.ConnectorRuntime
 	approveID  string
 	decision   controlruntime.ApprovalDecision
 	approveErr error
@@ -198,7 +198,7 @@ func cardEvent(value map[string]interface{}, operatorOpenID string) *larkcallbac
 	return ev
 }
 
-func pairedConnector(t *testing.T, rt controlruntime.Runtime) *Connector {
+func pairedConnector(t *testing.T, rt controlruntime.ConnectorRuntime) *Connector {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	cfg := Config{AppID: "cli", AppSecret: "sec"}
@@ -298,6 +298,41 @@ func TestHandleCardActionRejectsBadValueAndNonOwner(t *testing.T) {
 	if resp.Toast.Type != "error" || rt.approveID != "" {
 		t.Fatalf("non-owner: toast=%+v approveID=%q", resp.Toast, rt.approveID)
 	}
+}
+
+func TestHandleCardActionRejectsMissingOperatorOrConfig(t *testing.T) {
+	t.Run("missing operator", func(t *testing.T) {
+		rt := &stubRuntime{}
+		c := pairedConnector(t, rt)
+
+		resp, err := c.handleCardAction(
+			context.Background(),
+			cardEvent(cardActionValue("ap_1", decisionApprove), ""),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Toast.Type != "error" || rt.approveID != "" {
+			t.Fatalf("missing operator: toast=%+v approveID=%q", resp.Toast, rt.approveID)
+		}
+	})
+
+	t.Run("missing config", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		rt := &stubRuntime{}
+		c := New(rt)
+
+		resp, err := c.handleCardAction(
+			context.Background(),
+			cardEvent(cardActionValue("ap_1", decisionApprove), "ou_owner"),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Toast.Type != "error" || rt.approveID != "" {
+			t.Fatalf("missing config: toast=%+v approveID=%q", resp.Toast, rt.approveID)
+		}
+	})
 }
 
 func containsAll(s string, subs ...string) bool {

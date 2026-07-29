@@ -19,9 +19,9 @@ import (
 func TestFinishRunPersistsPolicyBlockedFinalText(t *testing.T) {
 	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
 	reg := tools.NewRegistry()
-	hookReg := policy.NewRegistry()
-	builtin.Register(hookReg)
-	a := New(context.Background(), AgentConfig{CtxMgr: ctxMgr, Registry: reg, HookReg: hookReg})
+	gov := policy.New()
+	builtin.Register(gov)
+	a := New(context.Background(), AgentConfig{CtxMgr: ctxMgr, Registry: reg, Policy: gov})
 
 	finalText := "• P0-1 Bash 安全机制：已实现\n• P0-2 权限系统：已实现"
 

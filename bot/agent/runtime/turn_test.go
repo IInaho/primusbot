@@ -14,13 +14,15 @@ import (
 func newTestAgent() *Agent {
 	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
 	reg := tools.NewRegistry()
-	hookReg := policy.NewRegistry()
-	builtin.Register(hookReg)
-	return New(context.Background(), AgentConfig{
+	gov := policy.New()
+	builtin.Register(gov)
+	agent := New(context.Background(), AgentConfig{
 		CtxMgr:   ctxMgr,
 		Registry: reg,
-		HookReg:  hookReg,
+		Policy:   gov,
 	})
+	gov.BeginTurn(policy.Turn{}, 0, 128000)
+	return agent
 }
 
 func TestHandleText_IsError_NotRecorded(t *testing.T) {
@@ -127,10 +129,7 @@ func TestHandleText_IsError_ConsecutiveFailuresIncrement(t *testing.T) {
 func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 	a := newTestAgent()
 	a.Reset()
-
-	a.deps.gov.HookReg.Set(policy.StoreHasTasks, 1)
-	a.deps.gov.HookReg.Set(policy.StoreTasksAllDone, 0)
-	a.deps.gov.HookReg.Set(policy.StoreTurnToolCalls, 0)
+	a.deps.gov.BeginTurn(policy.Turn{HasTasks: true}, 0, 128000)
 
 	rr := &reasoningResult{
 		Thought:     "LLM call failed",
@@ -160,12 +159,12 @@ func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 func TestPostTurnHooksSetStructuredFinalIntent(t *testing.T) {
 	a := newTestAgent()
 	a.Reset()
-	var intent string
-	a.deps.gov.HookReg.Register(policy.Hook{
+	var intent policy.FinalIntent
+	a.deps.gov.Register(policy.Hook{
 		Name:  "capture-intent",
 		Point: policy.PostTurn,
 		On: func(s policy.State) *policy.Result {
-			intent = s.GetStr(policy.StoreFinalIntent)
+			intent = s.Facts().Response.Intent
 			return nil
 		},
 	})

@@ -13,7 +13,7 @@
 //
 // # Public contract
 //
-//   - Construction: New(ctx, AgentConfig). Optional capabilities (HookReg,
+//   - Construction: New(ctx, AgentConfig). Optional capabilities (Policy,
 //     TodoWriter) are injected via AgentConfig — nil means disabled.
 //   - Control: Run (one full agent run), Steer (interrupt with a message),
 //     Abort, Reset.

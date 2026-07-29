@@ -1,17 +1,14 @@
+// Package ledger collects tool events and exposes run and turn snapshots.
 package ledger
 
 import (
 	"fmt"
-	"maps"
-	"path/filepath"
-	"slices"
-	"strings"
 	"sync"
 
-	"nekocode/bot/policy/internal/shellscan"
 	"nekocode/bot/policy/semantics"
 )
 
+// ToolEvent is one classified tool outcome.
 type ToolEvent struct {
 	Name      string
 	Args      map[string]any
@@ -30,6 +27,7 @@ type Verification struct {
 	Output      string
 }
 
+// Ledger owns session read history, run audit evidence and current-turn facts.
 type Ledger struct {
 	mu sync.RWMutex
 
@@ -39,10 +37,17 @@ type Ledger struct {
 	toolErrors     []ToolEvent
 	verifications  []Verification
 	toolEventCount int
+	exploreCalls   int
+
+	turnToolCalls       int
+	turnResearcherCalls int
+	turnHasEdits        bool
+	turnHasProgress     bool
 }
 
 type pathSet map[string]struct{}
 
+// New creates an empty ledger.
 func New() *Ledger {
 	return &Ledger{
 		readFiles:     make(pathSet),
@@ -50,36 +55,70 @@ func New() *Ledger {
 	}
 }
 
-func (l *Ledger) Reset() {
+// ResetRun clears run evidence while preserving session read history.
+func (l *Ledger) ResetRun() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// readFiles is intentionally preserved across turns: once the LLM has read a
+	// readFiles is intentionally preserved across runs: once the LLM has read a
 	// file in this session, we trust it to edit that file without re-reading.
-	// Only turn-scoped bookkeeping is cleared here.
+	// All run and turn evidence is cleared below.
 	l.modifiedFiles = make(pathSet)
 	l.blockedTools = nil
 	l.toolErrors = nil
 	l.verifications = nil
 	l.toolEventCount = 0
+	l.exploreCalls = 0
+	l.resetTurn()
+}
+
+// BeginTurn clears only facts scoped to one model turn. Session reads and
+// run-level audit evidence remain available.
+func (l *Ledger) BeginTurn() {
+	l.mu.Lock()
+	l.resetTurn()
+	l.mu.Unlock()
+}
+
+func (l *Ledger) resetTurn() {
+	l.turnToolCalls = 0
+	l.turnResearcherCalls = 0
+	l.turnHasEdits = false
+	l.turnHasProgress = false
 }
 
 func (l *Ledger) RecordTool(ev ToolEvent) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.toolEventCount++
+	l.turnToolCalls++
+	if ev.Semantics.Exploratory {
+		l.exploreCalls++
+	}
+	if ev.Name == "task" {
+		if kind, _ := ev.Args["type"].(string); kind == "researcher" {
+			l.turnResearcherCalls++
+		}
+	}
 	if ev.Blocked {
 		l.blockedTools = append(l.blockedTools, ev)
+		l.turnHasProgress = true
 		return
 	}
 	if ev.Error != "" {
 		l.toolErrors = append(l.toolErrors, ev)
+		l.turnHasProgress = true
 	}
 	if ev.Error == "" && ev.Semantics.SourceProducing {
 		l.readFiles.addAll(extractReadPaths(ev.Name, ev.Args))
+		l.turnHasProgress = true
 	}
 	if ev.Semantics.Mutating {
 		modified := extractModifiedPaths(ev)
 		l.modifiedFiles.addAll(modified)
+		if len(modified) > 0 {
+			l.turnHasEdits = true
+			l.turnHasProgress = true
+		}
 		if ev.Name == "write" {
 			l.readFiles.addAll(modified)
 		}
@@ -92,6 +131,7 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 			ProjectRule: ev.Semantics.VerificationProjectRule,
 			Output:      ev.Output,
 		})
+		l.turnHasProgress = true
 	}
 }
 
@@ -118,11 +158,10 @@ func (l *Ledger) Restore(s Snapshot) {
 	l.toolErrors = append([]ToolEvent(nil), s.ToolErrors...)
 	l.verifications = append([]Verification(nil), s.Verifications...)
 	l.toolEventCount = s.ToolEventCount
-	// NOTE: After Restore, callers should NOT call Reset() before the next turn,
-	// otherwise session-persisted readFiles would be lost. Restore is typically
-	// used at session start, followed by turn-level Resets that preserve reads.
+	l.resetTurn()
 }
 
+// Snapshot is the persisted ledger state.
 type Snapshot struct {
 	ReadFiles      []string
 	ModifiedFiles  []string
@@ -130,6 +169,27 @@ type Snapshot struct {
 	ToolErrors     []ToolEvent
 	Verifications  []Verification
 	ToolEventCount int
+}
+
+// TurnSnapshot contains only facts used to decide the current turn.
+type TurnSnapshot struct {
+	ToolCalls       int
+	ExploreCalls    int
+	ResearcherCalls int
+	HasEdits        bool
+	HasProgress     bool
+}
+
+func (l *Ledger) TurnSnapshot() TurnSnapshot {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return TurnSnapshot{
+		ToolCalls:       l.turnToolCalls,
+		ExploreCalls:    l.exploreCalls,
+		ResearcherCalls: l.turnResearcherCalls,
+		HasEdits:        l.turnHasEdits,
+		HasProgress:     l.turnHasProgress,
+	}
 }
 
 // WasRead checks whether a specific file path has been read (tracked in ledger).
@@ -156,395 +216,4 @@ func (s Snapshot) HasPassingVerification() bool {
 func (s Snapshot) Summary() string {
 	return fmt.Sprintf("%d modified, %d verifications, %d tool errors, %d blocked tools",
 		len(s.ModifiedFiles), len(s.Verifications), len(s.ToolErrors), len(s.BlockedTools))
-}
-
-func extractReadPaths(name string, args map[string]any) []string {
-	switch name {
-	case "read":
-		if p, _ := args["path"].(string); p != "" {
-			return []string{filepath.Clean(p)}
-		}
-	case "bash", "shell":
-		cmd, _ := args["command"].(string)
-		return cleanPaths(extractBashReadPaths(cmd))
-	}
-	return nil
-}
-
-func extractModifiedPaths(ev ToolEvent) []string {
-	if ev.Error != "" {
-		return nil
-	}
-	switch ev.Name {
-	case "write", "edit":
-		if p, _ := ev.Args["path"].(string); p != "" {
-			return []string{filepath.Clean(p)}
-		}
-	case "bash", "shell":
-		cmd, _ := ev.Args["command"].(string)
-		return cleanPaths(extractBashWritePaths(cmd))
-	}
-	return nil
-}
-
-func newPathSetFrom(paths []string) pathSet {
-	s := make(pathSet, len(paths))
-	s.addAll(paths)
-	return s
-}
-
-func (s pathSet) add(path string) {
-	if path == "" {
-		return
-	}
-	s[filepath.Clean(path)] = struct{}{}
-}
-
-func (s pathSet) addAll(paths []string) {
-	for _, p := range paths {
-		s.add(p)
-	}
-}
-
-func (s pathSet) has(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, ok := s[filepath.Clean(path)]
-	return ok
-}
-
-func (s pathSet) sorted() []string {
-	return slices.Sorted(maps.Keys(s))
-}
-
-func cleanPaths(paths []string) []string {
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if p != "" {
-			out = append(out, filepath.Clean(p))
-		}
-	}
-	return out
-}
-
-func commandArg(args map[string]any) string {
-	cmd, _ := args["command"].(string)
-	return strings.TrimSpace(cmd)
-}
-
-func extractBashReadPaths(cmd string) []string {
-	scan := shellscan.ScanShell(cmd)
-	if scan.OK {
-		var out []string
-		for _, fields := range scan.Calls {
-			out = append(out, bashReadPathsForFields(fields)...)
-		}
-		return out
-	}
-	fields := shellscan.Fields(strings.TrimSpace(cmd))
-	return bashReadPathsForFields(fields)
-}
-
-func bashReadPathsForFields(fields []string) []string {
-	if len(fields) == 0 {
-		return nil
-	}
-	name := filepath.Base(fields[0])
-	switch name {
-	case "cat", "less", "more", "file", "stat":
-		return nonOptionArgs(fields[1:])
-	case "head", "tail", "wc":
-		return nonOptionArgs(skipOptionValues(fields[1:]))
-	case "find", "fd":
-		return leadingPathArgs(fields[1:])
-	case "rg", "grep":
-		return grepPathArgs(fields[1:])
-	case "git":
-		return gitPathArgs(fields[1:])
-	}
-	return nil
-}
-
-func extractBashWritePaths(cmd string) []string {
-	scan := shellscan.ScanShell(cmd)
-	if scan.OK {
-		var out []string
-		for _, p := range scan.RedirectTargets {
-			out = appendPathArg(out, p)
-		}
-		for _, fields := range scan.Calls {
-			out = append(out, bashCommandWritePathsForFields(fields)...)
-		}
-		return out
-	}
-	fields := shellscan.Fields(strings.TrimSpace(cmd))
-	if len(fields) == 0 {
-		return nil
-	}
-	// The AST scan failed, so there are no redirect targets to add here.
-	return bashCommandWritePathsForFields(fields)
-}
-
-func bashCommandWritePathsForFields(fields []string) []string {
-	var out []string
-	for i := 0; i < len(fields); i++ {
-		f := fields[i]
-		switch {
-		case isShellBoundary(f):
-			continue
-		case isRedirectOperator(f):
-			if i+1 < len(fields) {
-				out = appendPathArg(out, fields[i+1])
-				i++
-			}
-		case redirectPath(f) != "":
-			out = appendPathArg(out, redirectPath(f))
-		case filepath.Base(f) == "tee":
-			paths, next := teeWritePaths(fields, i+1)
-			out = append(out, paths...)
-			i = next
-		case filepath.Base(f) == "sed":
-			paths, next := sedWritePaths(fields, i+1)
-			out = append(out, paths...)
-			i = next
-		case shellscan.IsMutatingCommand(filepath.Base(f)):
-			paths, next := commandWritePaths(filepath.Base(f), fields, i+1)
-			out = append(out, paths...)
-			i = next
-		}
-	}
-	return out
-}
-
-func isShellBoundary(s string) bool {
-	switch s {
-	case "|", "||", "&&", ";":
-		return true
-	default:
-		return false
-	}
-}
-
-func isRedirectOperator(s string) bool {
-	switch s {
-	case ">", ">>", ">|", "&>", "&>>", "1>", "1>>", "2>", "2>>":
-		return true
-	default:
-		return false
-	}
-}
-
-func redirectPath(s string) string {
-	for _, prefix := range []string{"&>>", "&>", "1>>", "1>", "2>>", "2>", ">>", ">|", ">"} {
-		if strings.HasPrefix(s, prefix) && len(s) > len(prefix) {
-			return s[len(prefix):]
-		}
-	}
-	return ""
-}
-
-func teeWritePaths(fields []string, start int) ([]string, int) {
-	var out []string
-	i := start
-	for ; i < len(fields); i++ {
-		if isShellBoundary(fields[i]) {
-			break
-		}
-		if strings.HasPrefix(fields[i], "-") {
-			continue
-		}
-		out = appendPathArg(out, fields[i])
-	}
-	return out, i
-}
-
-func sedWritePaths(fields []string, start int) ([]string, int) {
-	var out []string
-	i := start
-	inPlace := false
-	scriptSeen := false
-	for ; i < len(fields); i++ {
-		f := fields[i]
-		if isShellBoundary(f) {
-			break
-		}
-		if f == "-i" || strings.HasPrefix(f, "-i") {
-			inPlace = true
-			continue
-		}
-		if strings.HasPrefix(f, "-") {
-			continue
-		}
-		if !scriptSeen {
-			scriptSeen = true
-			continue
-		}
-		if inPlace {
-			out = appendPathArg(out, f)
-		}
-	}
-	return out, i
-}
-
-func commandWritePaths(name string, fields []string, start int) ([]string, int) {
-	var args []string
-	i := start
-	for ; i < len(fields); i++ {
-		if isShellBoundary(fields[i]) {
-			break
-		}
-		if strings.HasPrefix(fields[i], "-") {
-			continue
-		}
-		args = append(args, fields[i])
-	}
-	switch name {
-	case "cp":
-		if len(args) == 0 {
-			return nil, i
-		}
-		return appendPathArg(nil, args[len(args)-1]), i
-	case "chmod", "chown":
-		if len(args) <= 1 {
-			return nil, i
-		}
-		var out []string
-		for _, arg := range args[1:] {
-			out = appendPathArg(out, arg)
-		}
-		return out, i
-	default:
-		var out []string
-		for _, arg := range args {
-			out = appendPathArg(out, arg)
-		}
-		return out, i
-	}
-}
-
-func appendPathArg(out []string, arg string) []string {
-	if arg != "" && !strings.HasPrefix(arg, "-") && shouldTrackWritePath(arg) {
-		return append(out, arg)
-	}
-	return out
-}
-
-func shouldTrackWritePath(arg string) bool {
-	cleaned := filepath.Clean(arg)
-	if cleaned == "/dev/null" || cleaned == "/dev/stdout" || cleaned == "/dev/stderr" {
-		return false
-	}
-	return true
-}
-
-func nonOptionArgs(args []string) []string {
-	var out []string
-	for _, a := range args {
-		if a == "--" {
-			continue
-		}
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		if looksLikePathArg(a) {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-func skipOptionValues(args []string) []string {
-	var out []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "-n" || a == "-c" || a == "--lines" || a == "--bytes" {
-			i++
-			continue
-		}
-		if strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "-c") ||
-			strings.HasPrefix(a, "--lines=") || strings.HasPrefix(a, "--bytes=") {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-func leadingPathArgs(args []string) []string {
-	var out []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		if !looksLikePathArg(a) {
-			break
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-func grepPathArgs(args []string) []string {
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			positional = append(positional, args[i+1:]...)
-			break
-		}
-		if consumesNextArg(a) {
-			i++
-			continue
-		}
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		positional = append(positional, a)
-	}
-	if len(positional) <= 1 {
-		return nil
-	}
-	return filterPathArgs(positional[1:])
-}
-
-func gitPathArgs(args []string) []string {
-	if len(args) == 0 {
-		return nil
-	}
-	switch args[0] {
-	case "diff", "show", "blame", "log":
-		for i, a := range args[1:] {
-			if a == "--" {
-				return filterPathArgs(args[i+2:])
-			}
-		}
-	}
-	return nil
-}
-
-func consumesNextArg(a string) bool {
-	switch a {
-	case "-e", "-f", "-g", "-m", "-A", "-B", "-C", "--regexp", "--file",
-		"--glob", "--max-count", "--after-context", "--before-context", "--context":
-		return true
-	}
-	return false
-}
-
-func filterPathArgs(args []string) []string {
-	var out []string
-	for _, a := range args {
-		if looksLikePathArg(a) {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-func looksLikePathArg(a string) bool {
-	if a == "" || strings.HasPrefix(a, "-") {
-		return false
-	}
-	return strings.Contains(a, "/") || strings.Contains(a, ".") || a == "." || a == ".."
 }

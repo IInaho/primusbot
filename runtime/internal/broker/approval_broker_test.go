@@ -79,3 +79,16 @@ func TestApprovalBrokerHashesAreStable(t *testing.T) {
 		t.Fatalf("hashes differ for equivalent args: %q != %q", first, second)
 	}
 }
+
+func TestApprovalBrokerRequestAfterCloseIsRejected(t *testing.T) {
+	broker := NewApprovalBroker(nil, core.SourceRef{Kind: "test"}, nil)
+	broker.Close()
+
+	reply := broker.Request(ConfirmRequest{ToolName: "shell"})
+	if reply.Allowed {
+		t.Fatal("approval request was allowed after broker close")
+	}
+	if pending := broker.Pending(); len(pending) != 0 {
+		t.Fatalf("pending approvals = %d, want 0", len(pending))
+	}
+}

@@ -15,12 +15,12 @@ func ToolResultGuardrailHook() policy.Hook {
 	return policy.Hook{
 		Name: "tool_result_guardrail", Point: policy.PreModelRequest,
 		On: func(s policy.State) *policy.Result {
-			count := s.Get(policy.StoreToolResultCount)
-			lastWarned := s.Get(policy.CounterToolResultWarned)
+			count := int64(s.Facts().Model.ToolResults)
+			lastWarned := s.Int("last_warned")
 			if count <= toolResultThreshold || count-lastWarned < toolResultInterval {
 				return nil
 			}
-			s.Set(policy.CounterToolResultWarned, count)
+			s.SetInt("last_warned", count)
 			return &policy.Result{Hint: &policy.Hint{
 				Type:     "tool_results",
 				Severity: "warning",
@@ -29,7 +29,7 @@ func ToolResultGuardrailHook() policy.Hook {
 		},
 		DescribeTrigger: func(s policy.State) string {
 			return fmt.Sprintf("tool_results=%d last_warned=%d threshold=%d interval=%d",
-				s.Get(policy.StoreToolResultCount), s.Get(policy.CounterToolResultWarned),
+				s.Facts().Model.ToolResults, s.Int("last_warned"),
 				toolResultThreshold, toolResultInterval)
 		},
 	}
@@ -39,15 +39,16 @@ func ReadBeforeWriteHook() policy.Hook {
 	return policy.Hook{
 		Name: "read_before_write", Point: policy.PreToolUse,
 		On: func(s policy.State) *policy.Result {
-			name := s.ToolName()
+			tool := s.Facts().Tool
+			name := tool.Name
 			if name != "edit" && name != "write" {
 				return nil
 			}
-			path := s.GetStr(policy.StoreEditTargetPath)
-			if path == "" || s.Get(policy.StoreEditTargetExists) != 1 || s.Get(policy.StoreEditTargetWasRead) == 1 {
+			path := tool.TargetPath
+			if path == "" || !tool.TargetExists || tool.TargetWasRead {
 				return nil
 			}
-			if name == "edit" && s.Get(policy.StoreEditAnchorSufficient) == 1 {
+			if name == "edit" && tool.EditAnchorSufficient {
 				return nil
 			}
 			return &policy.Result{BlockTool: &policy.BlockTool{
@@ -56,29 +57,10 @@ func ReadBeforeWriteHook() policy.Hook {
 			}}
 		},
 		DescribeTrigger: func(s policy.State) string {
-			return fmt.Sprintf("target=%s exists=%d was_read=%d anchor_sufficient=%d",
-				dashIfEmpty(s.GetStr(policy.StoreEditTargetPath)),
-				s.Get(policy.StoreEditTargetExists),
-				s.Get(policy.StoreEditTargetWasRead),
-				s.Get(policy.StoreEditAnchorSufficient))
+			tool := s.Facts().Tool
+			return fmt.Sprintf("target=%s exists=%t was_read=%t anchor_sufficient=%t",
+				dashIfEmpty(tool.TargetPath), tool.TargetExists, tool.TargetWasRead, tool.EditAnchorSufficient)
 		},
-	}
-}
-
-const ReadOnlySpiralThreshold = 3
-
-// ReadOnlySpiralHint returns the read-only-spiral warning once streak reaches
-// the threshold, nil otherwise. It backs ReadOnlySpiralHook and is also used
-// directly by subagents, which track streaks in their own run state rather
-// than in the shared registry.
-func ReadOnlySpiralHint(streak int) *policy.Hint {
-	if streak < ReadOnlySpiralThreshold {
-		return nil
-	}
-	return &policy.Hint{
-		Type:     "read_only_spiral",
-		Severity: "warning",
-		Content:  "You've been reading without acting. Summarize your findings now - don't read any more files.",
 	}
 }
 
@@ -86,15 +68,20 @@ func ReadOnlySpiralHook() policy.Hook {
 	return policy.Hook{
 		Name: "read_only_spiral", Point: policy.PostTool,
 		On: func(s policy.State) *policy.Result {
-			hint := ReadOnlySpiralHint(int(s.Get(policy.StoreReadOnlyStreak)))
+			streak := s.Facts().Activity.ReadOnlyStreak
+			hint := policy.ReadOnlySpiralHint(streak)
 			if hint == nil {
+				s.SetInt("last_warned", 0)
 				return nil
 			}
-			s.Set(policy.StoreReadOnlyStreak, 0)
+			if int64(streak)-s.Int("last_warned") < policy.ReadOnlySpiralThreshold {
+				return nil
+			}
+			s.SetInt("last_warned", int64(streak))
 			return &policy.Result{Hint: hint}
 		},
 		DescribeTrigger: func(s policy.State) string {
-			return fmt.Sprintf("read_only_streak=%d", s.Get(policy.StoreReadOnlyStreak))
+			return fmt.Sprintf("read_only_streak=%d", s.Facts().Activity.ReadOnlyStreak)
 		},
 	}
 }

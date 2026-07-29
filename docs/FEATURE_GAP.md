@@ -39,7 +39,7 @@
 - **工具执行**：quota 过滤 → PreToolUse hook → 执行 → PostToolUse hook → 结果反馈
 - **子 Agent**：slotManager 管理最多 8 个并发子代理，支持 researcher/executor/verify 三种类型，文件缓存隔离
 - **中断机制**：Steer() 支持处理中注入新消息打断当前 LLM 调用，replaceContext() 支持上下文替换重试
-- **预算管理**：ExplorationTracker 衰减分数机制（200 分起，工具扣分，edit 恢复）
+- **预算管理**：`policy/exploration` 衰减分数机制（200 分起，工具扣分，edit 恢复）
 - **账本记录**：Ledger 追踪读取/修改文件、被阻止工具、验证结果
 - **策略分类**：Semantics 分类（Exploratory/Mutating/Verifying/SourceProducing 等）
 - **安全防护**：maxAgentSteps=150、maxConsecutiveHints=3、maxConsecutiveFailures=5、maxFinalCheckHints=2
@@ -57,7 +57,7 @@
 
 - **5 个 Hook 点**：PreTurn、PreModelRequest、PreToolUse、PostTool、PostTurn
 - **Hook 能力**：注入 Hint、阻止工具（BlockTool）、要求工具（RequireTool）、阻止最终输出（BlockFinal）
-- **内置 Hook**：10 个（quota / tool_result_guardrail / read_before_write / read_only_spiral / verification / exploration_exhausted / explore_cascade / progress_stall / garbled_circuit_breaker / final_check）
+- **内置 Hook**：9 个（quota / tool_result_guardrail / read_before_write / read_only_spiral / verification / exploration_exhausted / explore_cascade / progress_stall / garbled_circuit_breaker）
 - **插件 Hook**：支持从外部插件加载声明式 Hook，支持 shell 命令和 JavaScript 两种执行方式
 
 ### TUI 界面
@@ -237,7 +237,7 @@
 #### 12. 配置系统
 
 ```
-已有：provider/model/apiKey/baseURL + image_gen_models + ApplyConfig（GUI 保存配置即热重载，重新 reinit）
+已有：provider/model/apiKey/baseURL + image_gen_models + ApplyConfig（GUI 保存配置即热重载，调用 rebuildRuntime）
 说明：
   - "热重载"已实现 — interaction/gui/app 的 SaveConfig 前端调 ApplyConfig 后端，动态替换 model/protocol/context_window 并重建 LLM client。
   - 分层覆盖 / 多环境 / Schema 验证 / 导出导入：属于多用户场景优化，单用户当前不急。

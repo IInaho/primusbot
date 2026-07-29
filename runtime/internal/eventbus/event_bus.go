@@ -71,6 +71,10 @@ func (b *EventBus) subscribe(ctx context.Context, filter EventFilter, replay boo
 		return nil, fmt.Errorf("runtime: nil event bus")
 	}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil, fmt.Errorf("runtime: event bus closed")
+	}
 	var history []Event
 	if replay {
 		for _, ev := range b.history {

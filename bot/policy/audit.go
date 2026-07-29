@@ -12,7 +12,7 @@ import (
 
 const maxHookAuditEvents = 64
 
-type HookAuditEvent struct {
+type hookAudit struct {
 	Session string
 	Hook    string
 	Point   HookPoint
@@ -22,20 +22,21 @@ type HookAuditEvent struct {
 	Trigger string
 }
 
-func (e HookAuditEvent) String() string {
+func (e hookAudit) String() string {
 	if e.Detail == "" {
 		return fmt.Sprintf("%s@%s:%s", e.Hook, e.Point, e.Action)
 	}
 	return fmt.Sprintf("%s@%s:%s(%s)", e.Hook, e.Point, e.Action, truncateAuditDetail(e.Detail))
 }
 
-func hookAuditEvent(h Hook, point HookPoint, snap *Snapshot, result *Result) HookAuditEvent {
-	event := HookAuditEvent{
-		Session: snap.session,
+func hookAuditEvent(h Hook, point HookPoint, state State, result *Result, session string) hookAudit {
+	facts := state.Facts()
+	event := hookAudit{
+		Session: session,
 		Hook:    h.Name,
 		Point:   point,
-		Tool:    snap.Tool,
-		Trigger: hookTrigger(h, snap),
+		Tool:    facts.Tool.Name,
+		Trigger: hookTrigger(h, state),
 	}
 	switch {
 	case result.Stop != nil:
@@ -62,7 +63,7 @@ func hookAuditEvent(h Hook, point HookPoint, snap *Snapshot, result *Result) Hoo
 	return event
 }
 
-func logHookAudit(event HookAuditEvent) {
+func logHookAudit(event hookAudit) {
 	debug.Log("hook_audit session=%s point=%s hook=%s action=%s tool=%s trigger={%s} detail=%q",
 		emptyAsDash(event.Session), event.Point, event.Hook, event.Action, emptyAsDash(event.Tool), event.Trigger, event.Detail)
 }
@@ -77,11 +78,11 @@ func emptyAsDash(s string) string {
 // hookTrigger renders the audit trigger context for a fired hook. Hooks that
 // carry a DescribeTrigger describe themselves (keeping trigger details and
 // thresholds next to the hook logic); anything else falls back to tool args.
-func hookTrigger(h Hook, snap *Snapshot) string {
+func hookTrigger(h Hook, state State) string {
 	if h.DescribeTrigger != nil {
-		return h.DescribeTrigger(snap)
+		return h.DescribeTrigger(state)
 	}
-	return formatToolArgs(snap.Args)
+	return formatToolArgs(state.Facts().Tool.Args)
 }
 
 func quoteArg(v any) string {
@@ -108,14 +109,14 @@ func formatToolArgs(args map[string]any) string {
 	return "args=" + strings.Join(parts, ",")
 }
 
-func recentHookAudit(events []HookAuditEvent, n int) []HookAuditEvent {
+func recentHookAudit(events []hookAudit, n int) []hookAudit {
 	if len(events) > n {
 		events = events[len(events)-n:]
 	}
 	return slices.Clone(events)
 }
 
-func formatHookAudit(events []HookAuditEvent) string {
+func formatHookAudit(events []hookAudit) string {
 	parts := make([]string, 0, len(events))
 	for _, event := range events {
 		parts = append(parts, event.String())
@@ -123,7 +124,7 @@ func formatHookAudit(events []HookAuditEvent) string {
 	return strings.Join(parts, ", ")
 }
 
-func formatHookEventSummary(events []HookAuditEvent) string {
+func formatHookEventSummary(events []hookAudit) string {
 	counts := make(map[string]int)
 	var order []string
 	for _, event := range events {

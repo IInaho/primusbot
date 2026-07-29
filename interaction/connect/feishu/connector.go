@@ -19,7 +19,7 @@ import (
 // the paired chat. The run-state machine, pairing primitives, shared
 // commands, and stream throttle come from the connector core.
 type Connector struct {
-	rt   controlruntime.Runtime
+	rt   controlruntime.ConnectorRuntime
 	base *core.Base
 
 	stream *core.StreamBuffer
@@ -29,7 +29,7 @@ type Connector struct {
 	approvals sync.Map
 }
 
-func New(rt controlruntime.Runtime) *Connector {
+func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
 		rt:     rt,
 		base:   core.NewBase(rt, "feishu", "Feishu"),
@@ -186,8 +186,10 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 		return toastResponse("error", "无法识别的卡片操作"), nil
 	}
 
-	// Only the paired owner may approve.
-	if cfg, cfgErr := loadConfig(); cfgErr == nil && ev.Event.Operator != nil && !cfg.isAllowed(ev.Event.Operator.OpenID) {
+	// Approval is fail-closed: both a readable pairing and an identified
+	// operator are required before the runtime is called.
+	cfg, cfgErr := loadConfig()
+	if cfgErr != nil || ev.Event.Operator == nil || !cfg.isAllowed(ev.Event.Operator.OpenID) {
 		return toastResponse("error", "只有已配对的用户才能执行审批"), nil
 	}
 

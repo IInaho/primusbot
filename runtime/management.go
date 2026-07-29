@@ -2,149 +2,169 @@ package runtime
 
 import "fmt"
 
-// management.go — ManagementRuntime 的实现：每个管理能力都是可选端口，
-// 未注入时 error 方法返回"不支持"，其余方法返回零值。
+// Optional management capabilities are discovered on the same Backend
+// instance. Unsupported operations return an explicit error or zero view.
 
 func unsupportedManagementCapability(name string) error {
 	return fmt.Errorf("runtime: bot does not support %s management", name)
 }
 
-func (r *SessionRuntime) SwitchModel(name string) (string, string, error) {
-	if r.modelManagement == nil {
+func (r *Manager) SwitchModel(name string) (string, string, error) {
+	manager, ok := r.backend.(modelManager)
+	if !ok {
 		return "", "", unsupportedManagementCapability("model")
 	}
-	return r.modelManagement.SwitchModel(name)
+	return manager.SwitchModel(name)
 }
 
-func (r *SessionRuntime) ContextStatus() string {
-	if r.contextManagement == nil {
+func (r *Manager) ContextStatus() string {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return ""
 	}
-	return r.contextManagement.ContextStatus()
+	return manager.ContextStatus()
 }
 
-func (r *SessionRuntime) ContextReport() string {
-	if r.contextManagement == nil {
+func (r *Manager) ContextReport() string {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return unsupportedManagementCapability("context").Error()
 	}
-	return r.contextManagement.ContextReport()
+	return manager.ContextReport()
 }
 
-func (r *SessionRuntime) ContextSnapshot() ContextSnapshot {
-	if r.contextManagement == nil {
+func (r *Manager) ContextSnapshot() ContextSnapshot {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return ContextSnapshot{}
 	}
-	return r.contextManagement.ContextSnapshot()
+	return manager.ContextSnapshot()
 }
 
-func (r *SessionRuntime) MemoryView(scope MemoryScope) MemoryView {
-	if r.contextManagement == nil {
+func (r *Manager) MemoryView(scope MemoryScope) MemoryView {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return MemoryView{}
 	}
-	return r.contextManagement.MemoryView(scope)
+	return manager.MemoryView(scope)
 }
 
-func (r *SessionRuntime) CWD() string {
-	if r.contextManagement == nil {
+func (r *Manager) CWD() string {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return ""
 	}
-	return r.contextManagement.CWD()
+	return manager.CWD()
 }
 
-func (r *SessionRuntime) ClearContext() {
-	if r.contextManagement == nil {
+func (r *Manager) ClearContext() {
+	manager, ok := r.backend.(contextManager)
+	if !ok {
 		return
 	}
-	r.contextManagement.ClearContext()
+	manager.ClearContext()
 }
 
-func (r *SessionRuntime) SelectSkill(name string) error {
-	if r.skillManagement == nil {
+func (r *Manager) SelectSkill(name string) error {
+	manager, ok := r.backend.(skillManager)
+	if !ok {
 		return unsupportedManagementCapability("skill")
 	}
-	return r.skillManagement.SelectSkill(name)
+	return manager.SelectSkill(name)
 }
 
-func (r *SessionRuntime) ClearSelectedSkill() {
-	if r.skillManagement == nil {
+func (r *Manager) ClearSelectedSkill() {
+	manager, ok := r.backend.(skillManager)
+	if !ok {
 		return
 	}
-	r.skillManagement.ClearSelectedSkill()
+	manager.ClearSelectedSkill()
 }
 
-func (r *SessionRuntime) SkillManagementView() SkillManagementView {
-	if r.skillManagement == nil {
+func (r *Manager) SkillManagementView() SkillManagementView {
+	manager, ok := r.backend.(skillManager)
+	if !ok {
 		return SkillManagementView{}
 	}
-	return r.skillManagement.SkillManagementView()
+	return manager.SkillManagementView()
 }
 
-func (r *SessionRuntime) RefreshSkillManagement() SkillManagementView {
-	if r.skillManagement == nil {
+func (r *Manager) RefreshSkillManagement() SkillManagementView {
+	manager, ok := r.backend.(skillManager)
+	if !ok {
 		return SkillManagementView{}
 	}
-	return r.skillManagement.RefreshSkillManagement()
+	return manager.RefreshSkillManagement()
 }
 
-func (r *SessionRuntime) SetPluginEnabled(name string, enabled bool) (SkillManagementView, error) {
-	if r.skillManagement == nil {
+func (r *Manager) SetPluginEnabled(name string, enabled bool) (SkillManagementView, error) {
+	manager, ok := r.backend.(skillManager)
+	if !ok {
 		return SkillManagementView{}, unsupportedManagementCapability("skill")
 	}
-	return r.skillManagement.SetPluginEnabled(name, enabled)
+	return manager.SetPluginEnabled(name, enabled)
 }
 
-func (r *SessionRuntime) ConfigView() ConfigView {
-	if r.configManagement == nil {
+func (r *Manager) ConfigView() ConfigView {
+	manager, ok := r.backend.(configManager)
+	if !ok {
 		return ConfigView{}
 	}
-	return r.configManagement.ConfigView()
+	return manager.ConfigView()
 }
 
-func (r *SessionRuntime) ApplyConfig(cfg ConfigView) (ConfigView, error) {
-	if r.configManagement == nil {
+func (r *Manager) ApplyConfig(cfg ConfigView) (ConfigView, error) {
+	manager, ok := r.backend.(configManager)
+	if !ok {
 		return ConfigView{}, unsupportedManagementCapability("config")
 	}
-	return r.configManagement.ApplyConfig(cfg)
+	return manager.ApplyConfig(cfg)
 }
 
-func (r *SessionRuntime) CurrentSessionID() string {
-	if r.sessionManagement == nil {
+func (r *Manager) CurrentSessionID() string {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return ""
 	}
-	return r.sessionManagement.CurrentSessionID()
+	return manager.CurrentSessionID()
 }
 
-func (r *SessionRuntime) SetSession(id string) error {
-	if r.sessionManagement == nil {
+func (r *Manager) SetSession(id string) error {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return unsupportedManagementCapability("session")
 	}
-	return r.sessionManagement.SetSession(id)
+	return manager.SetSession(id)
 }
 
-func (r *SessionRuntime) ResumeSession(id string) error {
-	if r.sessionManagement == nil {
+func (r *Manager) ResumeSession(id string) error {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return unsupportedManagementCapability("session")
 	}
-	return r.sessionManagement.ResumeSession(id)
+	return manager.ResumeSession(id)
 }
 
-func (r *SessionRuntime) ListSessions() []SessionMeta {
-	if r.sessionManagement == nil {
+func (r *Manager) ListSessions() []SessionMeta {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return nil
 	}
-	return r.sessionManagement.ListSessions()
+	return manager.ListSessions()
 }
 
-func (r *SessionRuntime) NewSession() (SessionMeta, error) {
-	if r.sessionManagement == nil {
+func (r *Manager) NewSession() (SessionMeta, error) {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return SessionMeta{}, unsupportedManagementCapability("session")
 	}
-	return r.sessionManagement.NewSession()
+	return manager.NewSession()
 }
 
-func (r *SessionRuntime) DeleteSession(id string) error {
-	if r.sessionManagement == nil {
+func (r *Manager) DeleteSession(id string) error {
+	manager, ok := r.backend.(sessionManager)
+	if !ok {
 		return unsupportedManagementCapability("session")
 	}
-	return r.sessionManagement.DeleteSession(id)
+	return manager.DeleteSession(id)
 }

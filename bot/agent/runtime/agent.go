@@ -2,9 +2,10 @@ package runtime
 
 import (
 	"context"
+	"time"
+
 	"nekocode/bot/view"
 	commonview "nekocode/common/view"
-	"time"
 
 	"nekocode/bot/agent/kernel"
 	ctxmgr "nekocode/bot/contextmgr"
@@ -18,13 +19,13 @@ import (
 )
 
 // AgentConfig carries the construction-time dependencies of an Agent.
-// HookReg and TodoWriter are optional: nil leaves governance unwired and the
+// Policy and TodoWriter are optional: nil leaves governance unwired and the
 // todo_write tool without an update callback.
 type AgentConfig struct {
 	CtxMgr     *ctxmgr.Manager
 	LLM        provider.LLM
 	Registry   *tools.Registry
-	HookReg    *aggov.Registry
+	Policy     *aggov.Policy
 	TodoWriter commonview.TodoFunc
 }
 
@@ -74,9 +75,7 @@ func New(ctx context.Context, cfg AgentConfig) *Agent {
 		},
 		gate: kernel.NewGate(defaultMaxRetries),
 	}
-	if cfg.HookReg != nil {
-		a.deps.gov = aggov.New(cfg.HookReg)
-	}
+	a.deps.gov = cfg.Policy
 	if cfg.TodoWriter != nil {
 		a.wireTodoWrite(cfg.TodoWriter)
 	}
@@ -93,15 +92,6 @@ func (a *Agent) Run(input string, callback RunCallback) *RunResult {
 
 func (a *Agent) getCtx() context.Context {
 	return a.life.Context()
-}
-
-// hookReg returns the governance hook registry, or nil when governance is
-// not configured. Callers must nil-check before evaluating hooks.
-func (a *Agent) hookReg() *aggov.Registry {
-	if a.deps.gov == nil {
-		return nil
-	}
-	return a.deps.gov.HookReg
 }
 
 func (a *Agent) Steer(msg string) {
@@ -133,7 +123,7 @@ func (a *Agent) Reset() {
 	a.life.Start()
 	a.tokens.snapshot(a.ContextTokens())
 	if a.deps.gov != nil {
-		a.deps.gov.Reset()
+		a.deps.gov.ResetRun()
 	}
 	a.deps.ctxMgr.SetTodos(nil)
 	a.deps.ctxMgr.SetHints("")
@@ -145,15 +135,9 @@ func (a *Agent) injectHint(h *aggov.Hint) {
 	}
 }
 
-// evalHints evaluates an agent-wide (non-tool) hook point and returns the
-// collected hints. Returns nil when governance is not configured.
-func (a *Agent) evalHints(point aggov.HookPoint) []aggov.Hint {
-	reg := a.hookReg()
-	if reg == nil {
-		return nil
-	}
+func collectHints(results []aggov.Result) []aggov.Hint {
 	var hints []aggov.Hint
-	for _, result := range reg.Evaluate(point, "", false) {
+	for _, result := range results {
 		if result.Hint != nil {
 			hints = append(hints, *result.Hint)
 		}

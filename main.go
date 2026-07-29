@@ -22,8 +22,12 @@ type App struct {
 	impl *app.App
 }
 
-func NewApp() *App {
-	return &App{impl: app.NewApp()}
+func NewApp() (*App, error) {
+	impl, err := app.NewApp()
+	if err != nil {
+		return nil, err
+	}
+	return &App{impl: impl}, nil
 }
 
 func (a *App) Startup(ctx context.Context) {
@@ -131,9 +135,12 @@ func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 }
 
 func main() {
-	app := NewApp()
+	app, err := NewApp()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:     "NekoCode",
 		Width:     960,
 		Height:    720,

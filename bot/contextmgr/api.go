@@ -11,7 +11,7 @@ import (
 )
 
 // Public DTOs are aliases of the internal component types (same pattern as
-// runtime/exports.go): callers use them without importing internal packages,
+// runtime/protocol.go): callers use them without importing internal packages,
 // and there is exactly one definition per shape.
 type ToolResultMsg = history.ToolResultMsg
 

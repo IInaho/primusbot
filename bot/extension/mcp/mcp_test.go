@@ -1,24 +1,14 @@
 package mcp
 
 import (
-	"sort"
 	"testing"
 
-	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools"
 )
 
-func toolNames(tools []core.Tool) []string {
-	names := make([]string, 0, len(tools))
-	for _, t := range tools {
-		names = append(names, t.Name())
-	}
-	sort.Strings(names)
-	return names
-}
-
-func assertNames(t *testing.T, got []core.Tool, want ...string) {
+func assertNames(t *testing.T, registry *tools.Registry, want ...string) {
 	t.Helper()
-	names := toolNames(got)
+	names := registry.Names()
 	if len(names) != len(want) {
 		t.Fatalf("tool names = %v, want %v", names, want)
 	}
@@ -37,35 +27,31 @@ func TestManagerAddServer(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	m := NewManager()
+	registry := tools.NewRegistry()
+	m := New(registry)
 
-	added, removed, err := m.AddServer("srv", ServerConfig{Command: cmd.Path})
-	if err != nil {
-		t.Fatalf("AddServer: %v", err)
+	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
+		t.Fatalf("Add: %v", err)
 	}
-	assertNames(t, added, "srv__alpha", "srv__beta")
-	if len(removed) != 0 {
-		t.Errorf("removed = %v, want empty on first add", toolNames(removed))
-	}
+	assertNames(t, registry, "srv__alpha", "srv__beta")
 
 	h := m.Health()["srv"]
 	if h.Status != StatusReady || h.ToolCount != 2 {
 		t.Errorf("health = %+v, want ready with 2 tools", h)
 	}
 
-	m.CloseAll()
+	m.Close()
+	assertNames(t, registry)
 }
 
 func TestManagerAddServerStartFailure(t *testing.T) {
-	m := NewManager()
+	registry := tools.NewRegistry()
+	m := New(registry)
 
-	added, _, err := m.AddServer("bad", ServerConfig{Command: "/nonexistent-mcp-server"})
-	if err == nil {
-		t.Fatal("AddServer should fail for a missing command")
+	if err := m.Add("config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"}); err == nil {
+		t.Fatal("Add should fail for a missing command")
 	}
-	if len(added) != 0 {
-		t.Errorf("added = %v, want empty on failure", toolNames(added))
-	}
+	assertNames(t, registry)
 
 	h, ok := m.Health()["bad"]
 	if !ok {
@@ -82,22 +68,22 @@ func TestManagerRemoveServer(t *testing.T) {
 	})
 	defer cleanup()
 
-	m := NewManager()
+	registry := tools.NewRegistry()
+	m := New(registry)
 
-	if _, _, err := m.AddServer("srv", ServerConfig{Command: cmd.Path}); err != nil {
-		t.Fatalf("AddServer: %v", err)
+	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
+		t.Fatalf("Add: %v", err)
 	}
 
-	removed := m.RemoveServer("srv")
-	assertNames(t, removed, "srv__alpha")
+	m.Remove("plugin:p:srv")
+	assertNames(t, registry)
 	if _, ok := m.Health()["srv"]; ok {
 		t.Error("health should be cleared after RemoveServer")
 	}
 
 	// Removing an unknown server is a no-op.
-	if got := m.RemoveServer("srv"); got != nil {
-		t.Errorf("RemoveServer on unknown name = %v, want nil", toolNames(got))
-	}
+	m.Remove("plugin:p:srv")
+	assertNames(t, registry)
 }
 
 func TestManagerReAddReplacesTools(t *testing.T) {
@@ -112,38 +98,67 @@ func TestManagerReAddReplacesTools(t *testing.T) {
 	})
 	defer cleanup2()
 
-	m := NewManager()
+	registry := tools.NewRegistry()
+	m := New(registry)
 
-	if _, _, err := m.AddServer("srv", ServerConfig{Command: cmd1.Path}); err != nil {
-		t.Fatalf("first AddServer: %v", err)
+	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
+		t.Fatalf("first Add: %v", err)
 	}
-	added, removed, err := m.AddServer("srv", ServerConfig{Command: cmd2.Path})
-	if err != nil {
-		t.Fatalf("second AddServer: %v", err)
+	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd2.Path}); err != nil {
+		t.Fatalf("second Add: %v", err)
 	}
 
-	assertNames(t, added, "srv__gamma")
-	assertNames(t, removed, "srv__alpha", "srv__beta")
+	assertNames(t, registry, "srv__gamma")
 
-	m.CloseAll()
+	m.Close()
+	assertNames(t, registry)
 }
 
-func TestManagerCloseAll(t *testing.T) {
+func TestManagerRejectsDuplicateNameFromDifferentOwner(t *testing.T) {
+	cmd1, cleanup1 := startMockMCP(t, []toolDef{
+		{Name: "alpha", InputSchema: inputSchema{Type: "object"}},
+	})
+	defer cleanup1()
+	cmd2, cleanup2 := startMockMCP(t, []toolDef{
+		{Name: "beta", InputSchema: inputSchema{Type: "object"}},
+	})
+	defer cleanup2()
+
+	registry := tools.NewRegistry()
+	m := New(registry)
+	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
+		t.Fatalf("add plugin server: %v", err)
+	}
+	if err := m.Add("config:srv", "srv", ServerConfig{Command: cmd2.Path}); err == nil {
+		t.Fatal("duplicate display name should be rejected")
+	}
+	assertNames(t, registry, "srv__alpha")
+
+	// Removing an owner that never started must not affect the active server.
+	m.Remove("config:srv")
+	assertNames(t, registry, "srv__alpha")
+
+	m.Remove("plugin:p:srv")
+	assertNames(t, registry)
+}
+
+func TestManagerClose(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, []toolDef{
 		{Name: "alpha", InputSchema: inputSchema{Type: "object"}},
 	})
 	defer cleanup()
 
-	m := NewManager()
+	registry := tools.NewRegistry()
+	m := New(registry)
 
-	if _, _, err := m.AddServer("a", ServerConfig{Command: cmd.Path}); err != nil {
-		t.Fatalf("AddServer a: %v", err)
+	if err := m.Add("config:a", "a", ServerConfig{Command: cmd.Path}); err != nil {
+		t.Fatalf("Add a: %v", err)
 	}
-	// A server that fails to start still holds state that CloseAll must clear.
-	_, _, _ = m.AddServer("bad", ServerConfig{Command: "/nonexistent-mcp-server"})
+	// A server that fails to start still holds health state that Close clears.
+	_ = m.Add("config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"})
 
-	removed := m.CloseAll()
-	assertNames(t, removed, "a__alpha")
+	m.Close()
+	assertNames(t, registry)
 	if len(m.Health()) != 0 {
 		t.Errorf("health should be empty, got %v", m.Health())
 	}

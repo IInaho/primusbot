@@ -2,13 +2,10 @@ package runtime
 
 import (
 	"os"
-	"strings"
 
 	"nekocode/bot/policy"
-	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/toolutil"
-	"nekocode/common/debug"
 )
 
 type filteredCalls struct {
@@ -19,18 +16,12 @@ type filteredCalls struct {
 
 const policyBlockedDefault = "blocked by policy"
 
-func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem, quota *budget.ToolQuota) filteredCalls {
+func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem) filteredCalls {
 	out := filteredCalls{
 		Allowed: make([]core.ToolCallItem, 0, len(calls)),
 		Blocked: make(map[int]string),
 	}
 	for i, c := range calls {
-		if err := quota.ConsumeCall(c.Name, c.Args); err != nil {
-			out.Blocked[i] = err.Error()
-			debug.Log("quota: blocked %s — %v", c.Name, err)
-			continue
-		}
-
 		if r.applyPreToolPolicy(c, out.Blocked, i, &out.PreToolHints) {
 			continue
 		}
@@ -42,12 +33,16 @@ func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem, quota *budget.To
 
 func (r *toolRunner) applyPreToolPolicy(c core.ToolCallItem, blocked map[int]string, idx int, hints *[]*policy.Hint) bool {
 	gov := r.agent.deps.gov
-	if gov == nil || gov.HookReg == nil {
+	if gov == nil {
 		return false
 	}
-	r.preparePreToolHookState(c)
 	shouldBlock := false
-	for _, result := range gov.HookReg.Evaluate(policy.PreToolUse, c.Name, false, c.Args) {
+	request := policy.ToolRequest{
+		Name:         c.Name,
+		Args:         c.Args,
+		TargetExists: toolTargetExists(c),
+	}
+	for _, result := range gov.BeforeTool(request) {
 		if result.Hint != nil {
 			*hints = append(*hints, result.Hint)
 		}
@@ -70,50 +65,17 @@ func policyBlockedStop(stop string) string {
 	return "blocked by stop policy: " + stop
 }
 
-func (r *toolRunner) preparePreToolHookState(tc core.ToolCallItem) {
-	gov := r.agent.deps.gov
-	if gov == nil || gov.Ledger == nil {
-		return
+func toolTargetExists(call core.ToolCallItem) bool {
+	if call.Name != "write" && call.Name != "edit" {
+		return false
 	}
-	targetPath := extractTargetPath(tc.Name, tc.Args)
-	gov.HookReg.SetStr(policy.StoreEditTargetPath, targetPath)
-	gov.HookReg.Flag(policy.StoreEditTargetWasRead, targetPath != "" && gov.Ledger.WasRead(targetPath))
-	gov.HookReg.Flag(policy.StoreEditAnchorSufficient, tc.Name == "edit" && hasSufficientEditAnchor(tc.Args))
-	exists := false
+	targetPath, _ := call.Args["path"].(string)
 	if targetPath != "" {
 		if resolved, err := toolutil.ValidatePath(targetPath); err == nil {
 			if _, err := os.Stat(resolved); err == nil {
-				exists = true
+				return true
 			}
 		}
 	}
-	gov.HookReg.Flag(policy.StoreEditTargetExists, exists)
-}
-
-func hasSufficientEditAnchor(args map[string]any) bool {
-	oldString, _ := args["oldString"].(string)
-	oldString = strings.TrimSpace(oldString)
-	if oldString == "" {
-		return false
-	}
-	if len([]rune(oldString)) >= 200 {
-		return true
-	}
-	lines := strings.Split(oldString, "\n")
-	nonEmpty := 0
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			nonEmpty++
-		}
-	}
-	return nonEmpty >= 5
-}
-
-func extractTargetPath(toolName string, args map[string]any) string {
-	switch toolName {
-	case "write", "edit":
-		p, _ := args["path"].(string)
-		return p
-	}
-	return ""
+	return false
 }

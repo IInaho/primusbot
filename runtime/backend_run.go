@@ -1,4 +1,4 @@
-package session
+package runtime
 
 import (
 	"context"
@@ -6,25 +6,26 @@ import (
 	"strings"
 )
 
-func (r *SessionRuntime) configureBot() {
-	r.confirmDone = make(chan struct{})
-	confirmCh := make(chan ConfirmRequest, 1)
-	go r.confirmChLoop(confirmCh)
-
-	r.runner.ConfigureRuntime(ControlCallbacks{
+func (r *Manager) configureBackend() {
+	r.backend.ConfigureRuntime(ControlCallbacks{
 		Confirm: func(req ConfirmRequest) ConfirmReply {
-			runID := r.CurrentRunID()
-			r.setStatus(RunWaitingApproval)
-			reply := r.approvals.Request(req)
-			if r.shouldResumeRun(runID) {
-				r.setStatus(RunRunning)
+			runID := r.currentRunID()
+			if !r.beginWaiting(runID, RunWaitingApproval) {
+				return ConfirmReply{Allowed: false}
 			}
+			reply := r.approvals.Request(req)
+			r.resumeRun(runID, RunWaitingApproval)
 			return reply
 		},
-		ConfirmCh: confirmCh,
+		CommandDone: func() {
+			runID := r.currentRunID()
+			if runID != "" {
+				r.finishRun(runID, "", nil)
+			}
+		},
 		Phase: func(phase string) {
 			r.events.Publish(Event{
-				RunID:   r.CurrentRunID(),
+				RunID:   r.currentRunID(),
 				Type:    EventPhaseChanged,
 				Source:  SourceRef{Kind: "bot"},
 				Payload: PhasePayload{Phase: phase},
@@ -32,7 +33,7 @@ func (r *SessionRuntime) configureBot() {
 		},
 		Todo: func(items []TodoItem) {
 			r.events.Publish(Event{
-				RunID:   r.CurrentRunID(),
+				RunID:   r.currentRunID(),
 				Type:    EventTodosUpdated,
 				Source:  SourceRef{Kind: "bot"},
 				Payload: items,
@@ -40,54 +41,25 @@ func (r *SessionRuntime) configureBot() {
 		},
 		Notify: func(msg string) {
 			r.events.Publish(Event{
-				RunID:   r.CurrentRunID(),
+				RunID:   r.currentRunID(),
 				Type:    EventSystemMessage,
 				Source:  SourceRef{Kind: "bot"},
 				Payload: MessagePayload{Role: "system", Content: msg, Source: SourceRef{Kind: "bot"}},
 			})
 		},
 		Question: func(req QuestionRequest) QuestionReply {
-			runID := r.CurrentRunID()
-			r.setStatus(RunWaitingQuestion)
-			reply := r.questions.Request(req)
-			if r.shouldResumeRun(runID) {
-				r.setStatus(RunRunning)
+			runID := r.currentRunID()
+			if !r.beginWaiting(runID, RunWaitingQuestion) {
+				return QuestionReply{Rejected: true}
 			}
+			reply := r.questions.Request(req)
+			r.resumeRun(runID, RunWaitingQuestion)
 			return reply
 		},
 	})
 }
 
-func (r *SessionRuntime) confirmChLoop(confirmCh chan ConfirmRequest) {
-	for {
-		select {
-		case <-r.confirmDone:
-			return
-		case req, ok := <-confirmCh:
-			if !ok {
-				return
-			}
-			if req.Response == nil {
-				// Unblock signal sent by the bot (e.g. install cancelled).
-				// Reject any pending approval so the synchronous Confirm caller returns.
-				r.approvals.RejectAll()
-				continue
-			}
-			runID := r.CurrentRunID()
-			r.setStatus(RunWaitingApproval)
-			reply := r.approvals.Request(req)
-			if r.shouldResumeRun(runID) {
-				r.setStatus(RunRunning)
-			}
-			select {
-			case req.Response <- reply:
-			default:
-			}
-		}
-	}
-}
-
-func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
+func (r *Manager) run(ctx context.Context, runID RunID, input Input) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.finishRun(runID, "", fmt.Errorf("runtime: run %s panicked: %v", runID, rec))
@@ -104,7 +76,7 @@ func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
 		return
 	}
 
-	result, err := r.runner.Run(input.Text, RunCallbacks{
+	result, err := r.backend.Run(input.Text, RunCallbacks{
 		Text: func(delta string) {
 			r.events.Publish(Event{
 				RunID:   runID,
@@ -133,8 +105,8 @@ func (r *SessionRuntime) run(ctx context.Context, runID RunID, input Input) {
 	}
 }
 
-func (r *SessionRuntime) handleBotCommand(runID RunID, input Input) bool {
-	resp, cr := r.commands.ExecuteCommand(input.Text)
+func (r *Manager) handleBotCommand(runID RunID, input Input) bool {
+	resp, cr := r.backend.ExecuteCommand(input.Text)
 	if cr == CmdNone {
 		return true
 	}
@@ -153,7 +125,7 @@ func (r *SessionRuntime) handleBotCommand(runID RunID, input Input) bool {
 			Source: SourceRef{Kind: "bot"},
 		})
 	}
-	if hint, wantsAgent := r.skills.SkillHint(); wantsAgent {
+	if hint, wantsAgent := r.backend.SkillHint(); wantsAgent {
 		r.events.Publish(Event{
 			RunID:   runID,
 			Type:    EventSystemMessage,
@@ -162,11 +134,14 @@ func (r *SessionRuntime) handleBotCommand(runID RunID, input Input) bool {
 		})
 		return true
 	}
+	if cr == CmdConfirming {
+		return false
+	}
 	r.finishRun(runID, "", nil)
 	return false
 }
 
-func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, input Input) bool {
+func (r *Manager) handleRuntimeCommand(ctx context.Context, runID RunID, input Input) bool {
 	fields := strings.Fields(strings.TrimSpace(input.Text))
 	if len(fields) == 0 {
 		return false
@@ -180,7 +155,7 @@ func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, 
 	if !ok {
 		return false
 	}
-	resp, err := handler(ctx, r, fields[1:])
+	resp, err := handler(ctx, fields[1:])
 	if err != nil {
 		resp = err.Error()
 	}
@@ -196,29 +171,48 @@ func (r *SessionRuntime) handleRuntimeCommand(ctx context.Context, runID RunID, 
 	return true
 }
 
-func (r *SessionRuntime) finishRun(runID RunID, output string, err error) {
-	if r.isRunAborted(runID) {
-		return
-	}
+func (r *Manager) finishRun(runID RunID, output string, err error) {
 	payload := DonePayload{Output: output}
 	typ := EventRunDone
+	status := RunDone
 	if err != nil {
 		typ = EventRunFailed
+		status = RunFailed
 		payload.Error = err.Error()
-		r.setStatus(RunFailed)
-	} else {
-		r.setStatus(RunDone)
 	}
+
+	r.mu.Lock()
+	if r.closed || r.currentRun != runID {
+		r.mu.Unlock()
+		return
+	}
+	if _, aborted := r.aborted[runID]; aborted {
+		r.mu.Unlock()
+		return
+	}
+	switch r.status {
+	case RunRunning, RunWaitingApproval, RunWaitingQuestion:
+	default:
+		r.mu.Unlock()
+		return
+	}
+	r.status = status
+	r.mu.Unlock()
+
 	r.events.Publish(Event{
 		RunID:   runID,
 		Type:    typ,
 		Source:  SourceRef{Kind: "bot"},
 		Payload: payload,
 	})
-	r.setStatus(RunIdle)
+	r.mu.Lock()
+	if r.currentRun == runID && r.status == status {
+		r.status = RunIdle
+	}
+	r.mu.Unlock()
 }
 
-func (r *SessionRuntime) publishStep(runID RunID, ev StepEvent) {
+func (r *Manager) publishStep(runID RunID, ev StepEvent) {
 	var typ EventType
 	payload := ToolPayload{ToolName: ev.ToolName, CallID: ev.CallID, Args: ev.ToolArgs, Output: ev.Output, IsError: ev.IsError}
 	switch ev.Action {
@@ -237,12 +231,9 @@ func (r *SessionRuntime) publishStep(runID RunID, ev StepEvent) {
 	case StepActionSubAgentEnd:
 		typ = EventSubAgentEnded
 	case StepActionChat:
-		r.events.Publish(Event{
-			RunID:   runID,
-			Type:    EventAssistantDelta,
-			Source:  SourceRef{Kind: "bot"},
-			Payload: DeltaPayload{Delta: ev.Output},
-		})
+		// Text callbacks already publish the assistant stream. StepActionChat
+		// is the coarse completion mirror of that same text; RunDone carries
+		// the canonical fallback for providers that emitted no stream.
 		return
 	case StepActionThink:
 		return

@@ -141,3 +141,12 @@ func TestEventBusObserverCanQueryHistory(t *testing.T) {
 		t.Fatal("publish did not return")
 	}
 }
+
+func TestEventBusRejectsSubscribeAfterClose(t *testing.T) {
+	bus := NewEventBus()
+	bus.Close()
+
+	if _, err := bus.Subscribe(context.Background(), EventFilter{}); err == nil {
+		t.Fatal("Subscribe after Close succeeded")
+	}
+}

@@ -12,7 +12,7 @@ import (
 // stale loops, and connector_status publishing. Channels compose it into
 // their own Connector struct.
 type Base struct {
-	rt          controlruntime.Runtime
+	rt          controlruntime.ConnectorRuntime
 	name        string
 	displayName string
 
@@ -25,7 +25,7 @@ type Base struct {
 // NewBase creates the run-state base for a connector. name is the machine
 // name used in event sources and payloads ("telegram"), displayName the
 // human name used in status messages ("Telegram").
-func NewBase(rt controlruntime.Runtime, name, displayName string) *Base {
+func NewBase(rt controlruntime.ConnectorRuntime, name, displayName string) *Base {
 	return &Base{rt: rt, name: name, displayName: displayName}
 }
 
@@ -87,14 +87,10 @@ func (b *Base) PublishStatus(status, message string) {
 	if b.rt == nil {
 		return
 	}
-	b.rt.Publish(controlruntime.Event{
-		Type:   controlruntime.EventConnectorStatus,
-		Source: controlruntime.SourceRef{Kind: b.name},
-		Payload: controlruntime.ConnectorStatusPayload{
-			Name:    b.name,
-			Status:  status,
-			Message: message,
-		},
+	b.rt.ReportConnectorStatus(controlruntime.ConnectorStatusPayload{
+		Name:    b.name,
+		Status:  status,
+		Message: message,
 	})
 }
 
@@ -103,7 +99,7 @@ func (b *Base) PublishStatus(status, message string) {
 // maps an event to zero or more outbound texts; send receives the original
 // event as well so channels can attach event-specific affordances (e.g.
 // telegram inline keyboards).
-func DispatchEvents(ctx context.Context, rt controlruntime.Runtime, render func(controlruntime.Event) []string, send func(context.Context, controlruntime.Event, string)) error {
+func DispatchEvents(ctx context.Context, rt controlruntime.ConnectorRuntime, render func(controlruntime.Event) []string, send func(context.Context, controlruntime.Event, string)) error {
 	events, err := rt.Subscribe(ctx, controlruntime.EventFilter{})
 	if err != nil {
 		return err

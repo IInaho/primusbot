@@ -58,3 +58,18 @@ func TestQuestionBrokerAnswerUnblocksRequest(t *testing.T) {
 		t.Fatal("timed out waiting for broker request to unblock")
 	}
 }
+
+func TestQuestionBrokerRequestAfterCloseIsRejected(t *testing.T) {
+	broker := NewQuestionBroker(nil, core.SourceRef{Kind: "test"}, nil)
+	broker.Close()
+
+	reply := broker.Request(QuestionRequest{
+		Questions: []core.QuestionItem{{Question: "Continue?"}},
+	})
+	if !reply.Rejected {
+		t.Fatal("question request was not rejected after broker close")
+	}
+	if pending := broker.Pending(); len(pending) != 0 {
+		t.Fatalf("pending questions = %d, want 0", len(pending))
+	}
+}

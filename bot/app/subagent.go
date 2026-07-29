@@ -4,36 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	agentruntime "nekocode/bot/agent/runtime"
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
-	"nekocode/bot/contextmgr"
-	"nekocode/bot/policy"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/taskbridge"
-	"nekocode/bot/view"
 	commonview "nekocode/common/view"
 )
 
-type subagentWiring struct {
-	toolRegistry  *tools.Registry
-	ctxMgr        *contextmgr.Manager
-	cwd           string
-	contextWindow int
-}
+func (b *Bot) wireTaskTool(fm config.ModelConfig, ag *agentruntime.Agent) {
+	registry := b.toolbox.Registry
+	ctxMgr := b.ctxMgr
+	cwd := b.cwd
+	contextWindow := b.cfg.ContextWindow
 
-func newSubagentWiring(toolRegistry *tools.Registry, ctxMgr *contextmgr.Manager, cwd string, contextWindow int) *subagentWiring {
-	return &subagentWiring{
-		toolRegistry:  toolRegistry,
-		ctxMgr:        ctxMgr,
-		cwd:           cwd,
-		contextWindow: contextWindow,
-	}
-}
-
-func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) {
-	t, err := w.toolRegistry.Get("task")
+	t, err := registry.Get("task")
 	if err != nil {
 		return
 	}
@@ -44,28 +29,25 @@ func (w *subagentWiring) WireTaskTool(fm config.ModelConfig, ag agentCallbacks) 
 	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
 		subLLM := provider.NewClientWithProtocol(fm.APIKey, fm.BaseURL, fm.Model, fm.Protocol)
 		subLLM.SetDisableThinking(true)
-		engine := subagent.NewEngine(subLLM, w.toolRegistry, w.ctxMgr.MergeClient())
-		cfg, ok := w.buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, ag)
+		engine := subagent.NewEngine(subLLM, registry, ctxMgr.MergeClient())
+		cfg, ok := buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, cwd, contextWindow, ag)
 		if !ok {
 			return nil, fmt.Errorf("unknown sub-agent type: %s", agentType)
 		}
 		result, err := engine.Run(ctx, cfg)
 		if result != nil && (result.CacheHitTokens > 0 || result.CacheMissTokens > 0) {
-			w.ctxMgr.RecordSubagent(result.TotalTokens, result.CacheHitTokens, result.CacheMissTokens)
+			ctxMgr.RecordSubagent(result.TotalTokens, result.CacheHitTokens, result.CacheMissTokens)
 		}
 		return subagentTaskResult(result), err
 	})
 }
 
-type agentCallbacks interface {
-	ConfirmFn() view.ConfirmFunc
-	ToolExecutionState() *execution.ExecutionState
-	PhaseFn() view.PhaseFunc
-	AddTokens(prompt, completion int)
-	Governance() *policy.Policy
-}
-
-func (w *subagentWiring) buildSubagentRunConfig(ctx context.Context, prompt, agentType, thoroughness string, ag agentCallbacks) (subagent.RunConfig, bool) {
+func buildSubagentRunConfig(
+	ctx context.Context,
+	prompt, agentType, thoroughness, cwd string,
+	contextWindow int,
+	ag *agentruntime.Agent,
+) (subagent.RunConfig, bool) {
 	at, ok := subagent.Get(agentType)
 	if !ok {
 		return subagent.RunConfig{}, false
@@ -73,9 +55,9 @@ func (w *subagentWiring) buildSubagentRunConfig(ctx context.Context, prompt, age
 	cfg := subagent.RunConfig{
 		Prompt:        prompt,
 		AgentType:     at,
-		Cwd:           w.cwd,
+		Cwd:           cwd,
 		Thoroughness:  thoroughness,
-		ContextWindow: w.contextWindow,
+		ContextWindow: contextWindow,
 		ConfirmFn:     ag.ConfirmFn(),
 		ToolState:     ag.ToolExecutionState(),
 		AddTokens:     ag.AddTokens,

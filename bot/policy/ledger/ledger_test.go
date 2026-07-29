@@ -72,7 +72,7 @@ func TestResetPreservesSessionReadFiles(t *testing.T) {
 	})
 
 	// Reset is called between turns, but historical reads survive.
-	l.Reset()
+	l.ResetRun()
 
 	if !l.WasRead("/tmp/session-read.go") {
 		t.Fatal("Reset must preserve session-scoped readFiles across turns")

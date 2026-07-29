@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"nekocode/runtime/defaultbot"
 	"nekocode/runtime/httpapi"
+	"nekocode/runtime/standard"
 )
 
 func main() {
@@ -23,7 +23,10 @@ func main() {
 	token := flag.String("token", os.Getenv("NEKOCODE_DAEMON_TOKEN"), "optional bearer token for HTTP API")
 	flag.Parse()
 
-	rt := defaultbot.NewSessionRuntimeWithConnectors()
+	rt, err := standard.New()
+	if err != nil {
+		log.Fatalf("initialize runtime: %v", err)
+	}
 	defer rt.Close()
 
 	handler := httpapi.New(rt).Handler()

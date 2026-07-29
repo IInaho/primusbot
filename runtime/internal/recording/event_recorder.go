@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	commonview "nekocode/common/view"
 	"nekocode/runtime/internal/artifact"
 	"nekocode/runtime/internal/core"
 	"nekocode/util/fs"
@@ -24,7 +25,7 @@ type SourceRef = core.SourceRef
 type MessagePayload = core.MessagePayload
 type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
-type TodoItem = core.TodoItem
+type TodoItem = commonview.TodoItem
 type ToolPayload = core.ToolPayload
 type DonePayload = core.DonePayload
 type ApprovalView = core.ApprovalView

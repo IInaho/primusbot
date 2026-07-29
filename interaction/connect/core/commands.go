@@ -13,7 +13,7 @@ import (
 // Channels compose it and fall through to their own commands (or message
 // submission) when Handle reports handled=false.
 type CommandHandler struct {
-	RT controlruntime.Runtime
+	RT controlruntime.ConnectorRuntime
 
 	// Help is the channel-specific help text returned for /help.
 	Help string

@@ -3,7 +3,6 @@ package runtime
 import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
-	"nekocode/bot/policy/ledger"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
 	commonview "nekocode/common/view"
@@ -68,51 +67,33 @@ func (r *toolRunner) executeAllowedTools(allowed []core.ToolCallItem, callback R
 	return executor.ExecuteBatch(r.agent.getCtx(), allowed)
 }
 
-func (r *toolRunner) recordToolCalls(calls []core.ToolCallItem, blocked map[int]string, results []core.ToolCallResult) {
+func (r *toolRunner) recordToolResults(calls []core.ToolCallItem, blocked map[int]string, results []core.ToolCallResult) []policy.Result {
 	gov := r.agent.deps.gov
 	if gov == nil {
-		return
+		return nil
 	}
+	events := make([]policy.ToolResult, 0, len(calls))
 	for i, tc := range calls {
 		if msg, ok := blocked[i]; ok {
-			gov.RecordToolCall(ledger.ToolEvent{
-				Name:      tc.Name,
-				Args:      tc.Args,
-				Blocked:   true,
-				BlockText: msg,
+			events = append(events, policy.ToolResult{
+				Name:        tc.Name,
+				Args:        tc.Args,
+				Blocked:     true,
+				BlockReason: msg,
 			})
 			continue
 		}
-		gov.RecordToolCall(ledger.ToolEvent{
+		events = append(events, policy.ToolResult{
 			Name:   tc.Name,
 			Args:   tc.Args,
 			Output: results[i].Output,
 			Error:  results[i].Error,
 		})
 	}
+	return gov.RecordTools(events)
 }
 
-func (r *toolRunner) evaluatePostToolUseHints(calls []core.ToolCallItem, blocked map[int]string, results []core.ToolCallResult) []*policy.Hint {
-	gov := r.agent.deps.gov
-	if gov == nil || gov.HookReg == nil {
-		return nil
-	}
-	var hints []*policy.Hint
-	for i, result := range results {
-		if _, skip := blocked[i]; skip {
-			continue
-		}
-		toolErr := result.Error != ""
-		for _, hr := range gov.HookReg.Evaluate(policy.PostToolUse, calls[i].Name, toolErr, calls[i].Args) {
-			if hr.Hint != nil {
-				hints = append(hints, hr.Hint)
-			}
-		}
-	}
-	return hints
-}
-
-func (r *toolRunner) addToolResultsAndHints(calls []core.ToolCallItem, msgs []types.Message, preToolHints, postToolHints []*policy.Hint) {
+func (r *toolRunner) addToolResultsAndHints(calls []core.ToolCallItem, msgs []types.Message, preToolHints []*policy.Hint) {
 	toolResults := make([]ctxmgr.ToolResultMsg, len(msgs))
 	for i, m := range msgs {
 		toolResults[i] = ctxmgr.ToolResultMsg{Message: m, ToolName: calls[i].Name}
@@ -120,9 +101,6 @@ func (r *toolRunner) addToolResultsAndHints(calls []core.ToolCallItem, msgs []ty
 	r.agent.deps.ctxMgr.AddToolResultsBatch(toolResults)
 
 	for _, h := range preToolHints {
-		r.agent.injectHint(h)
-	}
-	for _, h := range postToolHints {
 		r.agent.injectHint(h)
 	}
 }

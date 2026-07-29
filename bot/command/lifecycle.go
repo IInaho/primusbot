@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/skill"
 	"nekocode/bot/policy"
 	"nekocode/bot/prompt/planmode"
 	"nekocode/bot/tools"
@@ -25,16 +26,11 @@ type PlanModeController interface {
 	SetPlanMode(bool)
 }
 
-type SkillCommand struct {
-	Name    string
-	Context string
-}
-
 type SkillProvider interface {
-	ListForCommands() []SkillCommand
-	GetForCommand(name string) (SkillCommand, bool)
-	MarkLoaded(name string)
-	ClearLoaded()
+	SkillCommands() []skill.Command
+	Skill(name string) (skill.Command, bool)
+	MarkSkillLoaded(name string)
+	ClearLoadedSkills()
 }
 
 type skillLoadCallbackTool interface {
@@ -47,7 +43,7 @@ type Deps struct {
 	Ag           func() PlanModeController // dynamic: returns current agent
 	Skills       SkillProvider
 	ToolRegistry *tools.Registry
-	HookReg      *policy.Registry
+	Policy       *policy.Policy
 	GetConfigFn  func() (provider, model string)           // dynamic config for /config and /model
 	ListModelsFn func() []string                           // available model names for /model
 	SwitchModel  func(name string) (string, string, error) // /model callback
@@ -70,16 +66,16 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 	})
 
 	// $skill-name for each loaded skill.
-	for _, sk := range deps.Skills.ListForCommands() {
+	for _, sk := range deps.Skills.SkillCommands() {
 		name := sk.Name
 		p.RegisterDynamic(name, func(cmd *Command) (string, bool) {
-			sk, ok := deps.Skills.GetForCommand(name)
+			sk, ok := deps.Skills.Skill(name)
 			if !ok {
 				return fmt.Sprintf("Skill %q not found.", name), true
 			}
 			st.MsgStart = deps.CtxMgr.Len()
 			deps.CtxMgr.Add("user", sk.Context)
-			deps.Skills.MarkLoaded(name)
+			deps.Skills.MarkSkillLoaded(name)
 			if len(cmd.Args) == 0 {
 				st.MsgStart = -1
 				return fmt.Sprintf("Loaded skill %q.", name), true
@@ -96,7 +92,7 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 	if t, err := deps.ToolRegistry.Get("skill"); err == nil {
 		if loader, ok := t.(skillLoadCallbackTool); ok {
 			loader.SetOnLoad(func(name string) {
-				deps.Skills.MarkLoaded(name)
+				deps.Skills.MarkSkillLoaded(name)
 			})
 		}
 	}
@@ -161,13 +157,12 @@ func ContextReport(ctxMgr *ctxmgr.Manager, toolDescs []core.Descriptor) string {
 }
 
 // ForceFreshStart archives current conversation and starts a new session.
-func ForceFreshStart(ctxMgr *ctxmgr.Manager, skills SkillProvider, hookReg *policy.Registry) (string, error) {
+func ForceFreshStart(ctxMgr *ctxmgr.Manager, skills SkillProvider, gov *policy.Policy) (string, error) {
 	count, oldTokens, _ := ctxMgr.Stats()
-	skills.ClearLoaded()
-	// Reset hook session state so guards like completionQualityHook
-	// don't carry stale flags across /new boundaries.
-	if hookReg != nil {
-		hookReg.ResetSession()
+	skills.ClearLoadedSkills()
+	// Reset policy run state so hook latches do not cross /new boundaries.
+	if gov != nil {
+		gov.ResetRun()
 	}
 	if count <= 2 {
 		ctxMgr.FreshStart()

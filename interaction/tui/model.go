@@ -16,8 +16,8 @@ import (
 )
 
 type RuntimeClient interface {
-	controlruntime.Runtime
-	controlruntime.QueryRuntime
+	controlruntime.Control
+	controlruntime.Query
 	Close()
 }
 

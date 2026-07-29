@@ -1,10 +1,7 @@
 // Package mcp implements an MCP (Model Context Protocol) client over stdio.
 //
-// Manager is the package entry point: it owns the lifecycle of every MCP
-// server connection (spawning processes, the initialize handshake, tool
-// discovery) and hands discovered tools back to the caller, which decides
-// how to register them. The connection handle (client) is an internal
-// implementation detail.
+// Manager is the package entry point: it owns MCP server processes, health,
+// tool discovery, and tool registration.
 package mcp
 
 import (
@@ -12,6 +9,7 @@ import (
 	"maps"
 	"sync"
 
+	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
 )
 
@@ -31,99 +29,88 @@ type Health struct {
 
 // server is a managed connection and the tools discovered on it.
 type server struct {
+	name   string
 	client *client
 	tools  []core.Tool
 }
 
 // Manager owns the lifecycle of every MCP server connection: spawning
-// processes, performing the initialize handshake, and discovering tools.
-// It does not know how tools are registered — AddServer/RemoveServer/
-// CloseAll return the affected tools and leave that to the caller.
+// processes, performing the initialize handshake, and registering tools.
+// Servers have a stable owner ID separate from their user-facing name.
 type Manager struct {
-	mu      sync.Mutex
-	servers map[string]*server
-	health  map[string]Health
+	mu       sync.Mutex
+	servers  map[string]*server
+	owners   map[string]string
+	health   map[string]Health
+	registry *tools.Registry
 }
 
-// NewManager creates an empty Manager.
-func NewManager() *Manager {
+// New creates an empty Manager that owns MCP tool registration.
+func New(registry *tools.Registry) *Manager {
 	return &Manager{
-		servers: make(map[string]*server),
-		health:  make(map[string]Health),
+		servers:  make(map[string]*server),
+		owners:   make(map[string]string),
+		health:   make(map[string]Health),
+		registry: registry,
 	}
 }
 
-// AddServer (re)starts the named server: it spawns the process, performs the
-// initialize handshake and discovers the server's tools. It returns the
-// tools the server now exposes (added) and, when replacing a previous
-// incarnation of the same name, the tools that incarnation exposed (removed)
-// so the caller can unregister them. On failure the server's health is
-// recorded with StatusError and the error is returned.
-func (m *Manager) AddServer(name string, cfg ServerConfig) (added, removed []core.Tool, err error) {
+// Add starts or replaces a server owned by id. Name remains the MCP tool
+// prefix visible to the model.
+func (m *Manager) Add(id, name string, cfg ServerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if old, ok := m.servers[name]; ok {
-		removed = old.tools
-		_ = old.client.Close()
-		delete(m.servers, name)
-		delete(m.health, name)
+	if owner := m.owners[name]; owner != "" && owner != id {
+		return fmt.Errorf("server name %q is already owned by %s", name, owner)
 	}
+	m.removeLocked(id)
 
 	client := newClient(name, cfg)
-	m.servers[name] = &server{client: client}
+	m.servers[id] = &server{name: name, client: client}
+	m.owners[name] = id
 	m.health[name] = Health{Status: StatusStarting}
 
 	if err := client.Start(); err != nil {
 		m.health[name] = Health{Status: StatusError, Error: err.Error()}
-		return nil, removed, fmt.Errorf("start: %w", err)
+		return fmt.Errorf("start: %w", err)
 	}
 
 	defs, err := client.ListTools()
 	if err != nil {
 		_ = client.Close()
-		delete(m.servers, name)
 		m.health[name] = Health{Status: StatusError, Error: err.Error()}
-		return nil, removed, fmt.Errorf("list tools: %w", err)
+		return fmt.Errorf("list tools: %w", err)
 	}
 
-	tools := make([]core.Tool, 0, len(defs))
+	serverTools := make([]core.Tool, 0, len(defs))
 	for _, td := range defs {
-		tools = append(tools, newMCPTool(client, td))
+		serverTools = append(serverTools, newMCPTool(client, td))
 	}
-	m.servers[name].tools = tools
-	m.health[name] = Health{Status: StatusReady, ToolCount: len(tools)}
-	return tools, removed, nil
+	m.servers[id].tools = serverTools
+	m.registerTools(serverTools)
+	m.health[name] = Health{Status: StatusReady, ToolCount: len(serverTools)}
+	return nil
 }
 
-// RemoveServer stops the named server and returns the tools it exposed so
-// the caller can unregister them. Unknown names return nil.
-func (m *Manager) RemoveServer(name string) []core.Tool {
+// Remove stops the server owned by id and unregisters its tools.
+func (m *Manager) Remove(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s, ok := m.servers[name]
-	if !ok {
-		return nil
-	}
-	_ = s.client.Close()
-	delete(m.servers, name)
-	delete(m.health, name)
-	return s.tools
+	m.removeLocked(id)
 }
 
-// CloseAll stops every managed server and returns all tools that were
-// exposed, so the caller can unregister them.
-func (m *Manager) CloseAll() []core.Tool {
+// Close stops every managed server and unregisters all MCP tools.
+func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var all []core.Tool
-	for name, s := range m.servers {
+	for id, s := range m.servers {
 		_ = s.client.Close()
-		all = append(all, s.tools...)
-		delete(m.servers, name)
-		delete(m.health, name)
+		m.unregisterTools(s.tools)
+		delete(m.servers, id)
 	}
-	return all
+	clear(m.owners)
+	clear(m.health)
 }
 
 // Health returns a snapshot of per-server health keyed by server name.
@@ -131,4 +118,36 @@ func (m *Manager) Health() map[string]Health {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return maps.Clone(m.health)
+}
+
+func (m *Manager) registerTools(serverTools []core.Tool) {
+	if m.registry == nil {
+		return
+	}
+	for _, tool := range serverTools {
+		m.registry.Register(tool)
+	}
+}
+
+func (m *Manager) unregisterTools(serverTools []core.Tool) {
+	if m.registry == nil {
+		return
+	}
+	for _, tool := range serverTools {
+		m.registry.Unregister(tool.Name())
+	}
+}
+
+func (m *Manager) removeLocked(id string) {
+	s, ok := m.servers[id]
+	if !ok {
+		return
+	}
+	_ = s.client.Close()
+	m.unregisterTools(s.tools)
+	delete(m.servers, id)
+	if m.owners[s.name] == id {
+		delete(m.owners, s.name)
+		delete(m.health, s.name)
+	}
 }

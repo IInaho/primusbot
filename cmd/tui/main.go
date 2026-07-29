@@ -1,7 +1,13 @@
 package main
 
-import "nekocode/interaction/tui"
+import (
+	"log"
+
+	"nekocode/interaction/tui"
+)
 
 func main() {
-	tui.Run()
+	if err := tui.Run(); err != nil {
+		log.Fatal(err)
+	}
 }

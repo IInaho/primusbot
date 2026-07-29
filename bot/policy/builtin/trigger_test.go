@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"nekocode/bot/policy"
 )
 
 // Every builtin hook must describe its own trigger context so the registry
@@ -23,8 +21,8 @@ func TestAllHooksDescribeTrigger(t *testing.T) {
 func TestToolResultGuardrailTriggerUsesConstants(t *testing.T) {
 	hk := ToolResultGuardrailHook()
 	s := newState()
-	s.Set(policy.StoreToolResultCount, 55)
-	s.Set(policy.CounterToolResultWarned, 40)
+	s.facts.Model.ToolResults = 55
+	s.SetInt("last_warned", 40)
 
 	got := hk.DescribeTrigger(s)
 	want := fmt.Sprintf("tool_results=55 last_warned=40 threshold=%d interval=%d",

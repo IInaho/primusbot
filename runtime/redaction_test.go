@@ -1,4 +1,4 @@
-package redaction
+package runtime
 
 import "testing"
 
@@ -18,8 +18,7 @@ func TestRedactInputText(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got := RedactInputText(tc.input)
-		if got != tc.want {
+		if got := RedactInputText(tc.input); got != tc.want {
 			t.Fatalf("RedactInputText(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}

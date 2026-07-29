@@ -105,11 +105,10 @@ func (r *modelRunner) streamSynthesize(ctx context.Context) (string, error) {
 
 func (r *modelRunner) applyPreModelRequestHooks(messages []types.Message) []types.Message {
 	gov := r.agent.deps.gov
-	if gov == nil || gov.HookReg == nil {
+	if gov == nil {
 		return messages
 	}
-	gov.HookReg.Set(policy.StoreToolResultCount, countToolResults(messages))
-	hints := r.agent.evalHints(policy.PreModelRequest)
+	hints := collectHints(gov.BeforeModel(countToolResults(messages)))
 	if len(hints) == 0 {
 		return messages
 	}
@@ -120,8 +119,8 @@ func (r *modelRunner) applyPreModelRequestHooks(messages []types.Message) []type
 	})
 }
 
-func countToolResults(messages []types.Message) int64 {
-	var count int64
+func countToolResults(messages []types.Message) int {
+	var count int
 	for _, m := range messages {
 		if m.Role == "tool" {
 			count++

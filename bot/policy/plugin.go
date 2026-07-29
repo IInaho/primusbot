@@ -1,6 +1,10 @@
 package policy
 
-import hookplugin "nekocode/bot/policy/plugin"
+import (
+	"strings"
+
+	hookplugin "nekocode/bot/policy/plugin"
+)
 
 func LoadPluginHooks(pluginRoot, hooksPath string) ([]Hook, error) {
 	loaded, err := hookplugin.Load(pluginRoot, hooksPath)
@@ -9,7 +13,9 @@ func LoadPluginHooks(pluginRoot, hooksPath string) ([]Hook, error) {
 	}
 	hooks := make([]Hook, 0, len(loaded))
 	for _, h := range loaded {
-		hooks = append(hooks, adaptPluginHook(h))
+		hook := adaptPluginHook(h)
+		hook.Name = "plugin:" + pluginRoot + ":" + strings.TrimPrefix(hook.Name, "plugin:")
+		hooks = append(hooks, hook)
 	}
 	return hooks, nil
 }
@@ -20,16 +26,31 @@ func adaptPluginHook(h hookplugin.Hook) Hook {
 		Point: HookPoint(h.Point),
 		On: func(s State) *Result {
 			if h.Once {
-				if s.Flag(StoreSessionStarted) {
+				if s.Int("started") == 1 {
 					return nil
 				}
-				s.Set(StoreSessionStarted, 1)
+				s.SetInt("started", 1)
 			}
-			return adaptPluginResult(h.On(hookplugin.Event{
-				Tool:  s.ToolName(),
-				Error: s.ToolError(),
-			}))
+			facts := s.Facts()
+			result := h.On(hookplugin.Event{
+				Tool:  facts.Tool.Name,
+				Error: facts.Tool.Error,
+			})
+			applyPluginState(s, result)
+			return adaptPluginResult(result)
 		},
+	}
+}
+
+func applyPluginState(state State, result *hookplugin.Result) {
+	if result == nil || result.StatePatch == nil {
+		return
+	}
+	for key, value := range result.StatePatch.Ints {
+		state.SetInt(key, value)
+	}
+	for key, value := range result.StatePatch.Strings {
+		state.SetString(key, value)
 	}
 }
 
@@ -64,12 +85,6 @@ func adaptPluginResult(r *hookplugin.Result) *Result {
 	if r.BlockFinal != nil {
 		out.BlockFinal = &BlockFinal{
 			Reason: r.BlockFinal.Reason,
-		}
-	}
-	if r.StatePatch != nil {
-		out.StatePatch = &StatePatch{
-			Ints:    r.StatePatch.Ints,
-			Strings: r.StatePatch.Strings,
 		}
 	}
 	return out

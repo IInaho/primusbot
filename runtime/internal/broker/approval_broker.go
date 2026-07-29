@@ -19,6 +19,7 @@ type ApprovalBroker struct {
 	eventBus *eventbus.EventBus
 	source   SourceRef
 	runID    func() RunID
+	closed   bool
 }
 
 type approvalRecord struct {
@@ -65,6 +66,10 @@ func (b *ApprovalBroker) Request(req ConfirmRequest) ConfirmReply {
 	}
 
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return ConfirmReply{Allowed: false}
+	}
 	b.pending[id] = rec
 	viewCopy := rec.view
 	b.mu.Unlock()
@@ -134,7 +139,18 @@ func (b *ApprovalBroker) Pending() []ApprovalView {
 }
 
 func (b *ApprovalBroker) RejectAll() {
+	b.rejectAll(false)
+}
+
+func (b *ApprovalBroker) Close() {
+	b.rejectAll(true)
+}
+
+func (b *ApprovalBroker) rejectAll(closeBroker bool) {
 	b.mu.Lock()
+	if closeBroker {
+		b.closed = true
+	}
 	records := make([]*approvalRecord, 0, len(b.pending))
 	for id, rec := range b.pending {
 		resolvedAt := time.Now()

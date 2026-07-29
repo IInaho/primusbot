@@ -1,16 +1,9 @@
 package builtin
 
-import (
-	"testing"
-
-	"nekocode/bot/policy"
-)
+import "testing"
 
 func TestRegisterRegistersExpectedHookSet(t *testing.T) {
-	r := policy.NewRegistry()
-	Register(r)
-
-	hooks := r.List()
+	hooks := All()
 	if len(hooks) != 9 {
 		t.Fatalf("builtin hooks = %d, want 9", len(hooks))
 	}

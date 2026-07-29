@@ -32,10 +32,10 @@ type RunCallbacks struct {
 }
 
 type ControlCallbacks struct {
-	Confirm   ConfirmFunc
-	Phase     PhaseFunc
-	Todo      TodoFunc
-	Notify    func(string)
-	ConfirmCh chan ConfirmRequest
-	Question  QuestionFunc
+	Confirm     ConfirmFunc
+	Phase       PhaseFunc
+	Todo        TodoFunc
+	Notify      func(string)
+	CommandDone func()
+	Question    QuestionFunc
 }

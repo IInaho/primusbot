@@ -37,7 +37,7 @@ func (b *Bot) ApplyConfig(cfgView view.ConfigView) (view.ConfigView, error) {
 func (b *Bot) reloadRuntime(oldPrompt, oldCompl int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.reinit()
+	b.rebuildRuntime()
 	if b.ag != nil {
 		b.ag.AddTokens(oldPrompt, oldCompl)
 	}

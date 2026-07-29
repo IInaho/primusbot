@@ -34,7 +34,7 @@ import (
 	"time"
 
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/defaultbot"
+	"nekocode/runtime/standard"
 
 	"github.com/google/uuid"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -51,19 +51,18 @@ type App struct {
 }
 
 type runtimeBackend interface {
-	controlruntime.Runtime
-	controlruntime.QueryRuntime
-	controlruntime.ManagementRuntime
-	RegisterConnector(name string, factory controlruntime.ConnectorFactory)
-	Close()
+	controlruntime.Client
 }
 
 // NewApp 创建 App 实例，bot.Bot 在这里初始化以消除 startup/domReady 竞态。
-func NewApp() *App {
-	rt := defaultbot.NewSessionRuntimeWithConnectors()
+func NewApp() (*App, error) {
+	rt, err := standard.New()
+	if err != nil {
+		return nil, err
+	}
 	return &App{
 		rt: rt,
-	}
+	}, nil
 }
 
 // ---------- Wails 生命周期 ----------

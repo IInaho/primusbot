@@ -42,6 +42,7 @@ func (r *registry) LoadAll() {
 	defer r.mu.Unlock()
 
 	regData := r.loadRegistryFile()
+	r.plugins = make(map[string]*Plugin)
 	seen := make(map[string]bool)
 	for _, baseDir := range r.baseDirs {
 		entries, err := os.ReadDir(baseDir)
@@ -178,6 +179,7 @@ func (r *registry) SkillDirs() []string {
 	}
 	return dirs
 }
+
 // registryJSON is the on-disk format for ~/.nekocode/plugins/registry.json.
 type registryJSON struct {
 	Plugins map[string]registryEntry `json:"plugins"`

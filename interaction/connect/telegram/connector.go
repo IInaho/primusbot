@@ -22,7 +22,7 @@ type msgRef struct {
 }
 
 type Connector struct {
-	rt   controlruntime.Runtime
+	rt   controlruntime.ConnectorRuntime
 	base *core.Base
 
 	mu          sync.Mutex
@@ -34,7 +34,7 @@ type Connector struct {
 	pendingSelect map[string]map[int]bool
 }
 
-func New(rt controlruntime.Runtime) *Connector {
+func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
 		rt:            rt,
 		base:          core.NewBase(rt, "telegram", "Telegram"),

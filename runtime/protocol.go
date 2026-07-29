@@ -1,6 +1,9 @@
 package runtime
 
-import "nekocode/runtime/internal/core"
+import (
+	commonview "nekocode/common/view"
+	"nekocode/runtime/internal/core"
+)
 
 type RunID = core.RunID
 
@@ -61,55 +64,18 @@ type EventFilter = core.EventFilter
 type MessagePayload = core.MessagePayload
 type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
-type CmdResult = core.CmdResult
-type StepAction = core.StepAction
-type StepEvent = core.StepEvent
-type RunCallbacks = core.RunCallbacks
-type ControlCallbacks = core.ControlCallbacks
-type TodoItem = core.TodoItem
-type BotStats = core.BotStats
-type ContextSegment = core.ContextSegment
-type ContextSnapshot = core.ContextSnapshot
-type MemoryScope = core.MemoryScope
-type MemorySection = core.MemorySection
-type MemoryView = core.MemoryView
-type SessionMeta = core.SessionMeta
-type DisplayBlock = core.DisplayBlock
-type ImageRef = core.ImageRef
-type DisplayMessage = core.DisplayMessage
-type ConfigView = core.ConfigView
-type ModelConfig = core.ModelConfig
-type ImageGenConfig = core.ImageGenConfig
-type MCPServerConfig = core.MCPServerConfig
-type PermissionsConfig = core.PermissionsConfig
-type SandboxConfig = core.SandboxConfig
-type WorkspaceConfig = core.WorkspaceConfig
-type SkillManagementView = core.SkillManagementView
-type SkillView = core.SkillView
-type PluginView = core.PluginView
-type MCPServerView = core.MCPServerView
+type TodoItem = commonview.TodoItem
+type BotStats = commonview.BotStats
+type ContextSnapshot = commonview.ContextSnapshot
+type MemoryScope = commonview.MemoryScope
+type MemorySection = commonview.MemorySection
+type MemoryView = commonview.MemoryView
+type SessionMeta = commonview.SessionMeta
+type DisplayMessage = commonview.DisplayMessage
+type ConfigView = commonview.ConfigView
+type SkillManagementView = commonview.SkillManagementView
 type ToolPayload = core.ToolPayload
 type DonePayload = core.DonePayload
-
-const (
-	CmdNone           = core.CmdNone
-	CmdHandled        = core.CmdHandled
-	CmdConfirming     = core.CmdConfirming
-	CmdSessionResumed = core.CmdSessionResumed
-)
-
-const (
-	StepActionChat           = core.StepActionChat
-	StepActionThink          = core.StepActionThink
-	StepActionToolStart      = core.StepActionToolStart
-	StepActionToolBlocked    = core.StepActionToolBlocked
-	StepActionToolPreview    = core.StepActionToolPreview
-	StepActionExecuteTool    = core.StepActionExecuteTool
-	StepActionSubToolStart   = core.StepActionSubToolStart
-	StepActionSubExecuteTool = core.StepActionSubExecuteTool
-	StepActionSubAgentStart  = core.StepActionSubAgentStart
-	StepActionSubAgentEnd    = core.StepActionSubAgentEnd
-)
 
 type ApprovalStatus = core.ApprovalStatus
 
@@ -131,7 +97,8 @@ type ConfirmRequest = core.ConfirmRequest
 type ConfirmReply = core.ConfirmReply
 type ApprovalDecision = core.ApprovalDecision
 type ApprovalView = core.ApprovalView
-type Runtime = core.Runtime
+type Control = core.Control
+type ConnectorRuntime = core.ConnectorRuntime
 type RunView = core.RunView
 
 type ToolStatus = core.ToolStatus
@@ -164,7 +131,7 @@ type QuestionItem = core.QuestionItem
 type QuestionReply = core.QuestionReply
 type QuestionRequest = core.QuestionRequest
 
-type QueryRuntime interface {
+type Query interface {
 	CurrentRunView() (RunView, bool)
 	RunView(runID RunID) (RunView, bool)
 	ListRunViews(limit int) []RunView
@@ -179,7 +146,7 @@ type QueryRuntime interface {
 	ProviderModel() (provider, model string)
 }
 
-type ManagementRuntime interface {
+type Management interface {
 	SwitchModel(name string) (model, provider string, err error)
 	ContextStatus() string
 	ContextReport() string
@@ -200,6 +167,14 @@ type ManagementRuntime interface {
 	DeleteSession(id string) error
 }
 
+// Client is the full application-facing view of one Manager instance.
+type Client interface {
+	Control
+	Query
+	Management
+	Close()
+}
+
 const (
-	MemoryScopeProject = core.MemoryScopeProject
+	MemoryScopeProject = commonview.MemoryScopeProject
 )

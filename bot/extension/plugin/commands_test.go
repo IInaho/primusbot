@@ -6,16 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseInstallArgs(t *testing.T) {
-	if got := parseInstallArgs(nil); got.OK {
-		t.Fatal("empty args should not parse")
-	}
-	got := parseInstallArgs([]string{"owner/repo", "--yes"})
-	if !got.OK || got.Source != "owner/repo" || !got.Confirmed {
-		t.Fatalf("unexpected args: %+v", got)
-	}
-}
-
 func TestFetchRemotePreview(t *testing.T) {
 	p, err := fetchRemotePreview("https://github.com/owner/repo", func(url string) ([]byte, error) {
 		if !strings.Contains(url, "owner/repo") {
@@ -64,40 +54,11 @@ func TestConfirmSummary(t *testing.T) {
 	}
 }
 
-func TestRequirePlugin(t *testing.T) {
-	if got := requirePlugin(nil, nil, "usage"); got.OK || got.Message != "usage" {
-		t.Fatalf("empty args = %+v", got)
+func TestIsLocalSource(t *testing.T) {
+	if !IsLocalSource("./plugin") {
+		t.Fatal("relative path should be local")
 	}
-	lookup := func(name string) (*Plugin, bool) {
-		if name == "ok" {
-			return &Plugin{Manifest: Manifest{Name: "ok"}}, true
-		}
-		return nil, false
-	}
-	if got := requirePlugin([]string{"missing"}, lookup, "usage"); got.OK || got.Message != `Plugin "missing" not found.` {
-		t.Fatalf("missing = %+v", got)
-	}
-	if got := requirePlugin([]string{"ok"}, lookup, "usage"); !got.OK || got.Plugin.Name != "ok" {
-		t.Fatalf("found = %+v", got)
-	}
-}
-
-func TestManageMessages(t *testing.T) {
-	err := errors.New("boom")
-	checks := []string{
-		alreadyEnabled("p"),
-		alreadyDisabled("p"),
-		enabled("p"),
-		disabled("p"),
-		uninstalled("p"),
-		installFailed(err),
-		uninstallFailed(err),
-		enableFailed(err),
-		disableFailed(err),
-	}
-	for _, msg := range checks {
-		if msg == "" {
-			t.Fatal("empty message")
-		}
+	if IsLocalSource("owner/repo") {
+		t.Fatal("repository shorthand should be remote")
 	}
 }

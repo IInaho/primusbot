@@ -154,7 +154,7 @@ Dynamic dollar commands:
 	})
 
 	p.Register("new", func(cmd *Command) (string, bool) {
-		result, err := ForceFreshStart(deps.CtxMgr, deps.Skills, deps.HookReg)
+		result, err := ForceFreshStart(deps.CtxMgr, deps.Skills, deps.Policy)
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
 		}

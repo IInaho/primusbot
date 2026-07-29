@@ -25,9 +25,9 @@ func All() []policy.Hook {
 	}
 }
 
-// Register registers all built-in hooks into r.
-func Register(r *policy.Registry) {
+// Register installs all built-in hooks into p.
+func Register(p *policy.Policy) {
 	for _, h := range All() {
-		r.Register(h)
+		p.Register(h)
 	}
 }

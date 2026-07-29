@@ -39,11 +39,11 @@ func (b *Bot) RunAgent(input string, onStep func(ev commonview.StepEvent)) (stri
 	b.ctxMgr.SetSystemPrompt(b.promptBuilder.Build())
 	command.SummarizeIfNeeded(b.ctxMgr)
 	if result.Interrupted {
-		if err := b.sess.SaveIfNotEmpty(); err != nil && result.Error == nil {
+		if err := b.saveSession(); err != nil && result.Error == nil {
 			result.Error = err
 		}
 	} else {
-		b.sess.Save()
+		_ = b.saveSession()
 	}
 	return result.FinalOutput, result.Error
 }

@@ -36,7 +36,7 @@ func (c *statusConnector) ConnectorStatusView() ConnectorView {
 func TestConnectorManagerStartsConnector(t *testing.T) {
 	manager := NewManager(nil)
 	started := false
-	manager.Register("telegram", func(Runtime) Connector {
+	manager.Register("telegram", func(Host) Connector {
 		return &statusConnector{
 			name: "telegram",
 		}
@@ -65,7 +65,7 @@ func TestConnectorManagerStartsConnector(t *testing.T) {
 func TestConnectorManagerDoesNotAutoStart(t *testing.T) {
 	manager := NewManager(nil)
 	startCalled := false
-	manager.Register("failing", func(Runtime) Connector {
+	manager.Register("failing", func(Host) Connector {
 		return &trackingConnector{name: "failing", started: &startCalled}
 	})
 
@@ -104,10 +104,10 @@ func (c trackingConnector) HandleCommand(context.Context, []string) (string, err
 
 func TestConnectorManagerView(t *testing.T) {
 	manager := NewManager(nil)
-	manager.Register("telegram", func(Runtime) Connector {
+	manager.Register("telegram", func(Host) Connector {
 		return &statusConnector{name: "telegram"}
 	})
-	manager.Register("slack", func(Runtime) Connector {
+	manager.Register("slack", func(Host) Connector {
 		return &statusConnector{name: "slack"}
 	})
 

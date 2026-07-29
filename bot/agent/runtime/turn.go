@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"nekocode/bot/policy"
-	"nekocode/bot/policy/budget"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/common/debug"
 	commonview "nekocode/common/view"
@@ -26,27 +25,27 @@ func newTurnRunner(agent *Agent) *turnRunner {
 
 // prepareTurn readies a turn: auto-compacts the context if needed, computes
 // the tool quota from current token usage, and applies PreTurn hooks.
-func (r *turnRunner) prepareTurn(input string) budget.ToolQuota {
+func (r *turnRunner) prepareTurn(input string) {
 	a := r.agent
 	a.deps.ctxMgr.AutoCompactIfNeeded()
-	quota := budget.ComputeQuota(a.deps.ctxMgr.TokenUsage())
-	r.applyPreTurnHooks(input, quota)
-	return quota
+	r.applyPreTurnHooks(input)
 }
 
 // applyPreTurnHooks resets per-turn governance state, publishes task-status
 // flags, evaluates PreTurn hooks, and stages the resulting hints for this turn.
-func (r *turnRunner) applyPreTurnHooks(input string, quota budget.ToolQuota) {
+func (r *turnRunner) applyPreTurnHooks(input string) {
 	a := r.agent
-	if a.hookReg() == nil {
+	if a.deps.gov == nil {
 		a.applyTurnHints(nil)
 		return
 	}
-	a.deps.gov.ResetTurnBetween(input, quota.MaxSlots-quota.Used)
-	a.deps.gov.HookReg.Flag(policy.StoreTasksAllDone, a.deps.ctxMgr.AllTasksDone())
-	a.deps.gov.HookReg.Flag(policy.StoreHasTasks, a.deps.ctxMgr.HasTasks())
-
-	a.applyTurnHints(a.evalHints(policy.PreTurn))
+	usedTokens, contextWindow := a.deps.ctxMgr.TokenUsage()
+	results := a.deps.gov.BeginTurn(policy.Turn{
+		Input:     input,
+		HasTasks:  a.deps.ctxMgr.HasTasks(),
+		TasksDone: a.deps.ctxMgr.AllTasksDone(),
+	}, usedTokens, contextWindow)
+	a.applyTurnHints(collectHints(results))
 }
 
 // interruptedBeforeReasoning reports whether the run was interrupted before
@@ -88,12 +87,12 @@ func (r *turnRunner) retryAfterInterruptedReasoning(reasoning *reasoningResult, 
 // handleToolCalls executes the requested tool calls and feeds the results
 // back into the context. Tool activity resets the consecutive-hint/failure
 // counters and the policy-block gate. Returns true when the run should finish.
-func (r *turnRunner) handleToolCalls(calls []core.ToolCallItem, reasoning *reasoningResult, quota *budget.ToolQuota, callback RunCallback) bool {
+func (r *turnRunner) handleToolCalls(calls []core.ToolCallItem, reasoning *reasoningResult, callback RunCallback) bool {
 	a := r.agent
 	a.run.consecutiveHints = 0
 	a.run.consecutiveFailures = 0
 	a.gate.Reset()
-	return a.toolRunner.executeAndFeedback(calls, reasoning.TextContent, quota, callback)
+	return a.toolRunner.executeAndFeedback(calls, reasoning.TextContent, callback)
 }
 
 // handleText processes a text-only response (no tool calls): it tracks
@@ -161,21 +160,20 @@ func (r *turnRunner) recordReasoningText(reasoning *reasoningResult, recordable 
 // took over the turn outcome (with finished indicating whether the run ends).
 func (r *turnRunner) applyPostTurnHooks(reasoning *reasoningResult, recordable bool, callback RunCallback) (handled, finished bool) {
 	a := r.agent
-	if a.deps.gov == nil || a.deps.gov.HookReg == nil {
+	if a.deps.gov == nil {
 		return false, false
 	}
-	if reasoning.GarbledToolCall {
-		a.deps.gov.HookReg.Inc(policy.StoreRespGarbled)
-	}
-	// Expose the final-answer intent to PostTurn hooks.
-	// Only recordable text (non-error, non-garbled chat) is governed.
+	var intent policy.FinalIntent
 	if recordable {
-		a.deps.gov.HookReg.SetStr(policy.StoreFinalIntent, policy.FinalIntentFinal)
+		intent = policy.FinalIntentFinal
 	} else {
-		a.deps.gov.HookReg.SetStr(policy.StoreFinalIntent, finalIntentForReasoning(reasoning))
+		intent = finalIntentForReasoning(reasoning)
 	}
 
-	for _, result := range a.deps.gov.HookReg.Evaluate(policy.PostTurn, "", false) {
+	for _, result := range a.deps.gov.AfterTurn(policy.TurnResult{
+		Intent:  intent,
+		Garbled: reasoning.GarbledToolCall,
+	}) {
 		handled, finished := r.applyPostTurnHookResult(result, reasoning, recordable, callback)
 		if handled {
 			return true, finished
@@ -186,7 +184,7 @@ func (r *turnRunner) applyPostTurnHooks(reasoning *reasoningResult, recordable b
 
 // finalIntentForReasoning maps a non-recordable response to the final-intent
 // label reported to PostTurn hooks.
-func finalIntentForReasoning(reasoning *reasoningResult) string {
+func finalIntentForReasoning(reasoning *reasoningResult) policy.FinalIntent {
 	switch {
 	case reasoning.IsError:
 		return policy.FinalIntentError

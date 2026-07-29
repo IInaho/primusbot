@@ -13,8 +13,8 @@ import (
 )
 
 type Runtime interface {
-	controlruntime.Runtime
-	controlruntime.QueryRuntime
+	controlruntime.Control
+	controlruntime.Query
 }
 
 type Server struct {

@@ -8,211 +8,197 @@ import (
 )
 
 type testState struct {
-	ints map[string]int64
-	strs map[string]string
-	tool string
-	args map[string]any
+	facts policy.Facts
+	ints  map[string]int64
+	strs  map[string]string
 }
 
 func newState() *testState {
-	return &testState{ints: make(map[string]int64), strs: make(map[string]string)}
+	return &testState{
+		ints: make(map[string]int64),
+		strs: make(map[string]string),
+	}
 }
 
-func (s *testState) Get(key string) int64                     { return s.ints[key] }
-func (s *testState) Set(key string, value int64)              { s.ints[key] = value }
-func (s *testState) Flag(key string) bool                     { return s.ints[key] == 1 }
-func (s *testState) GetStr(key string) string                 { return s.strs[key] }
-func (s *testState) ToolName() string                         { return s.tool }
-func (s *testState) ToolArgs() map[string]any                 { return s.args }
-func (s *testState) ToolError() bool                          { return false }
-func (s *testState) SetStr(key, value string)                 { s.strs[key] = value }
-func (s *testState) SetTool(name string, args map[string]any) { s.tool, s.args = name, args }
+func (s *testState) Facts() policy.Facts             { return s.facts }
+func (s *testState) Int(name string) int64           { return s.ints[name] }
+func (s *testState) SetInt(name string, value int64) { s.ints[name] = value }
+func (s *testState) String(name string) string       { return s.strs[name] }
+func (s *testState) SetString(name, value string)    { s.strs[name] = value }
 
 func TestQuotaHook(t *testing.T) {
-	hk := QuotaHook()
-	s := newState()
+	hook := QuotaHook()
+	state := newState()
 
-	s.Set(policy.StoreQuotaReads, 5)
-	if r := hk.On(s); r != nil {
+	state.facts.Turn.ReadsLeft = 5
+	if result := hook.On(state); result != nil {
 		t.Fatal("reads=5 should be silent")
 	}
-	s.Set(policy.StoreQuotaReads, 2)
-	if r := hk.On(s); r == nil || r.Hint == nil || r.Hint.Severity != "warning" {
-		t.Fatalf("reads=2 result = %+v, want warning hint", r)
+	state.facts.Turn.ReadsLeft = 2
+	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Severity != "warning" {
+		t.Fatalf("reads=2 result = %+v, want warning hint", result)
 	}
-	if r := hk.On(s); r != nil {
+	if result := hook.On(state); result != nil {
 		t.Fatal("same quota warning should dedupe")
 	}
-	s.Set(policy.StoreQuotaReads, 0)
-	if r := hk.On(s); r == nil || r.Hint == nil || r.Hint.Severity != "critical" {
-		t.Fatalf("reads=0 result = %+v, want critical hint", r)
+	state.facts.Turn.ReadsLeft = 0
+	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Severity != "critical" {
+		t.Fatalf("reads=0 result = %+v, want critical hint", result)
 	}
 }
 
 func TestVerificationHook(t *testing.T) {
-	hk := VerificationHook()
-	s := newState()
+	hook := VerificationHook()
+	state := newState()
 
-	s.Set(policy.StoreHasTasks, 0)
-	if r := hk.On(s); r != nil {
+	if result := hook.On(state); result != nil {
 		t.Fatal("no tasks should be silent")
 	}
-	s.Set(policy.StoreHasTasks, 1)
-	s.Set(policy.StoreTasksAllDone, 1)
-	if r := hk.On(s); r != nil {
+	state.facts.Turn.HasTasks = true
+	state.facts.Turn.TasksDone = true
+	if result := hook.On(state); result != nil {
 		t.Fatal("all tasks done should be silent")
 	}
-	s.Set(policy.StoreTasksAllDone, 0)
-	if r := hk.On(s); r == nil || r.BlockFinal == nil || !strings.Contains(r.BlockFinal.Reason, "未完成") {
-		t.Fatalf("unfinished no-tool result = %+v, want block final", r)
+	state.facts.Turn.TasksDone = false
+	if result := hook.On(state); result == nil || result.BlockFinal == nil || !strings.Contains(result.BlockFinal.Reason, "未完成") {
+		t.Fatalf("unfinished no-tool result = %+v, want block final", result)
 	}
-	if r := hk.On(s); r != nil {
+	if result := hook.On(state); result != nil {
 		t.Fatal("verification warning should dedupe")
 	}
 }
 
-func TestVerificationHookUsesStructuredFinalIntent(t *testing.T) {
-	hk := VerificationHook()
-	s := newState()
-	s.Set(policy.StoreHasTasks, 1)
-	s.Set(policy.StoreTasksAllDone, 0)
-	s.Set(policy.StoreTurnToolCalls, 0)
+func TestVerificationHookUsesFinalIntent(t *testing.T) {
+	hook := VerificationHook()
+	state := newState()
+	state.facts.Turn.HasTasks = true
 
-	s.SetStr(policy.StoreFinalIntent, policy.FinalIntentFormatError)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("format error intent should be handled by garbled circuit breaker, got %+v", r)
+	state.facts.Response.Intent = policy.FinalIntentFormatError
+	if result := hook.On(state); result != nil {
+		t.Fatalf("format error intent should be silent, got %+v", result)
 	}
-
-	s.SetStr(policy.StoreFinalIntent, policy.FinalIntentNonFinal)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("non-final intent should be silent, got %+v", r)
+	state.facts.Response.Intent = policy.FinalIntentNonFinal
+	if result := hook.On(state); result != nil {
+		t.Fatalf("non-final intent should be silent, got %+v", result)
 	}
-
-	s.SetStr(policy.StoreFinalIntent, policy.FinalIntentFinal)
-	if r := hk.On(s); r == nil || r.BlockFinal == nil {
-		t.Fatalf("final intent with unfinished tasks should block, got %+v", r)
+	state.facts.Response.Intent = policy.FinalIntentFinal
+	if result := hook.On(state); result == nil || result.BlockFinal == nil {
+		t.Fatalf("final intent with unfinished tasks should block, got %+v", result)
 	}
 }
 
 func TestGarbledCircuitBreaker(t *testing.T) {
-	hk := GarbledCircuitBreaker()
-	s := newState()
-
-	s.Set(policy.StoreRespGarbled, 4)
-	if r := hk.On(s); r != nil {
+	hook := GarbledCircuitBreaker()
+	state := newState()
+	state.facts.Response.GarbledCount = 4
+	if result := hook.On(state); result != nil {
 		t.Fatal("count=4 should not stop")
 	}
-	s.Set(policy.StoreRespGarbled, 5)
-	if r := hk.On(s); r == nil || r.Stop == nil || *r.Stop != policy.StopFormatError {
-		t.Fatalf("count=5 result = %+v, want format stop", r)
+	state.facts.Response.GarbledCount = 5
+	if result := hook.On(state); result == nil || result.Stop == nil || *result.Stop != policy.StopFormatError {
+		t.Fatalf("count=5 result = %+v, want format stop", result)
 	}
 }
 
 func TestProgressStallHook(t *testing.T) {
-	hk := ProgressStallHook()
-	s := newState()
-	s.SetStr(policy.StoreStepInput, "test task")
-	s.Set(policy.StoreTurnToolCalls, 1)
+	hook := ProgressStallHook()
+	state := newState()
+	state.facts.Turn.Input = "test task"
+	state.facts.Activity.ToolCalls = 1
 
 	for i := 0; i < 7; i++ {
-		if r := hk.On(s); r != nil {
-			t.Fatalf("stall turn %d result = %+v, want silent", i+1, r)
+		if result := hook.On(state); result != nil {
+			t.Fatalf("stall turn %d result = %+v, want silent", i+1, result)
 		}
 	}
-	if r := hk.On(s); r == nil || r.Hint == nil || r.RequireTool != nil {
-		t.Fatalf("8th stall result = %+v, want warning hint", r)
+	if result := hook.On(state); result == nil || result.Hint == nil {
+		t.Fatalf("8th stall result = %+v, want warning hint", result)
 	}
 }
 
 func TestExplorationHooks(t *testing.T) {
-	exhausted := ExplorationExhaustedHook()
-	s := newState()
-	s.SetStr(policy.StoreStepInput, "test task")
-	s.Set(policy.StoreExploreCalls, 10)
+	hook := ExplorationExhaustedHook()
+	state := newState()
+	state.facts.Turn.Input = "test task"
+	state.facts.Activity.ExploreCalls = 10
 
-	r := exhausted.On(s)
-	if r == nil || r.Hint == nil || r.RequireTool != nil {
-		t.Fatalf("exploration exhausted result = %+v, want hint without required tool", r)
-	}
-	if r.StatePatch == nil || r.StatePatch.Ints[policy.PolicyExploreExhausted] != 1 {
-		t.Fatalf("state patch = %+v, want explore exhausted policy", r.StatePatch)
+	result := hook.On(state)
+	if result == nil || result.Hint == nil || result.RequireTool != nil {
+		t.Fatalf("exploration exhausted result = %+v, want hint", result)
 	}
 }
 
 func TestExploreCascadeHook(t *testing.T) {
-	hk := ExploreCascadeHook()
-	s := newState()
-	s.SetStr(policy.StoreStepInput, "test task")
+	hook := ExploreCascadeHook()
+	state := newState()
+	state.facts.Turn.Input = "test task"
 
-	s.Set(policy.StoreToolResearcher, 3)
-	if r := hk.On(s); r != nil {
+	state.facts.Activity.ResearcherCalls = 3
+	if result := hook.On(state); result != nil {
 		t.Fatal("3 researchers should be silent")
 	}
-	s.Set(policy.StoreToolResearcher, 4)
-	if r := hk.On(s); r == nil || r.Hint == nil || r.Hint.Type != "explore_cascade" {
-		t.Fatalf("4 researchers result = %+v, want cascade hint", r)
+	state.facts.Activity.ResearcherCalls = 4
+	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Type != "explore_cascade" {
+		t.Fatalf("4 researchers result = %+v, want cascade hint", result)
 	}
 }
 
 func TestToolResultGuardrailHook(t *testing.T) {
-	hk := ToolResultGuardrailHook()
-	s := newState()
+	hook := ToolResultGuardrailHook()
+	state := newState()
 
-	s.Set(policy.StoreToolResultCount, 40)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("threshold should be silent, got %+v", r)
+	state.facts.Model.ToolResults = 40
+	if result := hook.On(state); result != nil {
+		t.Fatalf("threshold should be silent, got %+v", result)
 	}
-	s.Set(policy.StoreToolResultCount, 41)
-	if r := hk.On(s); r == nil || r.Hint == nil || r.Hint.Type != "tool_results" {
-		t.Fatalf("tool result guardrail = %+v, want hint", r)
+	state.facts.Model.ToolResults = 41
+	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Type != "tool_results" {
+		t.Fatalf("tool result guardrail = %+v, want hint", result)
 	}
-	if s.Get(policy.CounterToolResultWarned) != 41 {
-		t.Fatalf("last warned = %d, want 41", s.Get(policy.CounterToolResultWarned))
+	if state.Int("last_warned") != 41 {
+		t.Fatalf("last warned = %d, want 41", state.Int("last_warned"))
 	}
-	s.Set(policy.StoreToolResultCount, 45)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("interval should dedupe, got %+v", r)
+	state.facts.Model.ToolResults = 45
+	if result := hook.On(state); result != nil {
+		t.Fatalf("interval should dedupe, got %+v", result)
 	}
 }
 
 func TestReadBeforeWriteHook(t *testing.T) {
-	hk := ReadBeforeWriteHook()
-	s := newState()
-	s.SetTool("edit", nil)
-	s.SetStr(policy.StoreEditTargetPath, "main.go")
-	s.Set(policy.StoreEditTargetExists, 1)
-	s.Set(policy.StoreEditTargetWasRead, 0)
-	s.Set(policy.StoreEditAnchorSufficient, 0)
-
-	if r := hk.On(s); r == nil || r.BlockTool == nil || !strings.Contains(r.BlockTool.Reason, "main.go") {
-		t.Fatalf("unread edit result = %+v, want block", r)
+	hook := ReadBeforeWriteHook()
+	state := newState()
+	state.facts.Tool = policy.ToolFacts{
+		Name:         "edit",
+		TargetPath:   "main.go",
+		TargetExists: true,
 	}
 
-	s.Set(policy.StoreEditTargetWasRead, 1)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("read target should pass, got %+v", r)
+	if result := hook.On(state); result == nil || result.BlockTool == nil || !strings.Contains(result.BlockTool.Reason, "main.go") {
+		t.Fatalf("unread edit result = %+v, want block", result)
 	}
-
-	s.Set(policy.StoreEditTargetWasRead, 0)
-	s.Set(policy.StoreEditAnchorSufficient, 1)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("anchored edit should pass, got %+v", r)
+	state.facts.Tool.TargetWasRead = true
+	if result := hook.On(state); result != nil {
+		t.Fatalf("read target should pass, got %+v", result)
+	}
+	state.facts.Tool.TargetWasRead = false
+	state.facts.Tool.EditAnchorSufficient = true
+	if result := hook.On(state); result != nil {
+		t.Fatalf("anchored edit should pass, got %+v", result)
 	}
 }
 
 func TestReadOnlySpiralHook(t *testing.T) {
-	hk := ReadOnlySpiralHook()
-	s := newState()
-
-	s.Set(policy.StoreReadOnlyStreak, 2)
-	if r := hk.On(s); r != nil {
-		t.Fatalf("streak=2 should be silent, got %+v", r)
+	hook := ReadOnlySpiralHook()
+	state := newState()
+	state.facts.Activity.ReadOnlyStreak = 2
+	if result := hook.On(state); result != nil {
+		t.Fatalf("streak=2 should be silent, got %+v", result)
 	}
-	s.Set(policy.StoreReadOnlyStreak, 3)
-	if r := hk.On(s); r == nil || r.Hint == nil || r.Hint.Type != "read_only_spiral" {
-		t.Fatalf("streak=3 result = %+v, want hint", r)
+	state.facts.Activity.ReadOnlyStreak = 3
+	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Type != "read_only_spiral" {
+		t.Fatalf("streak=3 result = %+v, want hint", result)
 	}
-	if s.Get(policy.StoreReadOnlyStreak) != 0 {
-		t.Fatalf("streak after hook = %d, want reset", s.Get(policy.StoreReadOnlyStreak))
+	if result := hook.On(state); result != nil {
+		t.Fatalf("same streak should dedupe, got %+v", result)
 	}
 }

@@ -18,7 +18,7 @@ import (
 // 输入，出站 runtime 事件渲染为纯文本发回已知会话。QQ 不能编辑消息，
 // 因此不做流式预览。
 type Connector struct {
-	rt   controlruntime.Runtime
+	rt   controlruntime.ConnectorRuntime
 	base *core.Base
 
 	mu              sync.Mutex
@@ -26,7 +26,7 @@ type Connector struct {
 	pendingQuestion string                 // 当前待回答的问题 ID
 }
 
-func New(rt controlruntime.Runtime) *Connector {
+func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
 		rt:    rt,
 		base:  core.NewBase(rt, "qqbot", "QQBot"),

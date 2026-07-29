@@ -122,16 +122,7 @@ func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan co
 		allowEscalate: allowEscalate,
 		replies:       make(chan controlruntime.ConfirmReply, 1),
 	}
-	rt := controlruntime.NewSessionRuntimeWithCoreOptions(controlruntime.CoreSessionRuntimeOptions{
-		Runner:   bot,
-		Commands: bot,
-		Skills:   bot,
-		Catalog:  bot,
-		Control:  bot,
-		Stats:    bot,
-		Model:    bot,
-		Messages: bot,
-	})
+	rt := controlruntime.New(bot)
 	t.Cleanup(rt.Close)
 	app := &App{ctx: context.Background(), rt: rt}
 

@@ -29,64 +29,50 @@ type Skill struct {
 	DisableModelInvocation bool
 }
 
+// Command is the compact skill representation consumed by command handlers.
+type Command struct {
+	Name    string
+	Context string
+}
+
 // Manager owns skill discovery, loaded-state tracking, context injection,
-// and registration of the "skill" tool. Construct it with NewManager and
-// call Init once the surrounding wiring (context manager, tool registry)
-// is in place.
+// and registration of the "skill" tool.
 type Manager struct {
-	reg             *registry
-	ctx             *ctxmgr.Manager
-	tools           *tools.Registry
-	contextWindow   int
-	pluginSkillDirs func() []string
+	reg           *registry
+	ctx           *ctxmgr.Manager
+	tools         *tools.Registry
+	contextWindow int
 }
 
-type ManagerOptions struct {
-	Context         *ctxmgr.Manager
-	Tools           *tools.Registry
-	ContextWindow   int
-	PluginSkillDirs func() []string
-}
-
-func NewManager(opts ManagerOptions) *Manager {
+// New creates a skill manager with the concrete services it owns.
+func New(ctx *ctxmgr.Manager, toolRegistry *tools.Registry, contextWindow int) *Manager {
 	return &Manager{
-		ctx:             opts.Context,
-		tools:           opts.Tools,
-		contextWindow:   opts.ContextWindow,
-		pluginSkillDirs: opts.PluginSkillDirs,
+		ctx:           ctx,
+		tools:         toolRegistry,
+		contextWindow: contextWindow,
 	}
 }
 
-func (m *Manager) Init() {
-	m.Reload(nil)
+// Load discovers built-in, local, and plugin skills.
+func (m *Manager) Load(pluginDirs []string) {
+	m.reload(pluginDirs, nil)
 }
 
-func (m *Manager) Reload(loaded map[string]bool) {
+// Reload repeats discovery while preserving loaded skill state.
+func (m *Manager) Reload(pluginDirs []string) {
+	m.reload(pluginDirs, m.LoadedSet())
+}
+
+func (m *Manager) reload(pluginDirs []string, loaded map[string]bool) {
 	m.reg = newRegistry()
 	m.reg.RegisterAll(bundledSkills())
-	dirs := defaultDirs()
-	if m.pluginSkillDirs != nil {
-		dirs = append(dirs, m.pluginSkillDirs()...)
-	}
+	dirs := append(defaultDirs(), pluginDirs...)
 	m.reg.Load(dirs)
 	for name := range loaded {
 		if m.reg.Has(name) {
 			m.reg.MarkLoaded(name)
 		}
 	}
-	m.RefreshList()
-	m.RegisterTool()
-}
-
-func (m *Manager) ReloadPreservingLoaded() {
-	m.Reload(m.LoadedSet())
-}
-
-func (m *Manager) LoadPluginSkillDirs(dirs []string) {
-	if m == nil || m.reg == nil {
-		return
-	}
-	m.reg.Load(dirs)
 	m.RefreshList()
 	m.RegisterTool()
 }

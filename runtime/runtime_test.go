@@ -1,4 +1,4 @@
-package session
+package runtime
 
 import (
 	"context"
@@ -9,17 +9,19 @@ import (
 
 	"nekocode/runtime/internal/connectors"
 	"nekocode/runtime/internal/core"
+	"nekocode/runtime/internal/recording"
 )
 
 type testBot struct {
-	mu       sync.Mutex
-	confirm  func(ConfirmRequest) ConfirmReply
-	steers   int
-	aborts   int
-	run      func(string, RunCallbacks) (string, error)
-	command  func(string) (string, CmdResult)
-	skill    func() (string, bool)
-	commands []string
+	mu        sync.Mutex
+	confirm   func(ConfirmRequest) ConfirmReply
+	steers    int
+	aborts    int
+	run       func(string, RunCallbacks) (string, error)
+	command   func(string) (string, CmdResult)
+	skill     func() (string, bool)
+	commands  []string
+	callbacks ControlCallbacks
 }
 
 func (b *testBot) Run(input string, callbacks RunCallbacks) (string, error) {
@@ -45,6 +47,7 @@ func (b *testBot) Stats() BotStats        { return BotStats{} }
 func (b *testBot) CommandNames() []string { return append([]string(nil), b.commands...) }
 func (b *testBot) ConfigureRuntime(callbacks ControlCallbacks) {
 	b.confirm = callbacks.Confirm
+	b.callbacks = callbacks
 }
 func (b *testBot) Steer(string) {
 	b.mu.Lock()
@@ -62,21 +65,12 @@ func (b *testBot) SessionMessages() []DisplayMessage       { return nil }
 func (b *testBot) steerCount() int                         { b.mu.Lock(); defer b.mu.Unlock(); return b.steers }
 func (b *testBot) abortCount() int                         { b.mu.Lock(); defer b.mu.Unlock(); return b.aborts }
 
-func newTestRuntime(b *testBot) *SessionRuntime {
-	return NewSessionRuntimeWithPorts(Ports{
-		Runner:   b,
-		Commands: b,
-		Skills:   b,
-		Catalog:  b,
-		Control:  b,
-		Stats:    b,
-		Model:    b,
-		Messages: b,
-	})
+func newTestRuntime(b *testBot) *Manager {
+	return New(b)
 }
 
 type statusPublishingConnector struct {
-	rt core.Runtime
+	rt core.ConnectorRuntime
 }
 
 func (c statusPublishingConnector) Name() string { return "telegram" }
@@ -84,24 +78,18 @@ func (c statusPublishingConnector) Start(context.Context) error {
 	return nil
 }
 func (c statusPublishingConnector) Stop() error {
-	if publisher, ok := c.rt.(interface{ Publish(Event) }); ok {
-		publisher.Publish(Event{
-			Type:   EventConnectorStatus,
-			Source: SourceRef{Kind: "telegram"},
-			Payload: ConnectorStatusPayload{
-				Name:    "telegram",
-				Status:  "stopped",
-				Message: "Telegram connector stopped.",
-			},
-		})
-	}
+	c.rt.ReportConnectorStatus(ConnectorStatusPayload{
+		Name:    "telegram",
+		Status:  "stopped",
+		Message: "Telegram connector stopped.",
+	})
 	return nil
 }
 func (c statusPublishingConnector) HandleCommand(context.Context, []string) (string, error) {
 	return "connected", nil
 }
 
-func TestSessionRuntimeRedactsSensitiveInputEvents(t *testing.T) {
+func TestManagerRedactsSensitiveInputEvents(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
 	runID, err := rt.Submit(context.Background(), Input{
 		Source: SourceRef{Kind: "test"},
@@ -120,9 +108,9 @@ func TestSessionRuntimeRedactsSensitiveInputEvents(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeDisconnectCommandDoesNotDuplicateConnectorStatus(t *testing.T) {
+func TestManagerDisconnectCommandDoesNotDuplicateConnectorStatus(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
-	rt.RegisterConnector("telegram", func(runtime connectors.Runtime) connectors.Connector {
+	rt.RegisterConnector("telegram", func(runtime connectors.Host) connectors.Connector {
 		return statusPublishingConnector{rt: runtime}
 	})
 	if _, err := rt.Connect(context.Background(), "telegram", nil); err != nil {
@@ -152,9 +140,9 @@ func TestSessionRuntimeDisconnectCommandDoesNotDuplicateConnectorStatus(t *testi
 	}
 }
 
-func TestSessionRuntimeEventRecordingAdvancesRunSequence(t *testing.T) {
+func TestManagerEventRecordingAdvancesRunSequence(t *testing.T) {
 	baseDir := t.TempDir()
-	recorder, err := NewEventRecorder(baseDir)
+	recorder, err := recording.NewEventRecorder(baseDir)
 	if err != nil {
 		t.Fatalf("NewEventRecorder: %v", err)
 	}
@@ -207,7 +195,14 @@ func TestSessionRuntimeEventRecordingAdvancesRunSequence(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeCommandFinishesWithoutRunningAgent(t *testing.T) {
+func TestManagerEventRecordingRejectsEmptyDirectory(t *testing.T) {
+	rt := newTestRuntime(&testBot{})
+	if err := rt.EnableEventRecording(""); err == nil {
+		t.Fatal("EnableEventRecording accepted an empty directory")
+	}
+}
+
+func TestManagerCommandFinishesWithoutRunningAgent(t *testing.T) {
 	bot := &testBot{}
 	bot.command = func(string) (string, CmdResult) {
 		return "handled", CmdHandled
@@ -242,7 +237,7 @@ func TestSessionRuntimeCommandFinishesWithoutRunningAgent(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeCommandWithSkillHintContinuesToAgent(t *testing.T) {
+func TestManagerCommandWithSkillHintContinuesToAgent(t *testing.T) {
 	bot := &testBot{}
 	bot.command = func(string) (string, CmdResult) {
 		return "skill selected", CmdHandled
@@ -279,7 +274,69 @@ func TestSessionRuntimeCommandWithSkillHintContinuesToAgent(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeIgnoresUnknownStepAction(t *testing.T) {
+func TestManagerAsyncCommandFinishesOnCallback(t *testing.T) {
+	bot := &testBot{}
+	executed := make(chan struct{})
+	bot.command = func(string) (string, CmdResult) {
+		close(executed)
+		return "working", CmdConfirming
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.Submit(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "/plugin install demo"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	select {
+	case <-executed:
+	case <-time.After(time.Second):
+		t.Fatal("async command did not execute")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if run, ok := rt.RunView(runID); !ok || run.Status != RunRunning {
+		t.Fatalf("async command run = %#v, want running", run)
+	}
+
+	bot.callbacks.CommandDone()
+	waitForRun(t, rt, runID)
+	if run, _ := rt.RunView(runID); run.Status != RunDone {
+		t.Fatalf("async command run = %#v, want done", run)
+	}
+	doneEvents := rt.EventHistory(EventFilter{RunID: runID, Types: []EventType{EventRunDone}})
+	if len(doneEvents) != 1 {
+		t.Fatalf("run_done events = %d, want 1", len(doneEvents))
+	}
+}
+
+func TestManagerDoesNotDuplicateStreamedFinalText(t *testing.T) {
+	bot := &testBot{}
+	bot.run = func(_ string, callbacks RunCallbacks) (string, error) {
+		callbacks.Text("hello")
+		callbacks.Text(" world")
+		callbacks.Step(StepEvent{Action: StepActionChat, Output: "hello world"})
+		return "hello world", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.Submit(context.Background(), Input{Source: SourceRef{Kind: "feishu"}, Text: "hi"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+
+	var streamed strings.Builder
+	for _, ev := range rt.EventHistory(EventFilter{RunID: runID, Types: []EventType{EventAssistantDelta}}) {
+		p, ok := ev.Payload.(DeltaPayload)
+		if ok {
+			streamed.WriteString(p.Delta)
+		}
+	}
+	if got := streamed.String(); got != "hello world" {
+		t.Fatalf("streamed assistant text = %q, want one copy of final text", got)
+	}
+}
+
+func TestManagerIgnoresUnknownStepAction(t *testing.T) {
 	bot := &testBot{}
 	bot.run = func(_ string, callbacks RunCallbacks) (string, error) {
 		callbacks.Step(StepEvent{Action: StepAction("unknown_action"), ToolName: "mystery", Output: "ignored"})
@@ -305,7 +362,7 @@ func TestSessionRuntimeIgnoresUnknownStepAction(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeRejectsMessageWhileWaitingApproval(t *testing.T) {
+func TestManagerRejectsMessageWhileWaitingApproval(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	bot.run = func(string, RunCallbacks) (string, error) {
@@ -349,7 +406,7 @@ func TestSessionRuntimeRejectsMessageWhileWaitingApproval(t *testing.T) {
 	waitForRun(t, rt, runID)
 }
 
-func TestSessionRuntimeAbortPreservesAbortedRunAfterApprovalReturns(t *testing.T) {
+func TestManagerAbortPreservesAbortedRunAfterApprovalReturns(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	runReturned := make(chan struct{})
@@ -393,7 +450,7 @@ func TestSessionRuntimeAbortPreservesAbortedRunAfterApprovalReturns(t *testing.T
 	}
 }
 
-func TestSessionRuntimeAbortRejectsPendingApproval(t *testing.T) {
+func TestManagerAbortRejectsPendingApproval(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	bot.run = func(string, RunCallbacks) (string, error) {
@@ -424,7 +481,7 @@ func TestSessionRuntimeAbortRejectsPendingApproval(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeSteerRejectsInactiveRun(t *testing.T) {
+func TestManagerSteerRejectsInactiveRun(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	started := make(chan struct{})
@@ -454,7 +511,7 @@ func TestSessionRuntimeSteerRejectsInactiveRun(t *testing.T) {
 	waitForRun(t, rt, runID)
 }
 
-func TestSessionRuntimeAbortRejectsInactiveRun(t *testing.T) {
+func TestManagerAbortRejectsInactiveRun(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	started := make(chan struct{})
@@ -484,7 +541,7 @@ func TestSessionRuntimeAbortRejectsInactiveRun(t *testing.T) {
 	waitForRun(t, rt, runID)
 }
 
-func TestSessionRuntimeSteerRedactsSensitiveInputEvents(t *testing.T) {
+func TestManagerSteerRedactsSensitiveInputEvents(t *testing.T) {
 	bot := &testBot{}
 	rt := newTestRuntime(bot)
 	started := make(chan struct{})
@@ -530,21 +587,27 @@ func TestSessionRuntimeSteerRedactsSensitiveInputEvents(t *testing.T) {
 	waitForRun(t, rt, runID)
 }
 
-func waitForStatus(t *testing.T, rt *SessionRuntime, status RunStatus) {
+func waitForStatus(t *testing.T, rt *Manager, status RunStatus) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if rt.Status() == status {
+		if managerStatus(rt) == status {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for status %s, got %s", status, rt.Status())
+	t.Fatalf("timed out waiting for status %s, got %s", status, managerStatus(rt))
 }
 
-func TestSessionRuntimeCustomRuntimeCommand(t *testing.T) {
+func managerStatus(rt *Manager) RunStatus {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.status
+}
+
+func TestManagerCustomRuntimeCommand(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
-	rt.RegisterRuntimeCommand("hello", func(_ context.Context, _ *SessionRuntime, args []string) (string, error) {
+	rt.RegisterCommand("hello", func(_ context.Context, args []string) (string, error) {
 		return "hello " + strings.Join(args, " "), nil
 	})
 
@@ -559,7 +622,7 @@ func TestSessionRuntimeCustomRuntimeCommand(t *testing.T) {
 	var found bool
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if run, ok := rt.RunView(rt.CurrentRunID()); ok && run.Status == RunDone {
+		if run, ok := rt.RunView(rt.currentRunID()); ok && run.Status == RunDone {
 			found = true
 			break
 		}
@@ -584,7 +647,7 @@ func TestSessionRuntimeCustomRuntimeCommand(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeCommandNamesIncludePrefixes(t *testing.T) {
+func TestManagerCommandNamesIncludePrefixes(t *testing.T) {
 	rt := newTestRuntime(&testBot{
 		commands: []string{"/help", "$review", "model"},
 	})
@@ -597,7 +660,7 @@ func TestSessionRuntimeCommandNamesIncludePrefixes(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeRuntimeCommandsRequireSlash(t *testing.T) {
+func TestManagerRuntimeCommandsRequireSlash(t *testing.T) {
 	agentInput := make(chan string, 1)
 	bot := &testBot{
 		run: func(input string, _ RunCallbacks) (string, error) {
@@ -606,7 +669,7 @@ func TestSessionRuntimeRuntimeCommandsRequireSlash(t *testing.T) {
 		},
 	}
 	rt := newTestRuntime(bot)
-	rt.RegisterRuntimeCommand("hello", func(_ context.Context, _ *SessionRuntime, _ []string) (string, error) {
+	rt.RegisterCommand("hello", func(_ context.Context, _ []string) (string, error) {
 		return "runtime command ran", nil
 	})
 
@@ -629,10 +692,46 @@ func TestSessionRuntimeRuntimeCommandsRequireSlash(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeCloseIsIdempotent(t *testing.T) {
+func TestManagerCloseIsIdempotent(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
 	rt.Close()
 	rt.Close() // should not panic
+}
+
+func TestManagerCloseRejectsPendingApprovalAndBecomesTerminal(t *testing.T) {
+	bot := &testBot{}
+	replies := make(chan ConfirmReply, 1)
+	bot.run = func(string, RunCallbacks) (string, error) {
+		reply := bot.confirm(ConfirmRequest{
+			ToolName: "shell",
+			Args:     map[string]any{"command": "go test"},
+			Response: make(chan ConfirmReply, 1),
+		})
+		replies <- reply
+		return "", nil
+	}
+	rt := newTestRuntime(bot)
+
+	if _, err := rt.Submit(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"}); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForStatus(t, rt, RunWaitingApproval)
+	rt.Close()
+
+	select {
+	case reply := <-replies:
+		if reply.Allowed {
+			t.Fatalf("close approval reply = %+v, want rejection", reply)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close did not release pending approval")
+	}
+	if _, err := rt.Submit(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "again"}); err == nil {
+		t.Fatal("Submit after Close succeeded")
+	}
+	if _, err := rt.Subscribe(context.Background(), EventFilter{}); err == nil {
+		t.Fatal("Subscribe after Close succeeded")
+	}
 }
 
 func hasString(values []string, target string) bool {
@@ -644,7 +743,7 @@ func hasString(values []string, target string) bool {
 	return false
 }
 
-func TestSessionRuntimeRecoversFromRunPanic(t *testing.T) {
+func TestManagerRecoversFromRunPanic(t *testing.T) {
 	bot := &testBot{
 		run: func(string, RunCallbacks) (string, error) {
 			panic("intentional runner panic")
@@ -663,7 +762,7 @@ func TestSessionRuntimeRecoversFromRunPanic(t *testing.T) {
 	var failedRun RunView
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if run, ok := rt.RunView(rt.CurrentRunID()); ok && run.Status == RunFailed {
+		if run, ok := rt.RunView(rt.currentRunID()); ok && run.Status == RunFailed {
 			failedRun = run
 			break
 		}
@@ -677,7 +776,7 @@ func TestSessionRuntimeRecoversFromRunPanic(t *testing.T) {
 	}
 }
 
-func waitForRun(t *testing.T, rt *SessionRuntime, runID RunID) {
+func waitForRun(t *testing.T, rt *Manager, runID RunID) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

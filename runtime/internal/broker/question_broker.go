@@ -16,6 +16,7 @@ type QuestionBroker struct {
 	eventBus *eventbus.EventBus
 	source   SourceRef
 	runID    func() RunID
+	closed   bool
 }
 
 type questionRecord struct {
@@ -49,6 +50,10 @@ func (b *QuestionBroker) Request(req QuestionRequest) QuestionReply {
 	}
 
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return QuestionReply{Rejected: true}
+	}
 	b.pending[id] = rec
 	viewCopy := rec.view
 	b.mu.Unlock()
@@ -111,7 +116,18 @@ func (b *QuestionBroker) Pending() []QuestionView {
 }
 
 func (b *QuestionBroker) RejectAll() {
+	b.rejectAll(false)
+}
+
+func (b *QuestionBroker) Close() {
+	b.rejectAll(true)
+}
+
+func (b *QuestionBroker) rejectAll(closeBroker bool) {
 	b.mu.Lock()
+	if closeBroker {
+		b.closed = true
+	}
 	records := make([]*questionRecord, 0, len(b.pending))
 	for id, rec := range b.pending {
 		resolvedAt := time.Now()

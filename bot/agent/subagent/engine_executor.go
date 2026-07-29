@@ -5,8 +5,6 @@ import (
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
-	"nekocode/bot/policy/builtin"
-	"nekocode/bot/policy/ledger"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
@@ -71,7 +69,7 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 	ctxMgr.AddToolResultsBatch(batch)
 	if cfg.Policy != nil {
 		for i, r := range results {
-			cfg.Policy.RecordToolCall(ledger.ToolEvent{
+			cfg.Policy.RecordTool(policy.ToolResult{
 				Name:   calls[i].Name,
 				Args:   calls[i].Args,
 				Output: r.Output,
@@ -85,7 +83,7 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 func applyReadOnlySpiralGuard(ctxMgr *ctxmgr.Manager, calls []core.ToolCallItem, state *runState) {
 	if isAllExploratory(calls) {
 		state.readOnlyStreak++
-		if hint := builtin.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil {
+		if hint := policy.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil {
 			ctxMgr.Add("system", policy.FormatHints([]policy.Hint{*hint}), "hook")
 			state.readOnlyStreak = 0
 		}

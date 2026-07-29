@@ -10,7 +10,7 @@ import (
 	"nekocode/runtime/internal/core"
 )
 
-type Runtime = core.Runtime
+type Host = core.ConnectorRuntime
 type ConnectView = core.ConnectView
 type ConnectorView = core.ConnectorView
 type ConnectorDeviceView = core.ConnectorDeviceView
@@ -26,16 +26,16 @@ type ConnectorStatusViewer interface {
 	ConnectorStatusView() ConnectorView
 }
 
-type ConnectorFactory func(rt Runtime) Connector
+type ConnectorFactory func(rt Host) Connector
 
 type Manager struct {
 	mu         sync.Mutex
-	runtime    Runtime
+	runtime    Host
 	factories  map[string]ConnectorFactory
 	connectors map[string]Connector
 }
 
-func NewManager(rt Runtime) *Manager {
+func NewManager(rt Host) *Manager {
 	return &Manager{
 		runtime:    rt,
 		factories:  make(map[string]ConnectorFactory),

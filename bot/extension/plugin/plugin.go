@@ -1,10 +1,8 @@
-// Package plugin manages installed plugins: discovery from plugin
-// directories, install/uninstall, enable/disable state, and wiring of
-// plugin-provided extensions (skills, agents, hooks, MCP servers) into the
-// host application.
+// Package plugin manages installed plugin manifests: discovery,
+// install/uninstall, and enable/disable state.
 //
-// Manager is the package entry point; the registry, install pipeline and
-// extension runtime are internal implementation details.
+// Manager is the package entry point. Activating plugin-provided skills,
+// agents, hooks, and MCP servers belongs to the parent extension package.
 package plugin
 
 import (
@@ -14,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/bot/policy"
 	"nekocode/common/debug"
 )
 
@@ -157,63 +154,28 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// Manager owns the plugin lifecycle: loading from disk, install/uninstall,
-// enable/disable, and wiring plugin extensions into the host. Construct it
-// with NewManager and call LoadAll once the surrounding wiring is in place.
+// Manager owns installed plugin discovery and persistent state. Runtime
+// activation belongs to the parent extension manager.
 type Manager struct {
-	reg           *registry
-	pluginRuntime pluginRuntime
-	onInstall     func(*Plugin)
-	onChanged     func()
+	reg *registry
 }
 
-type ManagerOptions struct {
-	Hooks               *policy.Registry
-	Logf                func(string, ...any)
-	OnInstall           func(*Plugin)
-	OnChanged           func()
-	RegisterAgentPath   func(path string) error
-	UnregisterAgentPath func(path string)
-	RegisterMCPServer   func(pluginDir, name string, cfg MCPServerConfig) error
-	UnregisterMCPServer func(name string)
-}
-
-func NewManager(opts ManagerOptions) *Manager {
+// New creates a plugin manager using the standard project and user plugin
+// directories.
+func New() *Manager {
 	reg := newRegistry(defaultDirs())
-	reg.Logf = opts.Logf
-	if reg.Logf == nil {
-		reg.Logf = debug.Log
-	}
-	return &Manager{
-		reg:       reg,
-		onInstall: opts.OnInstall,
-		onChanged: opts.OnChanged,
-		pluginRuntime: pluginRuntime{
-			Hooks:               opts.Hooks,
-			Logf:                reg.Logf,
-			RegisterAgentPath:   opts.RegisterAgentPath,
-			UnregisterAgentPath: opts.UnregisterAgentPath,
-			RegisterMCPServer:   opts.RegisterMCPServer,
-			UnregisterMCPServer: opts.UnregisterMCPServer,
-		},
-	}
+	reg.Logf = debug.Log
+	return &Manager{reg: reg}
 }
 
-// LoadAll scans the plugin directories and wires every enabled plugin's
-// extensions into the host.
-func (m *Manager) LoadAll() {
+// Load scans the plugin directories.
+func (m *Manager) Load() {
 	m.reg.LoadAll()
-	for _, p := range m.reg.List() {
-		if p.Enabled {
-			m.loadExtensions(p)
-		}
-	}
 }
 
-// Reload rescans the plugin directories and fires the OnChanged callback.
+// Reload rescans the plugin directories.
 func (m *Manager) Reload() {
 	m.reg.LoadAll()
-	m.notifyChanged()
 }
 
 // ListPlugins returns all installed plugins sorted by name.
@@ -226,16 +188,7 @@ func (m *Manager) SkillDirs() []string {
 	return m.reg.SkillDirs()
 }
 
-func (m *Manager) notifyChanged() {
-	if m.onChanged != nil {
-		m.onChanged()
-	}
-}
-
-func (m *Manager) loadExtensions(p *Plugin) {
-	m.pluginRuntime.Load(p)
-}
-
-func (m *Manager) unloadExtensions(p *Plugin) {
-	m.pluginRuntime.Unload(p)
+// Get returns an installed plugin by name.
+func (m *Manager) Get(name string) (*Plugin, bool) {
+	return m.reg.Get(name)
 }
