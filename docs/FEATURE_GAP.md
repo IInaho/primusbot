@@ -28,16 +28,16 @@
 | `task` | tasktool/tool_task.go | 子 Agent 调度（researcher/executor/verify） |
 | `index` | tools/builtin/index/tool.go | 代码索引查询（符号/文件/依赖/全文搜索）— 条件注册 |
 | `image_gen` | media/tool_image_gen.go | 图片生成（多模型配置）— 条件注册 |
-| `skill` | extension/skill/tool_skill.go | 技能加载工具 — 动态注册 |
+| `skill` | extension/skill/tool.go | 技能加载工具 — 动态注册 |
 | MCP 工具 | extension/mcp/tool.go | 动态注册的 MCP 服务器工具 |
 
 ### Agent 系统
 
-- **运行时架构**：分层设计 — loopRunner（主循环）→ turnRunner（单轮）→ model.Runner（LLM 调用）+ toolrun.Runner（工具执行）
+- **运行时架构**：分层设计 — loopRunner（主循环）→ turnRunner（单轮）→ modelRunner（LLM 调用）+ toolRunner（工具执行）
 - **主循环**：消息驱动，PreTurn → Reason → Execute → PostTurn → Stop 完整生命周期
 - **推理器**：LLM 调用 + 响应解析，支持 tool calls 和纯文本两种模式，响应分类（chat/tool_call/garbled/error）
 - **工具执行**：quota 过滤 → PreToolUse hook → 执行 → PostToolUse hook → 结果反馈
-- **子 Agent**：SlotManager 管理最多 8 个并发子代理，支持 researcher/executor/verify 三种类型，文件缓存隔离
+- **子 Agent**：slotManager 管理最多 8 个并发子代理，支持 researcher/executor/verify 三种类型，文件缓存隔离
 - **中断机制**：Steer() 支持处理中注入新消息打断当前 LLM 调用，replaceContext() 支持上下文替换重试
 - **预算管理**：ExplorationTracker 衰减分数机制（200 分起，工具扣分，edit 恢复）
 - **账本记录**：Ledger 追踪读取/修改文件、被阻止工具、验证结果

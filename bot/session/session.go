@@ -41,7 +41,7 @@ type Snapshot struct {
 	SubCacheMiss      int `json:"sub_cache_miss,omitempty"`
 
 	LoadedSkills []string        `json:"loaded_skills"`
-	Ledger       ledger.Snapshot `json:"ledger,omitempty"`
+	Ledger       ledger.Snapshot `json:"ledger"`
 }
 
 type Meta struct {
@@ -59,7 +59,8 @@ func dir() string {
 func New(cwd string) (*Snapshot, error) {
 	now := time.Now()
 	return &Snapshot{
-		ID:        now.UTC().Format("20060102T150405"),
+		// 秒级时间戳 + 毫秒后缀：避免同秒内多次创建互相覆盖目录。
+		ID:        fmt.Sprintf("%s-%03d", now.UTC().Format("20060102T150405"), now.Nanosecond()/1e6),
 		CWD:       cwd,
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),

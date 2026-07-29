@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	agentruntime "nekocode/bot/agent/runtime"
+	"nekocode/bot/agent/kernel"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools"
@@ -100,7 +100,7 @@ func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 		log:      subLog,
 	}
 
-	agentruntime.RunLoop(agentruntime.Loop{
+	kernel.RunLoop(kernel.Loop{
 		StepLimitReached: run.stepLimitReached,
 		Step:             run.stepOnce,
 	})

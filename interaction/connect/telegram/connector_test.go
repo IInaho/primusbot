@@ -2,9 +2,14 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"nekocode/interaction/connect/core"
 	controlruntime "nekocode/runtime"
 )
 
@@ -82,11 +87,10 @@ func TestUnpairProfileClearsOwner(t *testing.T) {
 	cfg := Config{
 		ActiveProfile: "personal",
 		Profiles: []BotProfile{{
-			Name:           "personal",
-			BotUsername:    "my_bot",
-			Owner:          &Device{UserID: 1, Username: "alice"},
-			PairingNonce:   "nonce",
-			PairingExpires: 10,
+			Name:        "personal",
+			BotUsername: "my_bot",
+			Owner:       &Device{UserID: 1, Username: "alice"},
+			Pairing:     core.Pairing{Nonce: "nonce", Expires: 10},
 		}},
 	}
 	if err := saveConfig(cfg); err != nil {
@@ -105,7 +109,7 @@ func TestUnpairProfileClearsOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := cfg.Profiles[0]
-	if p.Owner != nil || p.PairingNonce != "" || p.PairingExpires != 0 {
+	if p.Owner != nil || p.Pairing.Nonce != "" || p.Pairing.Expires != 0 {
 		t.Fatalf("profile not unpaired: %#v", p)
 	}
 }
@@ -184,17 +188,46 @@ func TestResetConfigClearsProfiles(t *testing.T) {
 }
 
 func TestEventKeyboard(t *testing.T) {
-	approvalKeyboard, ok := eventKeyboard(controlruntime.Event{
+	approvalKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
 		Type: controlruntime.EventApprovalRequested,
 		Payload: controlruntime.ApprovalView{
 			ID: "apr_1",
 		},
 	})
-	if !ok || approvalKeyboard.InlineKeyboard[0][0].CallbackData != "approve:apr_1" {
-		t.Fatalf("approval keyboard = %#v ok=%v", approvalKeyboard, ok)
+	if !ok {
+		t.Fatal("approval keyboard missing")
+	}
+	row := approvalKeyboard.InlineKeyboard[0]
+	if len(row) != 3 {
+		t.Fatalf("approval buttons = %d, want 3 without escalation", len(row))
+	}
+	wantTexts := []string{"批准一次", "永久允许", "拒绝"}
+	wantData := []string{"approve:apr_1", "remember:apr_1", "reject:apr_1"}
+	for i, btn := range row {
+		if btn.Text != wantTexts[i] || btn.CallbackData != wantData[i] {
+			t.Fatalf("button %d = %q %q, want %q %q", i, btn.Text, btn.CallbackData, wantTexts[i], wantData[i])
+		}
 	}
 
-	questionKeyboard, ok := eventKeyboard(controlruntime.Event{
+	escalateKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
+		Type: controlruntime.EventApprovalRequested,
+		Payload: controlruntime.ApprovalView{
+			ID:                    "apr_2",
+			CanEscalatePermission: true,
+		},
+	})
+	if !ok {
+		t.Fatal("escalation keyboard missing")
+	}
+	escRow := escalateKeyboard.InlineKeyboard[0]
+	if len(escRow) != 4 {
+		t.Fatalf("escalation buttons = %d, want 4", len(escRow))
+	}
+	if escRow[3].Text != "允许并授权" || escRow[3].CallbackData != "escalate:apr_2" {
+		t.Fatalf("escalation button = %q %q", escRow[3].Text, escRow[3].CallbackData)
+	}
+
+	questionKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
 		Type: controlruntime.EventQuestionRequested,
 		Payload: controlruntime.QuestionView{
 			ID: "q_1",
@@ -206,6 +239,10 @@ func TestEventKeyboard(t *testing.T) {
 	})
 	if !ok || questionKeyboard.InlineKeyboard[0][0].CallbackData != "answer:q_1:0" {
 		t.Fatalf("question keyboard = %#v ok=%v", questionKeyboard, ok)
+	}
+	dismissRow := questionKeyboard.InlineKeyboard[len(questionKeyboard.InlineKeyboard)-1]
+	if dismissRow[0].Text != "忽略" || dismissRow[0].CallbackData != "dismiss:q_1" {
+		t.Fatalf("dismiss button = %q %q", dismissRow[0].Text, dismissRow[0].CallbackData)
 	}
 }
 
@@ -222,26 +259,117 @@ func TestParseAnswerCommand(t *testing.T) {
 
 func TestMarkStoppedClearsState(t *testing.T) {
 	c := New(nil)
-	c.mu.Lock()
-	c.running = true
-	c.active = "personal"
-	c.generation = 2
-	c.cancel = func() {}
-	c.mu.Unlock()
+	_, gen1 := c.base.Start(context.Background())
+	_, gen2 := c.base.Start(context.Background())
 
 	// A stale generation (from an older Start) must not clear the state.
-	c.markStopped(1)
-	c.mu.Lock()
-	stillRunning := c.running
-	c.mu.Unlock()
-	if !stillRunning {
+	c.base.MarkStopped(gen1)
+	if !c.base.IsRunning() {
 		t.Fatal("stale generation should not clear running state")
 	}
 
-	c.markStopped(2)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.running || c.active != "" || c.cancel != nil {
-		t.Fatalf("markStopped did not clear state: running=%v active=%q", c.running, c.active)
+	c.base.MarkStopped(gen2)
+	if c.base.IsRunning() {
+		t.Fatal("current generation should clear running state")
+	}
+}
+
+func TestEventKeyboardMultiSelect(t *testing.T) {
+	view := controlruntime.QuestionView{
+		ID: "q_1",
+		Questions: []controlruntime.QuestionItem{{
+			Multiple: true,
+			Options: []controlruntime.QuestionOption{
+				{Label: "选项A"}, {Label: "选项B"},
+			},
+		}},
+	}
+	ev := controlruntime.Event{Type: controlruntime.EventQuestionRequested, Payload: view}
+
+	conn := New(nil)
+	keyboard, ok := conn.eventKeyboard(ev)
+	if !ok {
+		t.Fatal("multi-select keyboard missing")
+	}
+	if len(keyboard.InlineKeyboard) != 3 {
+		t.Fatalf("rows = %d, want 2 options + confirm/dismiss row", len(keyboard.InlineKeyboard))
+	}
+	last := keyboard.InlineKeyboard[2]
+	if last[0].Text != "确认" || last[0].CallbackData != "answer:q_1:confirm" {
+		t.Fatalf("confirm button = %#v", last[0])
+	}
+	if last[1].Text != "忽略" {
+		t.Fatalf("dismiss button = %#v", last[1])
+	}
+
+	// Toggled option gets the ✅ mark.
+	conn.pendingSelect["q_1"] = map[int]bool{1: true}
+	keyboard, _ = conn.eventKeyboard(ev)
+	if keyboard.InlineKeyboard[1][0].Text != "✅ 选项B" {
+		t.Fatalf("selected option = %q, want ✅ mark", keyboard.InlineKeyboard[1][0].Text)
+	}
+	if keyboard.InlineKeyboard[0][0].Text != "选项A" {
+		t.Fatalf("unselected option = %q, want no mark", keyboard.InlineKeyboard[0][0].Text)
+	}
+}
+
+func TestTerminalizeEditsMessageOnce(t *testing.T) {
+	var edits []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		edits = append(edits, body)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
+	}))
+	defer server.Close()
+
+	client := newAPIClient("token")
+	client.base = server.URL
+
+	conn := New(nil)
+	conn.pendingMsgs["apr_1"] = msgRef{chatID: 42, messageID: 7, text: "<b>需要审批</b>"}
+	conn.pendingSelect["apr_1"] = map[int]bool{0: true}
+
+	conn.terminalize(context.Background(), client, "apr_1", "已批准")
+	if len(edits) != 1 {
+		t.Fatalf("edits = %d, want 1", len(edits))
+	}
+	text, _ := edits[0]["text"].(string)
+	if !strings.Contains(text, "需要审批") || !strings.Contains(text, "已批准") {
+		t.Fatalf("terminal text = %q", text)
+	}
+	markup, _ := edits[0]["reply_markup"].(map[string]any)
+	if rows, _ := markup["inline_keyboard"].([]any); len(rows) != 0 {
+		t.Fatalf("keyboard not stripped: %#v", markup)
+	}
+	if _, ok := conn.pendingSelect["apr_1"]; ok {
+		t.Fatal("selection state should be cleared")
+	}
+
+	// Idempotent: second call is a no-op (no further edits).
+	conn.terminalize(context.Background(), client, "apr_1", "已批准")
+	if len(edits) != 1 {
+		t.Fatalf("edits after repeat = %d, want 1", len(edits))
+	}
+}
+
+func TestIsStaleRequest(t *testing.T) {
+	stale := []string{
+		"question q_1 is not pending",
+		"approval already resolved",
+		"approval not found",
+	}
+	for _, msg := range stale {
+		if !isStaleRequest(fmt.Errorf("%s", msg)) {
+			t.Fatalf("%q should be stale", msg)
+		}
+	}
+	if isStaleRequest(fmt.Errorf("network timeout")) {
+		t.Fatal("network error is not stale")
+	}
+	if isStaleRequest(nil) {
+		t.Fatal("nil is not stale")
 	}
 }

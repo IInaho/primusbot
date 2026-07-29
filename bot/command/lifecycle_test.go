@@ -19,22 +19,8 @@ func TestEstimateToolDefTokens(t *testing.T) {
 }
 
 func TestSkillState(t *testing.T) {
-	st := &SkillState{MsgStart: -1}
-	if ClearSkillContext(nil, st); st.MsgStart != -1 {
+	st := &skillState{MsgStart: -1}
+	if clearSkillContext(nil, st); st.MsgStart != -1 {
 		t.Error("should be no-op when MsgStart is -1")
-	}
-}
-
-func TestDeps(t *testing.T) {
-	d := Deps{
-		ContextWindow: 100000,
-		GetConfigFn:   func() (string, string) { return "anthropic", "claude-sonnet-4-6" },
-	}
-	if d.ContextWindow != 100000 {
-		t.Error("bad ContextWindow")
-	}
-	p, m := d.GetConfigFn()
-	if p != "anthropic" || m != "claude-sonnet-4-6" {
-		t.Errorf("bad GetConfigFn: %s/%s", p, m)
 	}
 }

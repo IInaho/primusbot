@@ -31,7 +31,7 @@ func TestInstallLocal(t *testing.T) {
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
 
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	p, err := r.Install(src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -43,11 +43,11 @@ func TestInstallLocal(t *testing.T) {
 		t.Error("should be enabled after install")
 	}
 
-	if !HasManifest(p.Dir) {
+	if !hasManifest(p.Dir) {
 		t.Error("installed plugin should have manifest")
 	}
 
-	r2 := NewRegistry(DefaultDirs())
+	r2 := newRegistry(defaultDirs())
 	r2.LoadAll()
 	if p2, ok := r2.Get("test-plugin"); !ok {
 		t.Error("plugin should persist after reload")
@@ -80,7 +80,7 @@ func TestEnableDisable(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	_, err := r.Install(src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -116,13 +116,13 @@ func TestRegistryPersistence(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	_, err := r.Install(src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
-	r2 := NewRegistry(DefaultDirs())
+	r2 := newRegistry(defaultDirs())
 	r2.LoadAll()
 	p, ok := r2.Get("test-plugin")
 	if !ok {
@@ -152,7 +152,7 @@ func TestRegistryOverrideProjectLevel(t *testing.T) {
 	os.WriteFile(filepath.Join(projPluginDir, ".claude-plugin", "plugin.json"),
 		[]byte(`{"name":"same-plugin","version":"2.0.0","description":"project version"}`), 0o644)
 
-	r := NewRegistry([]string{
+	r := newRegistry([]string{
 		filepath.Join(tmpProject, ".nekocode", "plugins"),
 		filepath.Join(tmpHome, ".nekocode", "plugins"),
 	})
@@ -210,7 +210,7 @@ func TestPluginInfo_Disabled(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	_, err := r.Install(src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
@@ -234,7 +234,7 @@ func TestInstallInvalidSource(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	_, err := r.Install("/nonexistent/path/to/plugin")
 	if err == nil {
 		t.Error("should fail for nonexistent path")
@@ -242,7 +242,7 @@ func TestInstallInvalidSource(t *testing.T) {
 }
 
 func TestUninstallNonexistent(t *testing.T) {
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	err := r.Uninstall("nonexistent-plugin")
 	if err == nil {
 		t.Error("should fail for nonexistent plugin")
@@ -255,7 +255,7 @@ func TestEmptyRegistry(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", oldHome)
 
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	r.LoadAll()
 	if len(r.List()) != 0 {
 		t.Error("empty registry should have no plugins")
@@ -267,7 +267,7 @@ func TestEmptyRegistry(t *testing.T) {
 
 func TestPreviewFromPath(t *testing.T) {
 	src := newTestPlugin(t, "preview-plugin", "2.0.0")
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	p, err := r.PreviewFromPath(src)
 	if err != nil {
 		t.Fatalf("PreviewFromPath: %v", err)
@@ -285,7 +285,7 @@ func TestPreviewFromPath(t *testing.T) {
 
 func TestPreviewFromPath_NoManifest(t *testing.T) {
 	dir := t.TempDir()
-	r := NewRegistry(DefaultDirs())
+	r := newRegistry(defaultDirs())
 	_, err := r.PreviewFromPath(dir)
 	if err == nil {
 		t.Error("should fail for directory without manifest")

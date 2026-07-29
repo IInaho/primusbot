@@ -7,6 +7,7 @@ import (
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
 	"nekocode/bot/contextmgr"
+	"nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/execution"
@@ -61,52 +62,26 @@ type agentCallbacks interface {
 	ToolExecutionState() *execution.ExecutionState
 	PhaseFn() view.PhaseFunc
 	AddTokens(prompt, completion int)
+	Governance() *policy.Policy
 }
 
 func (w *subagentWiring) buildSubagentRunConfig(ctx context.Context, prompt, agentType, thoroughness string, ag agentCallbacks) (subagent.RunConfig, bool) {
-	return buildSubagentRunConfig(subagentRunConfigInput{
-		Context:       ctx,
-		Prompt:        prompt,
-		AgentTypeName: agentType,
-		Thoroughness:  thoroughness,
-		Cwd:           w.cwd,
-		ContextWindow: w.contextWindow,
-		ConfirmFn:     ag.ConfirmFn(),
-		ToolState:     ag.ToolExecutionState(),
-		PhaseFn:       ag.PhaseFn(),
-		AddTokens:     ag.AddTokens,
-	})
-}
-
-type subagentRunConfigInput struct {
-	Context       context.Context
-	Prompt        string
-	AgentTypeName string
-	Thoroughness  string
-	Cwd           string
-	ContextWindow int
-	ConfirmFn     view.ConfirmFunc
-	ToolState     *execution.ExecutionState
-	PhaseFn       func(string)
-	AddTokens     func(prompt, completion int)
-}
-
-func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, bool) {
-	at, ok := subagent.Get(input.AgentTypeName)
+	at, ok := subagent.Get(agentType)
 	if !ok {
 		return subagent.RunConfig{}, false
 	}
 	cfg := subagent.RunConfig{
-		Prompt:        input.Prompt,
+		Prompt:        prompt,
 		AgentType:     at,
-		Cwd:           input.Cwd,
-		Thoroughness:  input.Thoroughness,
-		ContextWindow: input.ContextWindow,
-		ConfirmFn:     input.ConfirmFn,
-		ToolState:     input.ToolState,
-		AddTokens:     input.AddTokens,
+		Cwd:           w.cwd,
+		Thoroughness:  thoroughness,
+		ContextWindow: w.contextWindow,
+		ConfirmFn:     ag.ConfirmFn(),
+		ToolState:     ag.ToolExecutionState(),
+		AddTokens:     ag.AddTokens,
+		Policy:        ag.Governance(),
 	}
-	if subCB, ok := taskbridge.TaskCallbackFromCtx(input.Context); ok {
+	if subCB, ok := taskbridge.TaskCallbackFromCtx(ctx); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {
 			subCB(commonview.StepEvent{
 				Action:   subagentStepAction(ev.Action),
@@ -118,8 +93,8 @@ func buildSubagentRunConfig(input subagentRunConfigInput) (subagent.RunConfig, b
 			})
 		}
 	}
-	if input.PhaseFn != nil {
-		cfg.OnPhase = func(p string) { input.PhaseFn(at.Name + " · " + p) }
+	if phaseFn := ag.PhaseFn(); phaseFn != nil {
+		cfg.OnPhase = func(p string) { phaseFn(at.Name + " · " + p) }
 	}
 	return cfg, true
 }

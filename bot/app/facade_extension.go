@@ -6,33 +6,30 @@ import (
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/extension/skill"
-	"nekocode/bot/hooks"
+	"nekocode/bot/policy"
 	"nekocode/bot/tools"
-	"nekocode/common/debug"
 	commonview "nekocode/common/view"
 )
 
 type extensionFacade struct {
-	skills     *skill.Manager
-	plugins    *plugin.Manager
-	mcpClients map[string]*mcp.Client
-	mcpHealth  map[string]commonview.MCPHealth
-	configMCP  []commonview.MCPServerView
+	skills    *skill.Manager
+	plugins   *plugin.Manager
+	mcp       *mcp.Manager
+	configMCP []commonview.MCPServerView
 
 	ctxMgr        *ctxmgr.Manager
 	toolRegistry  *tools.Registry
-	hookReg       *hooks.Registry
+	hookReg       *policy.Registry
 	contextWindow int
 }
 
-func newExtensionFacade(ctxMgr *ctxmgr.Manager, toolRegistry *tools.Registry, hookReg *hooks.Registry, contextWindow int) *extensionFacade {
+func newExtensionFacade(ctxMgr *ctxmgr.Manager, toolRegistry *tools.Registry, hookReg *policy.Registry, contextWindow int) *extensionFacade {
 	return &extensionFacade{
 		ctxMgr:        ctxMgr,
 		toolRegistry:  toolRegistry,
 		hookReg:       hookReg,
 		contextWindow: contextWindow,
-		mcpClients:    make(map[string]*mcp.Client),
-		mcpHealth:     make(map[string]commonview.MCPHealth),
+		mcp:           mcp.NewManager(),
 	}
 }
 
@@ -47,7 +44,6 @@ func (e *extensionFacade) InitSkills() {
 			}
 			return e.plugins.SkillDirs()
 		},
-		Logf: debug.Log,
 	})
 	e.skills.Init()
 }
@@ -68,11 +64,20 @@ func (e *extensionFacade) RefreshSkillList() {
 	}
 }
 
+// SkillManagementView assembles the management UI snapshot here in the
+// composition layer: skill/plugin domain packages supply plain data, the
+// facade projects it into view models.
 func (e *extensionFacade) SkillManagementView() commonview.SkillManagementView {
-	mcpServers := e.plugins.MCPServers()
+	plugins := e.plugins.ListPlugins()
+	pluginViews := buildPluginViews(plugins)
+	mcpServers := buildPluginMCPViews(plugins)
 	mcpServers = append(mcpServers, e.configMCP...)
-	commonview.ApplyMCPHealth(mcpServers, e.mcpHealth)
-	return e.skills.ManagementView(e.plugins.Views(), mcpServers)
+	commonview.ApplyMCPHealth(mcpServers, mcpHealthViews(e.mcp.Health()))
+	return commonview.SkillManagementView{
+		Skills:  buildSkillViews(e.skills.List(), e.skills.LoadedSet(), pluginViews),
+		Plugins: pluginViews,
+		MCP:     mcpServers,
+	}
 }
 
 func (e *extensionFacade) SetPluginEnabled(name string, enabled bool) (commonview.SkillManagementView, error) {

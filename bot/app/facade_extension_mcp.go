@@ -1,98 +1,74 @@
 package app
 
 import (
-	"fmt"
-
 	"nekocode/bot/config"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
+	"nekocode/bot/tools/runtime/core"
 	"nekocode/common/debug"
 	commonview "nekocode/common/view"
 )
 
+// InitConfigMCPServers starts the MCP servers declared in the user config
+// and records their views for the skill-management panel.
 func (e *extensionFacade) InitConfigMCPServers(servers map[string]config.MCPServerConfig) {
 	e.configMCP = nil
 	for name, cfg := range servers {
-		view := commonview.NewMCPServerView(commonview.MCPServerViewInput{
+		e.configMCP = append(e.configMCP, commonview.NewMCPServerView(commonview.MCPServerViewInput{
 			Name:    name,
 			Plugin:  "配置",
 			Command: cfg.Command,
 			Args:    cfg.Args,
 			Enabled: cfg.Enabled,
-		})
-		e.configMCP = append(e.configMCP, view)
+		}))
 		if !cfg.Enabled {
 			continue
 		}
-		if err := e.registerConfigMCPServer(name, cfg); err != nil {
+		added, removed, err := e.mcp.AddServer(name, mcp.ServerConfig{
+			Command: cfg.Command,
+			Args:    append([]string(nil), cfg.Args...),
+			Env:     cfg.Env,
+		})
+		e.applyMCPTools(added, removed)
+		if err != nil {
 			debug.Log("config mcp %s: %v", name, err)
 		}
 	}
 }
 
-func (e *extensionFacade) resetPluginMCPClients() {
-	e.mcpClients = make(map[string]*mcp.Client)
-	e.mcpHealth = make(map[string]commonview.MCPHealth)
-}
-
-func (e *extensionFacade) closePluginMCPServers() {
-	for name, client := range e.mcpClients {
-		client.Close()
-		delete(e.mcpClients, name)
-	}
-}
-
+// registerPluginMCPServer adapts plugin.Manager's callback: the plugin
+// package expands relative paths against the plugin root, the mcp package
+// owns the server lifecycle, and the facade owns tool registration.
 func (e *extensionFacade) registerPluginMCPServer(pluginDir, name string, cfg plugin.MCPServerConfig) error {
-	cfg = plugin.ExpandPluginMCPConfig(cfg, pluginDir)
-	client := mcp.NewClient(name, cfg)
-	return e.registerMCPClient(name, client)
-}
-
-func (e *extensionFacade) registerConfigMCPServer(name string, cfg config.MCPServerConfig) error {
-	client := mcp.NewClient(name, mcp.ServerConfig{
-		Command: cfg.Command,
-		Args:    append([]string(nil), cfg.Args...),
-		Env:     cfg.Env,
-	})
-	return e.registerMCPClient(name, client)
-}
-
-func (e *extensionFacade) registerMCPClient(name string, client *mcp.Client) error {
-	if old, exists := e.mcpClients[name]; exists {
-		old.Close()
-	}
-	e.mcpClients[name] = client
-	e.mcpHealth[name] = commonview.MCPHealth{Status: "starting"}
-
-	if err := client.Start(); err != nil {
-		e.mcpHealth[name] = commonview.MCPHealth{Status: "error", Error: err.Error()}
-		return fmt.Errorf("start: %w", err)
-	}
-	mcpTools, err := client.ListTools()
-	if err != nil {
-		_ = client.Close()
-		delete(e.mcpClients, name)
-		e.mcpHealth[name] = commonview.MCPHealth{Status: "error", Error: err.Error()}
-		return fmt.Errorf("list tools: %w", err)
-	}
-	for _, td := range mcpTools {
-		e.toolRegistry.Register(mcp.NewMCPTool(client, td))
-	}
-	e.mcpHealth[name] = commonview.MCPHealth{Status: "ready", ToolCount: len(mcpTools)}
-	return nil
+	added, removed, err := e.mcp.AddServer(name, plugin.ExpandPluginMCPConfig(cfg, pluginDir))
+	e.applyMCPTools(added, removed)
+	return err
 }
 
 func (e *extensionFacade) unregisterPluginMCPServer(name string) {
-	client, ok := e.mcpClients[name]
-	if !ok {
-		return
+	e.applyMCPTools(nil, e.mcp.RemoveServer(name))
+}
+
+// applyMCPTools syncs the tool registry with the tools an mcp.Manager
+// operation exposed or dropped.
+func (e *extensionFacade) applyMCPTools(added, removed []core.Tool) {
+	for _, t := range removed {
+		e.toolRegistry.Unregister(t.Name())
 	}
-	for _, t := range e.toolRegistry.List() {
-		if plugin.IsMCPToolForClient(t.Name(), client.Name) {
-			e.toolRegistry.Unregister(t.Name())
+	for _, t := range added {
+		e.toolRegistry.Register(t)
+	}
+}
+
+// mcpHealthViews converts mcp.Health snapshots to the view layer's type.
+func mcpHealthViews(health map[string]mcp.Health) map[string]commonview.MCPHealth {
+	out := make(map[string]commonview.MCPHealth, len(health))
+	for name, h := range health {
+		out[name] = commonview.MCPHealth{
+			Status:    h.Status,
+			Error:     h.Error,
+			ToolCount: h.ToolCount,
 		}
 	}
-	client.Close()
-	delete(e.mcpClients, name)
-	delete(e.mcpHealth, name)
+	return out
 }

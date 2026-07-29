@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"nekocode/bot/command"
-	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
 	"nekocode/bot/view"
@@ -16,61 +15,11 @@ type sessionFacade struct {
 	resumed bool
 }
 
-type sessionDeps struct {
-	CWD             string
-	CtxMgr          *ctxmgr.Manager
-	TokenUsage      func() (int, int)
-	AddTokens       func(prompt, completion int)
-	LoadedSkills    func() map[string]bool
-	MarkSkillLoaded func(name string)
-	LedgerSnapshot  func() ledger.Snapshot
-	RestoreLedger   func(ledger.Snapshot)
-}
-
-func newSessionFacade(d sessionDeps) *sessionFacade {
-	s := &sessionFacade{}
-	s.mgr = session.NewManager(session.ManagerOptions{
-		CWD:     d.CWD,
-		Context: d.CtxMgr,
-		TokenUsage: func() (int, int) {
-			if d.TokenUsage == nil {
-				return 0, 0
-			}
-			return d.TokenUsage()
-		},
-		AddTokens: func(prompt, completion int) {
-			if d.AddTokens != nil {
-				d.AddTokens(prompt, completion)
-			}
-		},
-		LoadedSkills: func() map[string]bool {
-			if d.LoadedSkills == nil {
-				return nil
-			}
-			return d.LoadedSkills()
-		},
-		MarkSkillLoaded: func(name string) {
-			if d.MarkSkillLoaded != nil {
-				d.MarkSkillLoaded(name)
-			}
-		},
-		LedgerSnapshot: func() ledger.Snapshot {
-			if d.LedgerSnapshot == nil {
-				return ledger.Snapshot{}
-			}
-			return d.LedgerSnapshot()
-		},
-		RestoreLedger: func(snap ledger.Snapshot) {
-			if d.RestoreLedger != nil {
-				d.RestoreLedger(snap)
-			}
-		},
-	})
-
-	if err := s.mgr.Init(); err != nil {
+func newSessionFacade(mgr *session.Manager) *sessionFacade {
+	if err := mgr.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "session: %v — running without session persistence\n", err)
 	}
-	return s
+	return &sessionFacade{mgr: mgr}
 }
 
 func (s *sessionFacade) RegisterCommands(p *command.Parser) {
@@ -102,7 +51,9 @@ func (s *sessionFacade) Save() {
 }
 
 func (s *sessionFacade) SaveIfNotEmpty() error {
-	if err := s.mgr.SaveIfNotEmpty(); err != nil {
+	// Manager.Save now removes empty sessions from disk instead of writing
+	// them; kept as a thin alias for the interrupted-run call site.
+	if err := s.mgr.Save(); err != nil {
 		fmt.Fprintf(os.Stderr, "session: save error: %v\n", err)
 		return err
 	}
@@ -137,11 +88,7 @@ func (b *Bot) CurrentSessionID() string { return b.sess.CurrentID() }
 
 // SetSession loads the session with the given id and makes it current.
 func (b *Bot) SetSession(id string) error {
-	if err := b.sess.Resume(id); err != nil {
-		return err
-	}
-	b.syncHookSessionID()
-	return nil
+	return b.ResumeSession(id)
 }
 
 func (b *Bot) ClearContext() { b.sess.ClearContext() }
@@ -193,9 +140,9 @@ func (b *Bot) syncHookSessionID() {
 }
 
 func (b *Bot) initSession() {
-	b.sess = newSessionFacade(sessionDeps{
-		CWD:    b.cwd,
-		CtxMgr: b.ctxMgr,
+	mgr := session.NewManager(session.ManagerOptions{
+		CWD:     b.cwd,
+		Context: b.ctxMgr,
 		TokenUsage: func() (int, int) {
 			ag := b.getAgent()
 			if ag == nil {
@@ -204,8 +151,7 @@ func (b *Bot) initSession() {
 			return ag.TokenUsage()
 		},
 		AddTokens: func(prompt, completion int) {
-			ag := b.getAgent()
-			if ag != nil {
+			if ag := b.getAgent(); ag != nil {
 				ag.AddTokens(prompt, completion)
 			}
 		},
@@ -220,13 +166,10 @@ func (b *Bot) initSession() {
 				b.ext.skills.MarkLoaded(name)
 			}
 		},
-		LedgerSnapshot: func() ledger.Snapshot {
-			return b.ledgerSnapshot()
-		},
-		RestoreLedger: func(snap ledger.Snapshot) {
-			b.restoreLedger(snap)
-		},
+		LedgerSnapshot: b.ledgerSnapshot,
+		RestoreLedger:  b.restoreLedger,
 	})
+	b.sess = newSessionFacade(mgr)
 }
 
 func (b *Bot) ledgerSnapshot() ledger.Snapshot {
@@ -234,7 +177,7 @@ func (b *Bot) ledgerSnapshot() ledger.Snapshot {
 	if ag == nil {
 		return ledger.Snapshot{}
 	}
-	gov := ag.GovernanceManager()
+	gov := ag.Governance()
 	if gov == nil || gov.Ledger == nil {
 		return ledger.Snapshot{}
 	}
@@ -246,7 +189,7 @@ func (b *Bot) restoreLedger(snap ledger.Snapshot) {
 	if ag == nil {
 		return
 	}
-	gov := ag.GovernanceManager()
+	gov := ag.Governance()
 	if gov == nil || gov.Ledger == nil {
 		return
 	}

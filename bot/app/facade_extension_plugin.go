@@ -6,12 +6,12 @@ import (
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/command"
 	"nekocode/bot/extension/plugin"
+	"nekocode/bot/view"
 	"nekocode/common/debug"
 )
 
 func (e *extensionFacade) InitPlugins() {
-	e.closePluginMCPServers()
-	e.resetPluginMCPClients()
+	e.applyMCPTools(nil, e.mcp.CloseAll())
 	e.plugins = plugin.NewManager(plugin.ManagerOptions{
 		Hooks: e.hookReg,
 		Logf:  debug.Log,
@@ -66,5 +66,38 @@ func (e *extensionFacade) unregisterPluginAgentPath(path string) {
 	def, err := subagent.ParseAgentMD(path)
 	if err == nil {
 		subagent.UnregisterPlugin(def.Name)
+	}
+}
+
+// --- 插件安装确认 ---
+//
+// 安装流程的交互适配：把 callbackBus 的通用确认/通知回调组装成
+// plugin.InstallCallbacks。状态（pendingConfirm/confirmCh）仍由 bus 持有，
+// 这里只做插件语义的翻译。
+
+// ConfirmInstall asks the user to confirm a plugin install, showing the
+// plugin preview summary. Cancelled installs notify and return false.
+func (c *callbackBus) ConfirmInstall(source string, p *plugin.Plugin, isRemote bool) bool {
+	summary := plugin.ConfirmSummary(p, isRemote)
+	if c.confirmFn == nil {
+		c.UnblockConfirm()
+		return false
+	}
+	result := c.confirmFn(view.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, view.ConfirmKindInstall))
+	c.setPendingConfirmation(false)
+	if !result.Allowed && c.notifyFn != nil {
+		c.notifyFn("Install cancelled: " + source)
+	}
+	return result.Allowed
+}
+
+// InstallCallbacks assembles the plugin manager's install interaction points
+// from the bus's generic callbacks.
+func (c *callbackBus) InstallCallbacks() plugin.InstallCallbacks {
+	return plugin.InstallCallbacks{
+		Confirm:    c.ConfirmInstall,
+		Notify:     c.notifyFn,
+		SetPending: c.setPendingConfirmation,
+		Unblock:    c.UnblockConfirm,
 	}
 }

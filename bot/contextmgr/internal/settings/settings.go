@@ -2,7 +2,7 @@ package settings
 
 import (
 	"nekocode/bot/contextmgr/internal/state"
-	"nekocode/bot/todo"
+	commonview "nekocode/common/view"
 )
 
 type Store struct {
@@ -35,7 +35,7 @@ func (s *Store) SetContextWindow(budget int) {
 	}
 }
 
-func (s *Store) SetTodos(items []todo.Item) {
+func (s *Store) SetTodos(items []commonview.TodoItem) {
 	s.State.Mu.Lock()
 	defer s.State.Mu.Unlock()
 	s.State.Ctx.LoadTodos(items)

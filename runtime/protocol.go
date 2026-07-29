@@ -1,4 +1,3 @@
-// Package runtime provides the interaction control layer above the Bot core.
 package runtime
 
 import "nekocode/runtime/internal/core"

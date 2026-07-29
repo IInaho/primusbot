@@ -5,53 +5,49 @@ import (
 	"strings"
 )
 
-// BuildSkillListText generates the available-skills text injected into context.
-func BuildSkillListText(skills []*Skill, loaded map[string]bool, contextWindow int) string {
-	if len(skills) == 0 {
+// Skill list text budget, in characters: contextWindow/100 clamped to this range.
+const (
+	minListChars = 500
+	maxListChars = 3000
+)
+
+const skillListHeader = "## Available Skills (complete — no need to search for more)\n\n" +
+	"This is the authoritative list. Do NOT glob/grep/list to find skills — trust this list. Loaded skills are excluded:\n\n"
+
+// buildSkillListText generates the available-skills text injected into context.
+// The first eligible entry is always written, even if it exceeds the budget;
+// once the budget is exhausted the remaining skills are only counted.
+func buildSkillListText(skills []*Skill, loaded map[string]bool, contextWindow int) string {
+	total := 0
+	for _, sk := range skills {
+		if !loaded[sk.Name] {
+			total++
+		}
+	}
+	if total == 0 {
 		return ""
 	}
-	maxChars := contextWindow / 100
-	if maxChars < 500 {
-		maxChars = 500
-	}
-	if maxChars > 3000 {
-		maxChars = 3000
-	}
 
-	header := "## Available Skills (complete — no need to search for more)\n\n"
-	header += "This is the authoritative list. Do NOT glob/grep/list to find skills — trust this list. Loaded skills are excluded:\n\n"
+	maxChars := max(min(contextWindow/100, maxListChars), minListChars)
+	remaining := maxChars - len([]rune(skillListHeader))
 
-	var entries []string
+	var sb strings.Builder
+	sb.WriteString(skillListHeader)
+	listed := 0
 	for _, sk := range skills {
 		if loaded[sk.Name] {
 			continue
 		}
 		entry := fmt.Sprintf("- **%s**: %s\n", sk.Name, sk.Description)
-		entries = append(entries, entry)
-	}
-	if len(entries) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString(header)
-	remaining := maxChars - len([]rune(header))
-	listed := 0
-	for _, entry := range entries {
-		n := len([]rune(entry))
-		if remaining < n {
-			if listed == 0 {
-				sb.WriteString(entry)
-				listed++
-			}
+		if listed > 0 && remaining < len([]rune(entry)) {
 			break
 		}
 		sb.WriteString(entry)
-		remaining -= n
+		remaining -= len([]rune(entry))
 		listed++
 	}
-	if listed < len(entries) {
-		fmt.Fprintf(&sb, "\n(%d more skills available but omitted due to token budget)\n", len(entries)-listed)
+	if listed < total {
+		fmt.Fprintf(&sb, "\n(%d more skills available but omitted due to token budget)\n", total-listed)
 	}
 	return sb.String()
 }

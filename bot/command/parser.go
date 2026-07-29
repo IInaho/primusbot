@@ -18,11 +18,7 @@ type Command struct {
 	Raw    string
 }
 
-type Handler func(cmd *Command) (string, bool)
-
-type Parser struct {
-	handlers map[commandKey]commandEntry
-}
+type HandlerFunc func(cmd *Command) (string, bool)
 
 type commandKey struct {
 	Prefix string
@@ -31,22 +27,26 @@ type commandKey struct {
 
 type commandEntry struct {
 	DisplayName string
-	Handler     Handler
+	Handler     HandlerFunc
+}
+
+type Parser struct {
+	handlers map[commandKey]commandEntry
 }
 
 func NewParser() *Parser {
 	return &Parser{handlers: make(map[commandKey]commandEntry)}
 }
 
-func (p *Parser) Register(name string, handler Handler) {
+func (p *Parser) Register(name string, handler HandlerFunc) {
 	p.RegisterWithPrefix(SlashPrefix, name, handler)
 }
 
-func (p *Parser) RegisterDynamic(name string, handler Handler) {
+func (p *Parser) RegisterDynamic(name string, handler HandlerFunc) {
 	p.RegisterWithPrefix(DollarPrefix, name, handler)
 }
 
-func (p *Parser) RegisterWithPrefix(prefix, name string, handler Handler) {
+func (p *Parser) RegisterWithPrefix(prefix, name string, handler HandlerFunc) {
 	prefix = normalizePrefix(prefix)
 	displayName := strings.TrimSpace(name)
 	if displayName == "" {
@@ -154,7 +154,7 @@ Dynamic dollar commands:
 	})
 
 	p.Register("new", func(cmd *Command) (string, bool) {
-		result, err := deps.FreshStart()
+		result, err := ForceFreshStart(deps.CtxMgr, deps.Skills, deps.HookReg)
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
 		}

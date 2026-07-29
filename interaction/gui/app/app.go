@@ -60,7 +60,7 @@ type runtimeBackend interface {
 
 // NewApp 创建 App 实例，bot.Bot 在这里初始化以消除 startup/domReady 竞态。
 func NewApp() *App {
-	rt := defaultbot.NewSessionRuntimeWithTelegram()
+	rt := defaultbot.NewSessionRuntimeWithConnectors()
 	return &App{
 		rt: rt,
 	}

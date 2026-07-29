@@ -154,9 +154,11 @@ func (m *Manager) connector(ctx context.Context, name string) (Connector, error)
 		return nil, fmt.Errorf("unknown connector %q. Available: %s", name, strings.Join(m.namesLocked(), ", "))
 	}
 	conn := factory(m.runtime)
-	if err := conn.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start connector %q: %w", name, err)
-	}
+	// Do NOT auto-start here: Start requires credentials that are themselves
+	// configured via HandleCommand (e.g. /connect feishu add ...). Starting
+	// lazily would deadlock first-time setup — the command never runs because
+	// Start fails on missing config. Connectors start themselves from their
+	// command handlers once configured.
 	m.connectors[name] = conn
 	return conn, nil
 }

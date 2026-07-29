@@ -5,11 +5,14 @@ import (
 
 	"nekocode/bot/agent/runtime"
 	"nekocode/bot/config"
-	"nekocode/bot/extension/plugin"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/view"
 )
 
+// callbackBus 是 Bot 与外界交互的回调注册表：UI 层经 ConfigureRuntime 注入
+// 回调集，bus 在 agent 构建时将其灌入 agent（applyAgentControlCallbacksTo），
+// 并持有确认流程的共享状态（pendingConfirm/confirmCh）。插件安装确认的
+// 适配在 facade_extension_plugin.go。
 type callbackBus struct {
 	confirmFn  view.ConfirmFunc
 	phaseFn    view.PhaseFunc
@@ -29,17 +32,6 @@ type callbackBus struct {
 	pendingConfirm bool
 }
 
-func (c *callbackBus) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
-	c.ConfigureRuntime(view.ControlCallbacks{
-		Confirm:   confirmFn,
-		Phase:     phaseFn,
-		Todo:      todoFn,
-		Notify:    notifyFn,
-		ConfirmCh: confirmCh,
-		Question:  questionFn,
-	})
-}
-
 func (c *callbackBus) ConfigureRuntime(callbacks view.ControlCallbacks) {
 	c.confirmFn = callbacks.Confirm
 	c.phaseFn = callbacks.Phase
@@ -53,10 +45,10 @@ func (c *callbackBus) applyAgentControlCallbacksTo(ag *runtime.Agent) {
 	if ag == nil {
 		return
 	}
-	ag.SetConfirmFn(c.confirmFn)
 	ag.SetPhaseFn(c.phaseFn)
-	ag.SetProjectStore(c.cwd)
-	ag.SetPermissionPolicy(toPermDecl(c.policyCfg), c.cwd, c.home)
+	ag.Executor().SetConfirmFn(c.confirmFn)
+	ag.Executor().SetProjectStore(c.cwd)
+	ag.Executor().SetPermissionPolicy(toPermDecl(c.policyCfg), c.cwd, c.home)
 }
 
 // toPermDecl converts config.PermissionsConfig to the permission.PermissionsDecl
@@ -128,34 +120,6 @@ func (c *callbackBus) UnblockConfirm() {
 		default:
 		}
 	}
-}
-
-func (c *callbackBus) ConfirmInstall(source string, p *plugin.Plugin, isRemote bool) bool {
-	summary := plugin.ConfirmSummary(p, isRemote)
-	if c.confirmFn == nil {
-		c.UnblockConfirm()
-		return false
-	}
-	result := c.confirmFn(view.NewConfirmRequest("/plugin install", map[string]any{"source": source, "summary": summary}, view.ConfirmKindInstall))
-	c.setPendingConfirmation(false)
-	if !result.Allowed && c.notifyFn != nil {
-		c.notifyFn("Install cancelled: " + source)
-	}
-	return result.Allowed
-}
-
-func (c *callbackBus) InstallCallbacks() plugin.InstallCallbacks {
-	return plugin.InstallCallbacks{
-		Confirm:    c.ConfirmInstall,
-		Notify:     c.notifyFn,
-		SetPending: c.setPendingConfirmation,
-		Unblock:    c.UnblockConfirm,
-	}
-}
-
-func (b *Bot) Configure(confirmFn view.ConfirmFunc, phaseFn view.PhaseFunc, todoFn view.TodoFunc, notifyFn func(string), confirmCh chan view.ConfirmRequest, questionFn view.QuestionFunc) {
-	b.cb.Configure(confirmFn, phaseFn, todoFn, notifyFn, confirmCh, questionFn)
-	b.applyCallbacks()
 }
 
 func (b *Bot) ConfigureRuntime(callbacks view.ControlCallbacks) {

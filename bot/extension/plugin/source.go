@@ -2,16 +2,17 @@ package plugin
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
+	utilhttp "nekocode/util/http"
+	"nekocode/util/runtime"
 	"nekocode/util/text"
 )
 
-func Usage() string {
-	return "Usage: /plugin <subcommand> [args]\n\nSubcommands:\n  install <source>   Install from GitHub URL, user/repo, or local path\n  uninstall <name>   Remove a plugin\n  list               List installed plugins\n  enable <name>      Enable a disabled plugin\n  disable <name>     Disable a plugin (keeps files)\n  info <name>        Show plugin details"
-}
-
-func SourceToRawURL(source string) string {
+func sourceToRawURL(source string) string {
 	s := source
 	s = strings.TrimPrefix(s, "https://")
 	s = strings.TrimPrefix(s, "http://")
@@ -36,32 +37,55 @@ func SourceToRawURL(source string) string {
 	return "https://" + s
 }
 
-func IsLocalPath(s string) bool {
+func isLocalPath(s string) bool {
 	return strings.HasPrefix(s, "./") || strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") ||
 		(!strings.Contains(s, "://") && !text.LooksLikeGit(s))
 }
 
-func ExpandPluginEnv(env map[string]string, pluginRoot string) map[string]string {
+func expandPluginEnv(env map[string]string, pluginRoot string) map[string]string {
 	if env == nil {
 		return nil
 	}
 	out := make(map[string]string, len(env))
 	for k, v := range env {
-		out[k] = ExpandPluginPath(v, pluginRoot)
+		out[k] = expandPluginPath(v, pluginRoot)
 	}
 	return out
 }
 
-func ExpandPluginPath(s, pluginRoot string) string {
+func expandPluginPath(s, pluginRoot string) string {
 	s = strings.ReplaceAll(s, "${CLAUDE_PLUGIN_ROOT}", pluginRoot)
 	return strings.ReplaceAll(s, "${PLUGIN_ROOT}", pluginRoot)
 }
 
 func ExpandPluginMCPConfig(cfg MCPServerConfig, pluginRoot string) MCPServerConfig {
-	cfg.Command = ExpandPluginPath(cfg.Command, pluginRoot)
+	cfg.Command = expandPluginPath(cfg.Command, pluginRoot)
 	for i := range cfg.Args {
-		cfg.Args[i] = ExpandPluginPath(cfg.Args[i], pluginRoot)
+		cfg.Args[i] = expandPluginPath(cfg.Args[i], pluginRoot)
 	}
-	cfg.Env = ExpandPluginEnv(cfg.Env, pluginRoot)
+	cfg.Env = expandPluginEnv(cfg.Env, pluginRoot)
 	return cfg
+}
+
+var fetchClient = &http.Client{
+	Transport: utilhttp.SharedTransport,
+	Timeout:   10 * time.Second,
+}
+
+func fetchURL(url string) ([]byte, error) {
+	ctx, cancel := runtime.ShortContext()
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := fetchClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 }

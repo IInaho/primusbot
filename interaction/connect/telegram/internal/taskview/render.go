@@ -17,7 +17,7 @@ func renderDiffPreview(preview string) string {
 		path = diffPath(clean)
 	}
 	add, del := diffLineCounts(clean)
-	title := "Diff"
+	title := "差异"
 	var meta []string
 	if path != "" {
 		meta = append(meta, path)
@@ -33,12 +33,12 @@ func renderDiffPreview(preview string) string {
 
 func (t *Tracker) doneReplyLocked(card *taskCard) string {
 	if card.Status == statusFailed {
-		lines := []string{htmlTitle("Failed")}
+		lines := []string{htmlTitle("失败")}
 		if card.Error != "" {
-			lines = append(lines, "", htmlTitle("Error"), htmlPre(truncateRunes(card.Error, 1400)))
+			lines = append(lines, "", htmlTitle("错误"), htmlPre(truncateRunes(card.Error, 1400)))
 		}
 		if strings.TrimSpace(card.Result) != "" {
-			lines = append(lines, "", htmlTitle("Result"), htmlBody(card.Result, 1600))
+			lines = append(lines, "", htmlTitle("结果"), htmlBody(card.Result, 1600))
 		}
 		return compactMessage(lines...)
 	}
@@ -52,30 +52,30 @@ func (t *Tracker) doneReplyLocked(card *taskCard) string {
 }
 
 func (t *Tracker) lastSummaryLocked(card *taskCard) string {
-	title := "Done"
+	title := "完成"
 	if card.Status == statusFailed {
-		title = "Failed"
+		title = "失败"
 	}
 	lines := []string{htmlTitle(title)}
 	lines = append(lines, HTMLEscape(compactCounts(card)))
 	if card.Error != "" {
-		lines = append(lines, "", htmlTitle("Error"), htmlPre(truncateRunes(card.Error, 1400)))
+		lines = append(lines, "", htmlTitle("错误"), htmlPre(truncateRunes(card.Error, 1400)))
 	}
 	if strings.TrimSpace(card.Result) != "" {
-		lines = append(lines, "", htmlTitle("Result"), htmlBody(card.Result, 1600))
+		lines = append(lines, "", htmlTitle("结果"), htmlBody(card.Result, 1600))
 	}
 	lines = appendDiffShortcut(lines, card, true)
 	return compactMessage(lines...)
 }
 
 func (t *Tracker) statusSummaryLocked(card *taskCard) string {
-	lines := []string{htmlTitle("Status"), HTMLEscape(statusTitle(card.Status))}
+	lines := []string{htmlTitle("状态"), HTMLEscape(statusTitle(card.Status))}
 	lines = appendTaskMeta(lines, card)
 	if card.Status == statusWaitingApproval {
-		lines = append(lines, HTMLEscape("Waiting for approval"))
+		lines = append(lines, HTMLEscape("等待审批"))
 	}
 	if card.Status == statusWaitingQuestion {
-		lines = append(lines, HTMLEscape("Waiting for input"))
+		lines = append(lines, HTMLEscape("等待输入"))
 	}
 	lines = appendDiffShortcut(lines, card, false)
 	return compactMessage(lines...)
@@ -89,7 +89,7 @@ func (t *Tracker) cardStatusLocked(card *taskCard) string {
 		if start < 0 {
 			start = 0
 		}
-		lines = append(lines, "", htmlTitle("Tools"))
+		lines = append(lines, "", htmlTitle("工具"))
 		for _, tool := range card.Tools[start:] {
 			lines = append(lines, "- "+HTMLEscape(toolLine(tool)))
 		}
@@ -100,10 +100,10 @@ func (t *Tracker) cardStatusLocked(card *taskCard) string {
 
 func appendTaskMeta(lines []string, card *taskCard) []string {
 	if card.Title != "" {
-		lines = append(lines, labelText("Task", card.Title))
+		lines = append(lines, labelText("任务", card.Title))
 	}
 	if card.LastPhase != "" {
-		lines = append(lines, labelText("Phase", card.LastPhase))
+		lines = append(lines, labelText("阶段", card.LastPhase))
 	}
 	return append(lines, HTMLEscape(compactCounts(card)))
 }
@@ -115,57 +115,57 @@ func appendDiffShortcut(lines []string, card *taskCard, leadingBlank bool) []str
 	if leadingBlank {
 		lines = append(lines, "")
 	}
-	return append(lines, labelCode("Diff", "/diff"))
+	return append(lines, labelCode("差异", "/diff"))
 }
 
 func statusTitle(status cardStatus) string {
 	switch status {
 	case statusCreated, statusAccepted:
-		return "Queued"
+		return "排队中"
 	case statusRunning:
-		return "Working"
+		return "执行中"
 	case statusWaitingApproval:
-		return "Waiting for approval"
+		return "等待审批"
 	case statusWaitingQuestion:
-		return "Waiting for your input"
+		return "等待你的输入"
 	case statusDone:
-		return "Done"
+		return "已完成"
 	case statusFailed:
-		return "Failed"
+		return "已失败"
 	case statusAborted:
-		return "Stopped"
+		return "已停止"
 	default:
-		return "Status"
+		return "状态"
 	}
 }
 
 func compactCounts(card *taskCard) string {
-	parts := []string{fmt.Sprintf("Steps: %d", len(card.Tools))}
+	parts := []string{fmt.Sprintf("步骤: %d", len(card.Tools))}
 	if len(card.Diffs) > 0 {
-		parts = append(parts, fmt.Sprintf("Diff: %d", len(card.Diffs)))
+		parts = append(parts, fmt.Sprintf("差异: %d", len(card.Diffs)))
 	}
 	return strings.Join(parts, " | ")
 }
 
 func approvalSummary(p controlruntime.ApprovalView) string {
 	var b strings.Builder
-	b.WriteString(labelCode("Tool", p.ToolName))
+	b.WriteString(labelCode("工具", p.ToolName))
 	if p.Kind != "" {
-		fmt.Fprintf(&b, "\n%s", labelText("Kind", p.Kind))
+		fmt.Fprintf(&b, "\n%s", labelText("类型", p.Kind))
 	}
 	if cmd, ok := stringArg(p.Args, "command"); ok && cmd != "" {
-		fmt.Fprintf(&b, "\n%s", labelText("Command", ""))
+		fmt.Fprintf(&b, "\n%s", labelText("命令", ""))
 		fmt.Fprintf(&b, "\n%s", htmlPre(truncateRunes(cmd, 900)))
 		return b.String()
 	}
 	if path, ok := stringArg(p.Args, "path"); ok && path != "" {
-		fmt.Fprintf(&b, "\n%s", labelCode("Path", path))
+		fmt.Fprintf(&b, "\n%s", labelCode("路径", path))
 	}
 	if summary, ok := stringArg(p.Args, "summary"); ok && summary != "" {
 		fmt.Fprintf(&b, "\n%s", HTMLEscape(truncateRunes(summary, 900)))
 	}
 	if preview, ok := stringArg(p.Args, "_preview"); ok && preview != "" {
-		fmt.Fprintf(&b, "\n%s", labelText("Preview", ""))
+		fmt.Fprintf(&b, "\n%s", labelText("预览", ""))
 		fmt.Fprintf(&b, "\n%s", htmlPre(truncateRunes(preview, 1600)))
 	}
 	return b.String()
@@ -173,13 +173,14 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 
 func Help() string {
 	return strings.Join([]string{
-		htmlTitle("Commands"),
-		labelCode("Status", "/status"),
-		labelCode("Last", "/last"),
-		labelCode("Diff", "/diff"),
-		labelCode("Stop", "/stop"),
+		htmlTitle("命令"),
+		labelCode("状态", "/status"),
+		labelCode("最近", "/last"),
+		labelCode("差异", "/diff"),
+		labelCode("停止", "/stop"),
+		labelCode("永久允许", "/always <id>"),
 		"",
-		HTMLEscape("Use buttons for approvals and single-choice questions."),
+		HTMLEscape("审批和单选问题可直接点击按钮。"),
 	}, "\n")
 }
 

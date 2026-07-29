@@ -33,19 +33,6 @@ func (c *statusConnector) ConnectorStatusView() ConnectorView {
 	}
 }
 
-type failingStartConnector struct {
-	name string
-}
-
-func (c failingStartConnector) Name() string { return c.name }
-func (c failingStartConnector) Start(context.Context) error {
-	return fmt.Errorf("start failed")
-}
-func (c failingStartConnector) Stop() error { return nil }
-func (c failingStartConnector) HandleCommand(context.Context, []string) (string, error) {
-	return "", nil
-}
-
 func TestConnectorManagerStartsConnector(t *testing.T) {
 	manager := NewManager(nil)
 	started := false
@@ -75,26 +62,44 @@ func TestConnectorManagerStartsConnector(t *testing.T) {
 	}
 }
 
-func TestConnectorManagerStartFailure(t *testing.T) {
+func TestConnectorManagerDoesNotAutoStart(t *testing.T) {
 	manager := NewManager(nil)
+	startCalled := false
 	manager.Register("failing", func(Runtime) Connector {
-		return &failingStartConnector{name: "failing"}
+		return &trackingConnector{name: "failing", started: &startCalled}
 	})
 
-	_, err := manager.Handle(context.Background(), []string{"failing"})
-	if err == nil {
-		t.Fatal("expected start error")
+	// Lazy init must dispatch the command WITHOUT calling Start: credentials
+	// are configured via HandleCommand, so auto-starting would deadlock
+	// first-time setup.
+	if _, err := manager.Handle(context.Background(), []string{"failing"}); err != nil {
+		t.Fatalf("handle: %v", err)
 	}
-	if !strings.Contains(err.Error(), "failed to start connector") {
-		t.Fatalf("unexpected error: %v", err)
+	if startCalled {
+		t.Fatal("manager auto-started the connector on lazy init")
 	}
 
 	view := manager.View()
 	for _, conn := range view.Connectors {
-		if conn.Name == "failing" && conn.Initialized {
-			t.Fatal("failing connector should not be initialized")
+		if conn.Name == "failing" && !conn.Initialized {
+			t.Fatal("connector should be initialized after first command")
 		}
 	}
+}
+
+type trackingConnector struct {
+	name    string
+	started *bool
+}
+
+func (c trackingConnector) Name() string { return c.name }
+func (c trackingConnector) Start(context.Context) error {
+	*c.started = true
+	return fmt.Errorf("start failed")
+}
+func (c trackingConnector) Stop() error { return nil }
+func (c trackingConnector) HandleCommand(context.Context, []string) (string, error) {
+	return "", nil
 }
 
 func TestConnectorManagerView(t *testing.T) {

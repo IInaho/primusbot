@@ -12,7 +12,7 @@ import (
 
 func Run() {
 	message.Warmup()
-	rt := defaultbot.NewSessionRuntimeWithTelegram()
+	rt := defaultbot.NewSessionRuntimeWithConnectors()
 	defer rt.Close()
 	p := tea.NewProgram(NewModel(rt))
 	if _, err := p.Run(); err != nil {

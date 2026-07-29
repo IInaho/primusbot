@@ -1,6 +1,10 @@
 package budget
 
-import "nekocode/bot/policy/semantics"
+import (
+	"sync/atomic"
+
+	"nekocode/bot/policy/semantics"
+)
 
 const (
 	MaxScore      = 200
@@ -16,37 +20,38 @@ const (
 // ExplorationTracker implements a decay-score mechanism:
 // starts at 200, tools deduct, edits restore.
 // When score <= 0, forced precipitation is triggered via PreTurn hook.
+//
+// Score is atomic: the main agent and concurrent subagents share one
+// tracker through policy.Policy.
 type ExplorationTracker struct {
-	Score int
+	Score atomic.Int64
 }
 
 // NewExplorationTracker creates a fresh tracker at max score.
 func NewExplorationTracker() *ExplorationTracker {
-	return &ExplorationTracker{Score: MaxScore}
+	t := &ExplorationTracker{}
+	t.Score.Store(MaxScore)
+	return t
 }
 
-// Record updates the exploration budget based on the tool called.
-func (t *ExplorationTracker) Record(toolName string) {
-	t.RecordCall(toolName, nil)
-}
-
+// RecordCall updates the exploration budget based on the tool called.
 func (t *ExplorationTracker) RecordCall(toolName string, args map[string]any) {
 	sem := semantics.ClassifyToolCall(toolName, args)
 	if sem.Mutating {
-		t.Score = min(t.Score+editRestore, MaxScore)
+		t.adjust(editRestore, MaxScore)
 		return
 	}
 	if !sem.Exploratory {
 		return
 	}
 	if cost, ok := toolCosts[toolName]; ok {
-		t.deduct(cost)
+		t.adjust(int64(-cost), 0)
 	}
 }
 
 // Reset fully restores the exploration budget.
 func (t *ExplorationTracker) Reset() {
-	t.Score = MaxScore
+	t.Score.Store(MaxScore)
 }
 
 // toolCosts maps exploration tools to their score deduction.
@@ -62,6 +67,20 @@ var toolCosts = map[string]int{
 	"task":       taskCost,
 }
 
-func (t *ExplorationTracker) deduct(amount int) {
-	t.Score = max(t.Score-amount, 0)
+// adjust moves the score by delta (negative to deduct), clamped to limit
+// (floor for deductions, ceiling for restores).
+func (t *ExplorationTracker) adjust(delta, limit int64) {
+	for {
+		cur := t.Score.Load()
+		next := cur + delta
+		if delta < 0 && next < limit {
+			next = limit
+		}
+		if delta > 0 && next > limit {
+			next = limit
+		}
+		if next == cur || t.Score.CompareAndSwap(cur, next) {
+			return
+		}
+	}
 }

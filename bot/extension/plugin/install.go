@@ -1,24 +1,28 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"nekocode/util/text"
 )
 
 // PreviewFromPath creates a Plugin from a local path without installing.
-func (r *Registry) PreviewFromPath(source string) (*Plugin, error) {
+func (r *registry) PreviewFromPath(source string) (*Plugin, error) {
 	abs, err := filepath.Abs(source)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
 	}
-	if !HasManifest(abs) {
+	if !hasManifest(abs) {
 		return nil, fmt.Errorf("no .claude-plugin/plugin.json found in %s", abs)
 	}
-	m, err := ParseManifest(abs)
+	m, err := parseManifest(abs)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +30,7 @@ func (r *Registry) PreviewFromPath(source string) (*Plugin, error) {
 }
 
 // Install clones or copies a plugin from source into user plugin dir.
-func (r *Registry) Install(source string) (*Plugin, error) {
+func (r *registry) Install(source string) (*Plugin, error) {
 	userDir, err := userPluginDir()
 	if err != nil {
 		return nil, fmt.Errorf("user plugin dir: %w", err)
@@ -40,7 +44,7 @@ func (r *Registry) Install(source string) (*Plugin, error) {
 		return nil, err
 	}
 
-	m, err := ParseManifest(pluginDir)
+	m, err := parseManifest(pluginDir)
 	if err != nil {
 		return nil, fmt.Errorf("parse installed manifest: %w", err)
 	}
@@ -54,7 +58,7 @@ func (r *Registry) Install(source string) (*Plugin, error) {
 	return p, nil
 }
 
-func (r *Registry) installToUserDir(userDir, source string) (string, error) {
+func (r *registry) installToUserDir(userDir, source string) (string, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") ||
 		strings.Contains(source, "github.com") || strings.Contains(source, "gitlab.com") {
 		pluginDir := filepath.Join(userDir, repoName(source))
@@ -76,10 +80,10 @@ func (r *Registry) installToUserDir(userDir, source string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
-	if !HasManifest(abs) {
+	if !hasManifest(abs) {
 		return "", fmt.Errorf("no .claude-plugin/plugin.json found in %s", abs)
 	}
-	m, err := ParseManifest(abs)
+	m, err := parseManifest(abs)
 	if err != nil {
 		return "", fmt.Errorf("parse manifest: %w", err)
 	}
@@ -90,7 +94,7 @@ func (r *Registry) installToUserDir(userDir, source string) (string, error) {
 	return pluginDir, nil
 }
 
-func (r *Registry) gitClone(url, dest string) error {
+func (r *registry) gitClone(url, dest string) error {
 	if _, err := os.Stat(dest); err == nil {
 		return runGit(dest, "pull", "--ff-only")
 	}
@@ -105,4 +109,56 @@ func repoName(url string) string {
 		return parts[len(parts)-2] + "-" + parts[len(parts)-1]
 	}
 	return s
+}
+const gitTimeout = 60 * time.Second
+
+func runGit(dir string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	return cmd.Run()
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, path)
+		target := filepath.Join(dst, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+
+		if d.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+
+		_, err = io.Copy(out, in)
+		return err
+	})
 }

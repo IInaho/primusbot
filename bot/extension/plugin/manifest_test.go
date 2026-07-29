@@ -18,7 +18,7 @@ func setupPluginFixture(t *testing.T) string {
 
 func TestParseManifest(t *testing.T) {
 	dir := setupPluginFixture(t)
-	m, err := ParseManifest(dir)
+	m, err := parseManifest(dir)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
@@ -35,17 +35,17 @@ func TestParseManifest(t *testing.T) {
 
 func TestHasManifest(t *testing.T) {
 	dir := setupPluginFixture(t)
-	if !HasManifest(dir) {
+	if !hasManifest(dir) {
 		t.Error("HasManifest should return true for plugin dir")
 	}
-	if HasManifest("/tmp") {
+	if hasManifest("/tmp") {
 		t.Error("HasManifest should return false for /tmp")
 	}
 }
 
 func TestPluginSkillDirs(t *testing.T) {
 	dir := setupPluginFixture(t)
-	m, err := ParseManifest(dir)
+	m, err := parseManifest(dir)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestSkillDirsDefault(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
 		[]byte(`{"name": "auto-skill-plugin"}`), 0o644)
 
-	m, err := ParseManifest(dir)
+	m, err := parseManifest(dir)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestHooksPathFromManifestStaysRelative(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
 		[]byte(`{"name":"hook-plugin","hooks":{"source":"hooks.json"}}`), 0o644)
 
-	m, err := ParseManifest(dir)
+	m, err := parseManifest(dir)
 	if err != nil {
 		t.Fatalf("ParseManifest: %v", err)
 	}

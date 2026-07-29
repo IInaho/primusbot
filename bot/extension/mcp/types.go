@@ -1,12 +1,7 @@
 package mcp
 
 import (
-	"bufio"
-	"io"
-	"os/exec"
-	"sync"
-	"time"
-
+	"encoding/json"
 	"nekocode/bot/provider/types"
 )
 
@@ -17,41 +12,41 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-// ToolDef represents a tool discovered from an MCP server.
-type ToolDef struct {
+// toolDef represents a tool discovered from an MCP server.
+type toolDef struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
-	InputSchema InputSchema `json:"inputSchema"`
+	InputSchema inputSchema `json:"inputSchema"`
 }
 
-// InputSchema is JSON Schema for tool parameters.
-type InputSchema struct {
+// inputSchema is JSON Schema for tool parameters.
+type inputSchema struct {
 	Type       string                    `json:"type"`
 	Properties map[string]types.Property `json:"properties,omitempty"`
 	Required   []string                  `json:"required,omitempty"`
 }
 
-// Client manages a connection to one MCP server process.
-type Client struct {
-	Name   string
-	Config ServerConfig
-
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	mu     sync.Mutex
-	reqID  int64
-
-	tools []ToolDef
-
-	requestTimeout time.Duration
+type jsonrpcRequest struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      int64  `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
-// NewClient creates an unstarted client.
-func NewClient(name string, cfg ServerConfig) *Client {
-	return &Client{
-		Name:           name,
-		Config:         cfg,
-		requestTimeout: 15 * time.Second,
-	}
+type jsonrpcResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      int64           `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *jsonrpcError   `json:"error,omitempty"`
+}
+
+type jsonrpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type jsonrpcNotification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }

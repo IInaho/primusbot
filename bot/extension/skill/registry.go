@@ -4,53 +4,49 @@ import (
 	"strings"
 	"sync"
 
-	"nekocode/util/registry"
+	utilregistry "nekocode/util/registry"
 )
 
-// Registry manages loaded skills, thread-safe.
-type Registry struct {
-	*registry.Registry[*Skill]
+// registry manages loaded skills, thread-safe.
+type registry struct {
+	*utilregistry.Registry[*Skill]
 	loaded sync.Map
 }
 
-func NewRegistry() *Registry {
-	return &Registry{
-		Registry: registry.New[*Skill](func(s *Skill) string { return s.Name }),
+func newRegistry() *registry {
+	return &registry{
+		Registry: utilregistry.New[*Skill](func(s *Skill) string { return s.Name }),
 	}
 }
 
-func (r *Registry) RegisterBundled(skills []*Skill) {
-	r.Registry.RegisterAll(skills)
-}
-
-func (r *Registry) Load(dirs []string) error {
-	paths := discoverSkills(dirs)
-	for _, p := range paths {
+// Load discovers and registers skills under dirs. Skills that fail to parse
+// are skipped; already-registered names win.
+func (r *registry) Load(dirs []string) {
+	for _, p := range discoverSkills(dirs) {
 		sk, err := loadSkill(p)
 		if err != nil {
 			continue
 		}
-		if !r.Registry.Has(sk.Name) {
-			r.Registry.Register(sk)
+		if !r.Has(sk.Name) {
+			r.Register(sk)
 		}
 	}
-	return nil
 }
 
-func (r *Registry) MarkLoaded(name string) {
+func (r *registry) MarkLoaded(name string) {
 	r.loaded.Store(name, true)
 }
 
-func (r *Registry) ClearLoaded() {
+func (r *registry) ClearLoaded() {
 	r.loaded.Clear()
 }
 
-func (r *Registry) IsLoaded(name string) bool {
+func (r *registry) IsLoaded(name string) bool {
 	_, ok := r.loaded.Load(name)
 	return ok
 }
 
-func (r *Registry) LoadedSet() map[string]bool {
+func (r *registry) LoadedSet() map[string]bool {
 	out := make(map[string]bool)
 	r.loaded.Range(func(key, value any) bool {
 		out[key.(string)] = true
@@ -59,14 +55,10 @@ func (r *Registry) LoadedSet() map[string]bool {
 	return out
 }
 
-func (r *Registry) names() []string {
-	return r.Registry.Names()
-}
-
-func (r *Registry) namesString() string {
-	ns := r.names()
-	if len(ns) == 0 {
+func (r *registry) namesString() string {
+	names := r.Names()
+	if len(names) == 0 {
 		return "none"
 	}
-	return strings.Join(ns, ", ")
+	return strings.Join(names, ", ")
 }

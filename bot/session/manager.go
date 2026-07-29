@@ -108,18 +108,10 @@ func (m *Manager) ClearContext() {
 
 func (m *Manager) Context() ContextStore { return m.ctx }
 
+// Save persists the current session. A session with no visible conversation
+// history is removed from disk instead of being written, so empty sessions
+// never show up as invalid records in session lists.
 func (m *Manager) Save() error {
-	sess, err := m.applyCurrentSnapshot()
-	if err != nil {
-		return err
-	}
-	return sess.Save()
-}
-
-// SaveIfNotEmpty persists the current session only when it still has visible
-// conversation history. Empty aborted sessions are removed so they do not show
-// up as invalid records in session lists.
-func (m *Manager) SaveIfNotEmpty() error {
 	sess, err := m.applyCurrentSnapshot()
 	if err != nil {
 		return err

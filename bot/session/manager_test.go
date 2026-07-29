@@ -140,6 +140,7 @@ func TestManagerPersistsAndRestoresLedgerSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := m.CurrentID()
+	ctx.snap.Messages = []types.Message{{Role: "user", Content: "hello"}}
 	if err := m.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +159,7 @@ func TestManagerPersistsAndRestoresLedgerSnapshot(t *testing.T) {
 	}
 }
 
-func TestManagerSaveIfNotEmptyRemovesEmptySession(t *testing.T) {
+func TestManagerSaveRemovesEmptySession(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	ctx := &testContextStore{}
 	m := NewManager(ManagerOptions{
@@ -170,7 +171,7 @@ func TestManagerSaveIfNotEmptyRemovesEmptySession(t *testing.T) {
 	}
 	id := m.CurrentID()
 
-	if err := m.SaveIfNotEmpty(); err != nil {
+	if err := m.Save(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(id); !os.IsNotExist(err) {
@@ -184,7 +185,7 @@ func TestManagerSaveIfNotEmptyRemovesEmptySession(t *testing.T) {
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi"},
 	}
-	if err := m.SaveIfNotEmpty(); err != nil {
+	if err := m.Save(); err != nil {
 		t.Fatal(err)
 	}
 	nextID := m.CurrentID()

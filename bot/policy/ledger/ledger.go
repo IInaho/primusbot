@@ -2,8 +2,9 @@ package ledger
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -44,8 +45,8 @@ type pathSet map[string]struct{}
 
 func New() *Ledger {
 	return &Ledger{
-		readFiles:     newPathSet(),
-		modifiedFiles: newPathSet(),
+		readFiles:     make(pathSet),
+		modifiedFiles: make(pathSet),
 	}
 }
 
@@ -55,7 +56,7 @@ func (l *Ledger) Reset() {
 	// readFiles is intentionally preserved across turns: once the LLM has read a
 	// file in this session, we trust it to edit that file without re-reading.
 	// Only turn-scoped bookkeeping is cleared here.
-	l.modifiedFiles = newPathSet()
+	l.modifiedFiles = make(pathSet)
 	l.blockedTools = nil
 	l.toolErrors = nil
 	l.verifications = nil
@@ -143,15 +144,6 @@ func (s Snapshot) HasModifications() bool {
 	return len(s.ModifiedFiles) > 0
 }
 
-func (s Snapshot) HasNonDocumentationModifications() bool {
-	for _, path := range s.ModifiedFiles {
-		if !isDocumentationPath(path) {
-			return true
-		}
-	}
-	return false
-}
-
 func (s Snapshot) HasPassingVerification() bool {
 	for _, v := range s.Verifications {
 		if v.Passed {
@@ -195,10 +187,6 @@ func extractModifiedPaths(ev ToolEvent) []string {
 	return nil
 }
 
-func newPathSet() pathSet {
-	return make(pathSet)
-}
-
 func newPathSetFrom(paths []string) pathSet {
 	s := make(pathSet, len(paths))
 	s.addAll(paths)
@@ -227,12 +215,7 @@ func (s pathSet) has(path string) bool {
 }
 
 func (s pathSet) sorted() []string {
-	out := make([]string, 0, len(s))
-	for p := range s {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(s))
 }
 
 func cleanPaths(paths []string) []string {
@@ -564,18 +547,4 @@ func looksLikePathArg(a string) bool {
 		return false
 	}
 	return strings.Contains(a, "/") || strings.Contains(a, ".") || a == "." || a == ".."
-}
-
-func isDocumentationPath(path string) bool {
-	cleaned := filepath.Clean(path)
-	base := strings.ToLower(filepath.Base(cleaned))
-	switch base {
-	case "readme", "readme.md", "readme.mdx", "changelog", "changelog.md", "license", "license.md", "notice", "notice.md":
-		return true
-	}
-	switch strings.ToLower(filepath.Ext(cleaned)) {
-	case ".md", ".mdx", ".rst", ".adoc", ".txt":
-		return true
-	}
-	return false
 }

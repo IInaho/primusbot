@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	sharedhttp "nekocode/util/http"
@@ -88,14 +89,68 @@ func (c *apiClient) sendMessage(ctx context.Context, chatID int64, text string) 
 	return c.sendMessageHTML(ctx, chatID, text)
 }
 
-func (c *apiClient) sendMessageHTML(ctx context.Context, chatID int64, text string) error {
+// messageBody builds the common sendMessage/editMessageText payload. Plain
+// mode omits parse_mode (fallback for HTML parse failures).
+func messageBody(chatID int64, text string, plain bool) map[string]any {
 	body := map[string]any{
 		"chat_id":                  chatID,
 		"text":                     text,
-		"parse_mode":               "HTML",
 		"disable_web_page_preview": true,
 	}
-	_, err := requestJSON[json.RawMessage](ctx, c, http.MethodPost, "sendMessage", nil, body)
+	if !plain {
+		body["parse_mode"] = "HTML"
+	}
+	return body
+}
+
+// isParseFailure reports whether err is a Telegram HTML parse rejection
+// (HTTP 400 "can't parse entities"), i.e. worth retrying as plain text.
+func isParseFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if httpErr, ok := err.(*sharedhttp.HTTPError); ok {
+		return httpErr.StatusCode == 400
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "can't parse")
+}
+
+// sendHTML posts text with HTML parse mode, falling back to plain text when
+// Telegram rejects the markup — a message with literal tags beats a lost one.
+func (c *apiClient) sendHTML(ctx context.Context, endpoint string, body map[string]any) (json.RawMessage, error) {
+	result, err := requestJSON[json.RawMessage](ctx, c, http.MethodPost, endpoint, nil, body)
+	if err == nil || !isParseFailure(err) {
+		return result, err
+	}
+	body["parse_mode"] = nil
+	delete(body, "parse_mode")
+	return requestJSON[json.RawMessage](ctx, c, http.MethodPost, endpoint, nil, body)
+}
+
+func (c *apiClient) sendMessageHTML(ctx context.Context, chatID int64, text string) error {
+	_, err := c.sendHTML(ctx, "sendMessage", messageBody(chatID, text, false))
+	return err
+}
+
+// sendMessageID sends a message and returns its ID (for later edits).
+func (c *apiClient) sendMessageID(ctx context.Context, chatID int64, text string) (int, error) {
+	result, err := c.sendHTML(ctx, "sendMessage", messageBody(chatID, text, false))
+	if err != nil {
+		return 0, err
+	}
+	var msg Message
+	if err := json.Unmarshal(result, &msg); err != nil {
+		return 0, err
+	}
+	return msg.MessageID, nil
+}
+
+// editMessageText rewrites a previously sent message in place (used by the
+// streaming preview). Same HTML-with-plain-fallback behavior as sends.
+func (c *apiClient) editMessageText(ctx context.Context, chatID int64, messageID int, text string) error {
+	body := messageBody(chatID, text, false)
+	body["message_id"] = messageID
+	_, err := c.sendHTML(ctx, "editMessageText", body)
 	return err
 }
 
@@ -108,15 +163,40 @@ type inlineKeyboardButton struct {
 	CallbackData string `json:"callback_data"`
 }
 
-func (c *apiClient) sendMessageWithKeyboard(ctx context.Context, chatID int64, text string, keyboard inlineKeyboardMarkup) error {
-	body := map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
-		"reply_markup":             keyboard,
+// sendMessageWithKeyboard sends a message with an inline keyboard and
+// returns its message ID (needed to edit/strip the keyboard later).
+func (c *apiClient) sendMessageWithKeyboard(ctx context.Context, chatID int64, text string, keyboard inlineKeyboardMarkup) (int, error) {
+	body := messageBody(chatID, text, false)
+	body["reply_markup"] = keyboard
+	result, err := c.sendHTML(ctx, "sendMessage", body)
+	if err != nil {
+		return 0, err
 	}
-	_, err := requestJSON[json.RawMessage](ctx, c, http.MethodPost, "sendMessage", nil, body)
+	var msg Message
+	if err := json.Unmarshal(result, &msg); err != nil {
+		return 0, err
+	}
+	return msg.MessageID, nil
+}
+
+// emptyKeyboard removes all buttons from a message when used as the reply
+// markup of an edit.
+var emptyKeyboard = inlineKeyboardMarkup{InlineKeyboard: [][]inlineKeyboardButton{}}
+
+// editMessage rewrites a message's text and, when markup is non-nil, its
+// reply markup (pass &emptyKeyboard to strip buttons). The Telegram
+// "message is not modified" rejection is swallowed — repeated
+// terminalization is idempotent by design.
+func (c *apiClient) editMessage(ctx context.Context, chatID int64, messageID int, text string, markup *inlineKeyboardMarkup) error {
+	body := messageBody(chatID, text, false)
+	body["message_id"] = messageID
+	if markup != nil {
+		body["reply_markup"] = *markup
+	}
+	_, err := c.sendHTML(ctx, "editMessageText", body)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "not modified") {
+		return nil
+	}
 	return err
 }
 

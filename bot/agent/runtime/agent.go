@@ -2,57 +2,44 @@ package runtime
 
 import (
 	"context"
-	"nekocode/bot/todo"
 	"nekocode/bot/view"
+	commonview "nekocode/common/view"
 	"time"
 
-	"nekocode/bot/agent/runtime/model"
-	"nekocode/bot/agent/runtime/toolrun"
+	"nekocode/bot/agent/kernel"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/hooks"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/execution"
-	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/runner"
 	"nekocode/common/debug"
 )
 
-type StreamCallback func(delta string, isToolCall bool)
-type ReasoningCallback func(delta string)
-
-type ActionType = model.ActionType
-type ReasoningResult = model.Result
-
-const (
-	ActionChat        = model.ActionChat
-	ActionExecuteTool = model.ActionExecuteTool
-)
+// AgentConfig carries the construction-time dependencies of an Agent.
+// HookReg and TodoWriter are optional: nil leaves governance unwired and the
+// todo_write tool without an update callback.
+type AgentConfig struct {
+	CtxMgr     *ctxmgr.Manager
+	LLM        provider.LLM
+	Registry   *tools.Registry
+	HookReg    *aggov.Registry
+	TodoWriter commonview.TodoFunc
+}
 
 type agentDeps struct {
 	ctxMgr       *ctxmgr.Manager
 	llmClient    provider.LLM
 	toolRegistry *tools.Registry
-	executor     *runner.Executor
-	subSlotMgr   *toolrun.SlotManager
-	gov          *aggov.Manager
-}
-
-func newAgentDeps(ctxMgr *ctxmgr.Manager, llmClient provider.LLM, toolRegistry *tools.Registry) agentDeps {
-	return agentDeps{
-		ctxMgr:       ctxMgr,
-		llmClient:    llmClient,
-		toolRegistry: toolRegistry,
-		executor:     runner.NewExecutor(toolRegistry),
-		subSlotMgr:   toolrun.NewSlotManager(),
-	}
+	toolExecutor *runner.Executor
+	subSlotMgr   *slotManager
+	gov          *aggov.Policy
 }
 
 type Agent struct {
 	// Lifecycle.
-	life lifecycleState
+	life *kernel.Lifecycle
 
 	// Dependencies.
 	deps agentDeps
@@ -66,59 +53,84 @@ type Agent struct {
 	// Current run state.
 	run runState
 
+	// Policy-block retry gate, persists across runs (reset per run in Reset).
+	gate *kernel.Gate
+
 	loopRunner  *loopRunner
-	modelRunner *model.Runner
+	modelRunner *modelRunner
 	turnRunner  *turnRunner
-	toolRunner  *toolrun.Runner
+	toolRunner  *toolRunner
 }
 
-func New(ctx context.Context, ctxMgr *ctxmgr.Manager, llmClient provider.LLM, toolRegistry *tools.Registry) *Agent {
+func New(ctx context.Context, cfg AgentConfig) *Agent {
 	a := &Agent{
-		life: newLifecycleState(ctx),
-		deps: newAgentDeps(ctxMgr, llmClient, toolRegistry),
-		run:  newRunState(),
+		life: kernel.NewLifecycle(ctx, steeringChBuffer),
+		deps: agentDeps{
+			ctxMgr:       cfg.CtxMgr,
+			llmClient:    cfg.LLM,
+			toolRegistry: cfg.Registry,
+			toolExecutor: runner.NewExecutor(cfg.Registry),
+			subSlotMgr:   newSlotManager(),
+		},
+		gate: kernel.NewGate(defaultMaxRetries),
 	}
-	host := runnerHost{agent: a}
+	if cfg.HookReg != nil {
+		a.deps.gov = aggov.New(cfg.HookReg)
+	}
+	if cfg.TodoWriter != nil {
+		a.wireTodoWrite(cfg.TodoWriter)
+	}
 	a.loopRunner = newLoopRunner(a)
-	a.modelRunner = model.New(host)
+	a.modelRunner = newModelRunner(a)
 	a.turnRunner = newTurnRunner(a)
-	a.toolRunner = toolrun.New(host)
+	a.toolRunner = newToolRunner(a)
 	return a
 }
 
-func (a *Agent) getCtx() context.Context {
-	return a.life.context()
+func (a *Agent) Run(input string, callback RunCallback) *RunResult {
+	return a.loopRunner.run(input, callback)
 }
-func (a *Agent) replaceCtx() {
-	a.life.replaceContext()
+
+func (a *Agent) getCtx() context.Context {
+	return a.life.Context()
+}
+
+// hookReg returns the governance hook registry, or nil when governance is
+// not configured. Callers must nil-check before evaluating hooks.
+func (a *Agent) hookReg() *aggov.Registry {
+	if a.deps.gov == nil {
+		return nil
+	}
+	return a.deps.gov.HookReg
 }
 
 func (a *Agent) Steer(msg string) {
 	debug.Log("Steer: msg=%q", msg)
 	select {
-	case a.life.steering <- msg:
+	case a.life.Steering() <- msg:
 	default:
 	}
-	a.replaceCtx()
+	a.life.ReplaceContext()
 	debug.Log("Steer: context replaced")
 }
 
 func (a *Agent) Abort() {
 	debug.Log("Abort: user interrupt requested")
-	a.life.finished.Store(true)
-	a.life.cancel()
+	a.life.Finished().Store(true)
+	a.life.Cancel()
 }
 
 func (a *Agent) Duration() time.Duration {
-	return a.life.duration()
+	return a.life.Duration()
 }
 
 func (a *Agent) Reset() {
-	a.life.resetContextIfCanceled()
+	a.life.ResetContextIfCanceled()
 	a.stream.resetReasoning()
 	a.run.reset()
+	a.gate.Reset()
 
-	a.life.start()
+	a.life.Start()
 	a.tokens.snapshot(a.ContextTokens())
 	if a.deps.gov != nil {
 		a.deps.gov.Reset()
@@ -127,24 +139,40 @@ func (a *Agent) Reset() {
 	a.deps.ctxMgr.SetHints("")
 }
 
-func (a *Agent) injectHint(h *hooks.Hint) {
+func (a *Agent) injectHint(h *aggov.Hint) {
 	if h != nil {
 		a.run.pendingHints = append(a.run.pendingHints, *h)
 	}
 }
 
-func (a *Agent) applyTurnHints(hints []hooks.Hint) {
+// evalHints evaluates an agent-wide (non-tool) hook point and returns the
+// collected hints. Returns nil when governance is not configured.
+func (a *Agent) evalHints(point aggov.HookPoint) []aggov.Hint {
+	reg := a.hookReg()
+	if reg == nil {
+		return nil
+	}
+	var hints []aggov.Hint
+	for _, result := range reg.Evaluate(point, "", false) {
+		if result.Hint != nil {
+			hints = append(hints, *result.Hint)
+		}
+	}
+	return hints
+}
+
+func (a *Agent) applyTurnHints(hints []aggov.Hint) {
 	if len(a.run.pendingHints) > 0 {
 		hints = append(hints, a.run.pendingHints...)
 		a.run.pendingHints = nil
 	}
-	a.deps.ctxMgr.SetHints(hooks.FormatHints(hints))
+	a.deps.ctxMgr.SetHints(aggov.FormatHints(hints))
 }
 
 func (a *Agent) drainSteering() {
 	for {
 		select {
-		case msg := <-a.life.steering:
+		case msg := <-a.life.Steering():
 			a.deps.ctxMgr.Add("user", msg, "user")
 		default:
 			return
@@ -160,31 +188,19 @@ func (a *Agent) SetReasoningStreamFn(fn ReasoningCallback) {
 	a.stream.reasoning = fn
 }
 
+// SetPhaseFn wires the phase callback into both the agent's own stream
+// state and the tool executor (which emits tool-level phases).
 func (a *Agent) SetPhaseFn(fn view.PhaseFunc) {
 	a.stream.phase = fn
-	a.deps.executor.SetPhaseFn(fn)
+	a.deps.toolExecutor.SetPhaseFn(fn)
 }
 
 func (a *Agent) PhaseFn() view.PhaseFunc {
 	return a.stream.phase
 }
 
-func (a *Agent) SetGovernanceManager(gov *aggov.Manager) {
-	a.deps.gov = gov
-}
-
-func (a *Agent) GovernanceManager() *aggov.Manager {
+func (a *Agent) Governance() *aggov.Policy {
 	return a.deps.gov
-}
-
-// SetHookRegistry wires the hook registry into the agent's govManager.
-// If no manager exists yet, one is created.
-func (a *Agent) SetHookRegistry(m *hooks.Registry) {
-	if a.deps.gov == nil {
-		a.deps.gov = aggov.NewManager(m)
-	} else {
-		a.deps.gov.HookReg = m
-	}
 }
 
 func (a *Agent) AddTokens(prompt, completion int) {
@@ -204,51 +220,30 @@ func (a *Agent) ContextTokens() int {
 	return tokens
 }
 
-func (a *Agent) SetConfirmFn(fn view.ConfirmFunc) {
-	a.deps.executor.SetConfirmFn(fn)
+// Executor exposes the tool executor so callers can configure tool-level
+// behavior (confirm/permission/workspace/plan mode) directly, without the
+// Agent relaying one setter per option.
+func (a *Agent) Executor() *runner.Executor {
+	return a.deps.toolExecutor
 }
 
 func (a *Agent) ConfirmFn() view.ConfirmFunc {
-	return a.deps.executor.ConfirmFn()
-}
-
-// SetPermissionPolicy configures the declarative permission rule engine
-// (claude-code style allow/ask/deny). Tool calls are gated by this engine.
-func (a *Agent) SetPermissionPolicy(decl permission.PermissionsDecl, workspace, home string) {
-	a.deps.executor.SetPermissionPolicy(decl, workspace, home)
-}
-
-// SetProjectStore binds the agent's executor to a per-project permissions
-// file at <project>/.nekocode/permissions.json. Call before
-// SetPermissionPolicy (or immediately after construction) so grants and
-// remembered rules stay scoped to this project.
-func (a *Agent) SetProjectStore(projectRoot string) {
-	a.deps.executor.SetProjectStore(projectRoot)
-}
-
-// SetWorkspace updates the workspace for path-anchor resolution (e.g. after
-// /cd) and rebuilds the permission engine if a policy is configured.
-func (a *Agent) SetWorkspace(workspace, home string) {
-	a.deps.executor.SetWorkspace(workspace, home)
+	return a.deps.toolExecutor.ConfirmFn()
 }
 
 // SandboxProfiler returns the permission engine as a SandboxProfiler so tools
 // can look up sandbox rules (e.g. pnpm dev → network).
 func (a *Agent) SandboxProfiler() shell.SandboxProfiler {
-	return a.deps.executor.SandboxEngine()
-}
-
-func (a *Agent) SetPlanMode(on bool) {
-	a.deps.executor.SetPlanMode(on)
+	return a.deps.toolExecutor.SandboxEngine()
 }
 
 func (a *Agent) ToolExecutionState() *execution.ExecutionState {
-	return a.deps.executor.ExecutionState()
+	return a.deps.toolExecutor.ExecutionState()
 }
 
-func (a *Agent) WireTodoWrite(fn todo.Func) {
+func (a *Agent) wireTodoWrite(fn commonview.TodoFunc) {
 	if t, err := a.deps.toolRegistry.Get("todo_write"); err == nil {
-		if updater, ok := t.(interface{ SetUpdateFn(todo.Func) }); ok {
+		if updater, ok := t.(interface{ SetUpdateFn(commonview.TodoFunc) }); ok {
 			updater.SetUpdateFn(fn)
 		}
 	}

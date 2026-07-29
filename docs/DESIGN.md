@@ -245,12 +245,12 @@ Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
 
 - **loopRunner** — 主循环驱动，管理生命周期状态（idle/running/steering/stopped）
 - **turnRunner** — 单轮处理：PreTurn hooks → 模型推理 → 工具执行 → PostTurn hooks
-- **model.Runner** — LLM 调用封装，含重试、流回调、响应分类（chat/tool_call/garbled/error）
-- **toolrun.Runner** — 工具执行编排，含配额过滤、结果收集、子代理槽位管理
+- **modelRunner** — LLM 调用封装，含重试、流回调、响应分类（chat/tool_call/garbled/error）
+- **toolRunner** — 工具执行编排，含配额过滤、结果收集、子代理槽位管理
 
 **中断机制**：`Steer()` 支持处理中注入新消息打断当前 LLM 调用，`replaceContext()` 支持上下文替换重试。
 
-**子代理槽位**：`SlotManager` 管理最多 8 个并发子代理，通过回调路由分发结果。
+**子代理槽位**：`slotManager` 管理最多 8 个并发子代理，通过回调路由分发结果。
 
 ### 工具清单
 

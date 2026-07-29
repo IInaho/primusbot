@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func FormatInstallPreview(p *Plugin) string {
+func formatInstallPreview(p *Plugin) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Plugin: %s", p.Name)
 	if p.Version != "" {
@@ -24,7 +24,7 @@ func FormatInstallPreview(p *Plugin) string {
 	return sb.String()
 }
 
-func FormatInstallResult(p *Plugin) string {
+func formatInstallResult(p *Plugin) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Installed plugin %q v%s.\n", p.Name, p.Version)
 	if p.HasInstallStub {
@@ -36,7 +36,7 @@ func FormatInstallResult(p *Plugin) string {
 	return sb.String()
 }
 
-func FormatList(plugins []*Plugin) string {
+func formatList(plugins []*Plugin) string {
 	if len(plugins) == 0 {
 		return "No plugins installed. Use /plugin install <source> to add one."
 	}
@@ -56,7 +56,7 @@ func FormatList(plugins []*Plugin) string {
 	return sb.String()
 }
 
-func FormatInfo(p *Plugin) string {
+func formatInfo(p *Plugin) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Name:        %s\n", p.Name)
 	fmt.Fprintf(&sb, "Version:     %s\n", p.Version)

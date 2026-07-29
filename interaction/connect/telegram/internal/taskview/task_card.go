@@ -108,8 +108,8 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			t.finishTool(card, p, status)
 			if status == "blocked" {
 				return compactMessage(
-					htmlTitle("Blocked"),
-					labelCode("Tool", strings.TrimSpace(p.ToolName+" "+commonview.ToolBrief(p.ToolName, p.Args))),
+					htmlTitle("已阻止"),
+					labelCode("工具", strings.TrimSpace(p.ToolName+" "+commonview.ToolBrief(p.ToolName, p.Args))),
 					htmlPre(truncateRunes(p.Output, 1200)),
 				)
 			}
@@ -118,7 +118,7 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
 			card := t.card(ev.RunID)
 			card.Status = statusWaitingApproval
-			return compactMessage(htmlTitle("Approval"), approvalSummary(p))
+			return compactMessage(htmlTitle("需要审批"), approvalSummary(p))
 		}
 	case controlruntime.EventQuestionRequested:
 		if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
@@ -126,7 +126,7 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			card.Status = statusWaitingQuestion
 			t.pendingQuestions[p.ID] = pendingQuestion{View: p}
 			t.lastQuestionID = p.ID
-			return compactMessage(htmlTitle("Input"), questionSummary(p))
+			return compactMessage(htmlTitle("提问"), questionSummary(p))
 		}
 	case controlruntime.EventApprovalResolved, controlruntime.EventQuestionResolved:
 		card := t.card(ev.RunID)
@@ -156,7 +156,7 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 	case controlruntime.EventRunAborted:
 		card := t.card(ev.RunID)
 		card.Status = statusAborted
-		return htmlTitle("Stopped")
+		return htmlTitle("已停止")
 	}
 	return ""
 }
@@ -165,11 +165,11 @@ func (t *Tracker) Status() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.order) == 0 {
-		return compactMessage(htmlTitle("Status"), HTMLEscape("Idle"), HTMLEscape("Send a message here to start a task."))
+		return compactMessage(htmlTitle("状态"), HTMLEscape("空闲"), HTMLEscape("发送消息即可开始任务。"))
 	}
 	card := t.runs[t.last]
 	if card == nil {
-		return compactMessage(htmlTitle("Status"), HTMLEscape("Idle"))
+		return compactMessage(htmlTitle("状态"), HTMLEscape("空闲"))
 	}
 	return t.statusSummaryLocked(card)
 }
@@ -178,11 +178,11 @@ func (t *Tracker) LastSummary() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if len(t.order) == 0 {
-		return HTMLEscape("No remote tasks yet.")
+		return HTMLEscape("还没有远程任务。")
 	}
 	card := t.runs[t.last]
 	if card == nil {
-		return HTMLEscape("No remote tasks yet.")
+		return HTMLEscape("还没有远程任务。")
 	}
 	if card.Status == statusDone || card.Status == statusFailed {
 		return t.lastSummaryLocked(card)
@@ -198,12 +198,12 @@ func (t *Tracker) DiffSummary(runID controlruntime.RunID) string {
 	}
 	card := t.runs[runID]
 	if card == nil {
-		return HTMLEscape("No matching task was found.")
+		return HTMLEscape("未找到匹配的任务。")
 	}
 	if len(card.Diffs) == 0 {
-		return HTMLEscape("No diff preview is available yet.")
+		return HTMLEscape("暂无 diff 预览。")
 	}
-	return compactMessage(htmlTitle("Diff"), htmlPre(truncateRunes(card.Diffs[len(card.Diffs)-1], 3000)))
+	return compactMessage(htmlTitle("差异"), htmlPre(truncateRunes(card.Diffs[len(card.Diffs)-1], 3000)))
 }
 
 func (t *Tracker) BuildQuestionReply(questionID, raw string) (controlruntime.QuestionReply, string, error) {
@@ -250,6 +250,42 @@ func (t *Tracker) BuildQuestionOptionReply(questionID string, optionIndex int) (
 		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s requires text answer", questionID)
 	}
 	return controlruntime.QuestionReply{Answers: [][]string{{item.Options[optionIndex].Label}}}, questionID, nil
+}
+
+// PendingQuestion returns the pending question view for interactive
+// (button-driven) answering.
+func (t *Tracker) PendingQuestion(questionID string) (controlruntime.QuestionView, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	pending, ok := t.pendingQuestions[questionID]
+	return pending.View, ok
+}
+
+// BuildQuestionMultiOptionReply builds a reply for a Multiple question from
+// the selected option indices. At least one index is required.
+func (t *Tracker) BuildQuestionMultiOptionReply(questionID string, indices []int) (controlruntime.QuestionReply, string, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	pending, ok := t.pendingQuestions[questionID]
+	if !ok {
+		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not pending", questionID)
+	}
+	if len(pending.View.Questions) != 1 || !pending.View.Questions[0].Multiple {
+		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not a multi-select question", questionID)
+	}
+	item := pending.View.Questions[0]
+	var labels []string
+	for i, opt := range item.Options {
+		for _, idx := range indices {
+			if idx == i {
+				labels = append(labels, opt.Label)
+			}
+		}
+	}
+	if len(labels) == 0 {
+		return controlruntime.QuestionReply{}, "", fmt.Errorf("请至少选择一项")
+	}
+	return controlruntime.QuestionReply{Answers: [][]string{labels}}, questionID, nil
 }
 
 func (t *Tracker) card(id controlruntime.RunID) *taskCard {

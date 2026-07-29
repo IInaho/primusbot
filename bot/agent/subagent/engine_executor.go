@@ -2,15 +2,15 @@ package subagent
 
 import (
 	"context"
-	"nekocode/bot/view"
-	"sync"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/hooks"
-	"nekocode/bot/hooks/builtin"
+	"nekocode/bot/policy"
+	"nekocode/bot/policy/builtin"
+	"nekocode/bot/policy/ledger"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/runner"
+	"nekocode/bot/view"
 	commonview "nekocode/common/view"
 )
 
@@ -69,14 +69,24 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 		}
 	}
 	ctxMgr.AddToolResultsBatch(batch)
+	if cfg.Policy != nil {
+		for i, r := range results {
+			cfg.Policy.RecordToolCall(ledger.ToolEvent{
+				Name:   calls[i].Name,
+				Args:   calls[i].Args,
+				Output: r.Output,
+				Error:  r.Error,
+			})
+		}
+	}
 	applyReadOnlySpiralGuard(ctxMgr, calls, state)
 }
 
 func applyReadOnlySpiralGuard(ctxMgr *ctxmgr.Manager, calls []core.ToolCallItem, state *runState) {
 	if isAllExploratory(calls) {
 		state.readOnlyStreak++
-		if hint := evaluateReadOnlySpiralHook(state.readOnlyStreak); hint != nil {
-			ctxMgr.Add("system", hooks.FormatHints([]hooks.Hint{*hint}), "hook")
+		if hint := builtin.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil {
+			ctxMgr.Add("system", policy.FormatHints([]policy.Hint{*hint}), "hook")
 			state.readOnlyStreak = 0
 		}
 		return
@@ -100,32 +110,4 @@ func isAllExploratory(calls []core.ToolCallItem) bool {
 		}
 	}
 	return true
-}
-
-// spiralRegistry is built once: hook registration is immutable after
-// builtin.Register, and Registry.Evaluate works on a mutex-guarded snapshot,
-// so the registry itself is safe to share. However, Set (per-call streak) and
-// Evaluate are not atomic together — concurrent subagents could interleave a
-// Set between another goroutine's Set and Evaluate. spiralMu serializes the
-// Set+Evaluate pair so each evaluation sees its own streak value.
-var (
-	spiralRegistryOnce sync.Once
-	spiralRegistry     *hooks.Registry
-	spiralMu           sync.Mutex
-)
-
-func evaluateReadOnlySpiralHook(streak int) *hooks.Hint {
-	spiralRegistryOnce.Do(func() {
-		spiralRegistry = hooks.NewRegistry()
-		builtin.Register(spiralRegistry)
-	})
-	spiralMu.Lock()
-	defer spiralMu.Unlock()
-	spiralRegistry.Set(hooks.StoreReadOnlyStreak, int64(streak))
-	for _, r := range spiralRegistry.Evaluate(hooks.PostTool, "", false) {
-		if r.Hint != nil && r.Hint.Type == "read_only_spiral" {
-			return r.Hint
-		}
-	}
-	return nil
 }

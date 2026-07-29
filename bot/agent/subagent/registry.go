@@ -1,13 +1,13 @@
 package subagent
 
-import commonview "nekocode/common/view"
-
 import (
 	_ "embed"
-	"nekocode/bot/view"
 
+	"nekocode/bot/policy"
 	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/view"
 	"nekocode/util/registry"
+	commonview "nekocode/common/view"
 )
 
 //go:embed prompts/executor.md
@@ -47,6 +47,10 @@ type RunConfig struct {
 	Handoff       string                 // injected into system prompt for cross-agent context
 	OnToolCall    func(ev ToolCallEvent) // sub-agent tool execution callback
 	ToolState     *execution.ExecutionState
+	// Policy, when non-nil, is the main agent's shared governance handle:
+	// sub-agent tool calls are recorded into the same ledger and
+	// exploration budget.
+	Policy *policy.Policy
 }
 
 var (

@@ -16,19 +16,18 @@ func usesQuestionButtons(p controlruntime.QuestionView) bool {
 	if len(p.Questions) != 1 {
 		return false
 	}
-	q := p.Questions[0]
-	return !q.Multiple && len(q.Options) > 0
+	return len(p.Questions[0].Options) > 0
 }
 
 func questionSummary(p controlruntime.QuestionView) string {
 	if len(p.Questions) == 0 {
-		return compactMessage(HTMLEscape("NekoCode requested input."), labelCode("Reply", "/answer "+p.ID+" <answer>"))
+		return compactMessage(HTMLEscape("NekoCode 请求输入。"), labelCode("回复", "/answer "+p.ID+" <answer>"))
 	}
 	if usesQuestionButtons(p) {
 		q := p.Questions[0]
 		header := strings.TrimSpace(q.Header)
 		if header == "" {
-			header = "Question"
+			header = "提问"
 		}
 		return compactMessage(htmlTitle(header), HTMLEscape(q.Question))
 	}
@@ -39,7 +38,7 @@ func questionSummary(p controlruntime.QuestionView) string {
 		}
 		header := strings.TrimSpace(q.Header)
 		if header == "" {
-			header = fmt.Sprintf("Question %d", i+1)
+			header = fmt.Sprintf("提问 %d", i+1)
 		}
 		fmt.Fprintf(&b, "%s\n%s", htmlTitle(header), HTMLEscape(q.Question))
 		if len(q.Options) > 0 {
@@ -54,9 +53,9 @@ func questionSummary(p controlruntime.QuestionView) string {
 		}
 	}
 	b.WriteString("\n\n")
-	b.WriteString(labelCode("Reply", answerCommand(p.ID)))
+	b.WriteString(labelCode("回复", answerCommand(p.ID)))
 	b.WriteString("\n")
-	b.WriteString(labelCode("Reject", dismissCommand(p.ID)))
+	b.WriteString(labelCode("忽略", dismissCommand(p.ID)))
 	return b.String()
 }
 

@@ -5,59 +5,21 @@ import (
 	"nekocode/bot/contextmgr/internal/history"
 	"nekocode/bot/contextmgr/internal/report"
 	"nekocode/bot/contextmgr/internal/snapshot"
-	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
-	"nekocode/bot/todo"
+	commonview "nekocode/common/view"
 )
 
-type ToolResultMsg struct {
-	Message  types.Message
-	ToolName string
-}
+// Public DTOs are aliases of the internal component types (same pattern as
+// runtime/exports.go): callers use them without importing internal packages,
+// and there is exactly one definition per shape.
+type ToolResultMsg = history.ToolResultMsg
 
-// ManagerSnapshot captures the full context manager state for session persistence.
-type ManagerSnapshot struct {
-	SystemPrompt    string
-	Skills          string
-	Archive         string
-	Memory          string
-	Hints           string
-	CompactBoundary int
-	Messages        []types.Message
-	Budget          int
-	Tracker         token.State
-}
+type ManagerSnapshot = snapshot.Snapshot
 
-type ContextReport struct {
-	Budget          int
-	SystemPrompt    int
-	TodoText        int
-	SkillList       int
-	ToolDefTokens   int
-	Messages        int
-	Archived        int
-	ClearedMarkers  int
-	CompactCount    int
-	TrimCount       int
-	ToolDefCount    int
-	UserMessages    int
-	SysInjections   int
-	AssistantMsgs   int
-	ToolResults     int
-	CacheHitTokens  int
-	CacheMissTokens int
-	CacheHitRatio   float64
-	SubCount        int
-	SubTokens       int
-	SubCacheHit     int
-	SubCacheMiss    int
-}
+type ContextReport = report.Report
 
-type BarSegment struct {
-	Size int
-	Kind string
-}
+type BarSegment = report.BarSegment
 
 func (m *Manager) Build() []types.Message {
 	return m.builder.Build()
@@ -76,7 +38,7 @@ func (m *Manager) AddAssistantToolCall(content, reasoning string, toolCalls []ty
 }
 
 func (m *Manager) AddToolResultsBatch(results []ToolResultMsg) {
-	m.history.AddToolResultsBatch(toHistoryToolResults(results))
+	m.history.AddToolResultsBatch(results)
 }
 
 func (m *Manager) Clear() {
@@ -111,7 +73,7 @@ func (m *Manager) SetContextWindow(budget int) {
 	m.settings.SetContextWindow(budget)
 }
 
-func (m *Manager) SetTodos(items []todo.Item) {
+func (m *Manager) SetTodos(items []commonview.TodoItem) {
 	m.settings.SetTodos(items)
 }
 
@@ -156,11 +118,11 @@ func (m *Manager) CacheStats() (hit, miss int) {
 }
 
 func (m *Manager) Snapshot() ManagerSnapshot {
-	return ManagerSnapshot(m.snapshots.Snapshot())
+	return m.snapshots.Snapshot()
 }
 
 func (m *Manager) Restore(s ManagerSnapshot) {
-	m.snapshots.Restore(snapshot.Snapshot(s))
+	m.snapshots.Restore(s)
 }
 
 func (m *Manager) AutoCompactIfNeeded() (compression.Level, error) {
@@ -179,10 +141,6 @@ func (m *Manager) Summarize() error {
 	return m.compaction.Summarize()
 }
 
-func (m *Manager) SetCompressionStrategy(strategy compression.Strategy) {
-	m.compaction.SetCompressionStrategy(strategy)
-}
-
 func (m *Manager) SetSummarizer(summarizer compression.Summarizer) {
 	m.compaction.SetSummarizer(summarizer)
 }
@@ -196,30 +154,14 @@ func (m *Manager) MergeClient() provider.LLM {
 }
 
 func (m *Manager) Report() ContextReport {
-	return ContextReport(m.reports.Report())
+	return m.reports.Report()
 }
 
 // FormatContextReport renders a context report as a styled string.
 func FormatContextReport(r ContextReport) string {
-	return report.Format(report.Report(r))
+	return report.Format(r)
 }
 
 func BuildBar(total int, segments []BarSegment, width int) string {
-	return report.BuildBar(total, toReportSegments(segments), width)
-}
-
-func toHistoryToolResults(results []ToolResultMsg) []history.ToolResultMsg {
-	out := make([]history.ToolResultMsg, len(results))
-	for i, r := range results {
-		out[i] = history.ToolResultMsg{Message: r.Message, ToolName: r.ToolName}
-	}
-	return out
-}
-
-func toReportSegments(segments []BarSegment) []report.BarSegment {
-	out := make([]report.BarSegment, len(segments))
-	for i, s := range segments {
-		out[i] = report.BarSegment{Size: s.Size, Kind: s.Kind}
-	}
-	return out
+	return report.BuildBar(total, segments, width)
 }

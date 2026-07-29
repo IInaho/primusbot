@@ -60,12 +60,6 @@ func (c *Controller) Summarize() error {
 	return nil
 }
 
-func (c *Controller) SetCompressionStrategy(strategy compress.Strategy) {
-	c.State.Mu.Lock()
-	defer c.State.Mu.Unlock()
-	c.State.Compressor = strategy
-}
-
 func (c *Controller) SetSummarizer(summarizer compress.Summarizer) {
 	c.State.Mu.Lock()
 	defer c.State.Mu.Unlock()

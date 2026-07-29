@@ -1,18 +1,34 @@
 package runtime
 
 import (
+	"context"
 	"strings"
 	"testing"
 
-	"nekocode/bot/hooks"
+	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/policy"
+	"nekocode/bot/policy/builtin"
+	"nekocode/bot/tools"
 )
+
+func newTestAgent() *Agent {
+	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
+	reg := tools.NewRegistry()
+	hookReg := policy.NewRegistry()
+	builtin.Register(hookReg)
+	return New(context.Background(), AgentConfig{
+		CtxMgr:   ctxMgr,
+		Registry: reg,
+		HookReg:  hookReg,
+	})
+}
 
 func TestHandleText_IsError_NotRecorded(t *testing.T) {
 	a := newTestAgent()
 
-	rr := &ReasoningResult{
+	rr := &reasoningResult{
 		Thought:     "LLM call failed",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "LLM call failed: connection refused",
 		IsError:     true,
 	}
@@ -35,9 +51,9 @@ func TestHandleText_IsError_NotRecorded(t *testing.T) {
 func TestHandleText_GarbledToolCall_NotRecorded(t *testing.T) {
 	a := newTestAgent()
 
-	rr := &ReasoningResult{
+	rr := &reasoningResult{
 		Thought:         "Format correction",
-		Action:          ActionChat,
+		Action:          actionChat,
 		ActionInput:     "",
 		GarbledToolCall: true,
 	}
@@ -57,9 +73,9 @@ func TestHandleText_GarbledToolCall_NotRecorded(t *testing.T) {
 func TestHandleText_NormalChat_Recorded(t *testing.T) {
 	a := newTestAgent()
 
-	rr := &ReasoningResult{
+	rr := &reasoningResult{
 		Thought:     "Direct reply",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "Hello, world!",
 	}
 
@@ -81,9 +97,9 @@ func TestHandleText_NormalChat_Recorded(t *testing.T) {
 func TestHandleText_IsError_ConsecutiveFailuresIncrement(t *testing.T) {
 	a := newTestAgent()
 
-	rr := &ReasoningResult{
+	rr := &reasoningResult{
 		Thought:     "LLM call failed",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "LLM call failed: timeout",
 		IsError:     true,
 	}
@@ -112,13 +128,13 @@ func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 	a := newTestAgent()
 	a.Reset()
 
-	a.deps.gov.HookReg.Set(hooks.StoreHasTasks, 1)
-	a.deps.gov.HookReg.Set(hooks.StoreTasksAllDone, 0)
-	a.deps.gov.HookReg.Set(hooks.StoreTurnToolCalls, 0)
+	a.deps.gov.HookReg.Set(policy.StoreHasTasks, 1)
+	a.deps.gov.HookReg.Set(policy.StoreTasksAllDone, 0)
+	a.deps.gov.HookReg.Set(policy.StoreTurnToolCalls, 0)
 
-	rr := &ReasoningResult{
+	rr := &reasoningResult{
 		Thought:     "LLM call failed",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "LLM call failed: connection refused",
 		IsError:     true,
 	}
@@ -145,40 +161,40 @@ func TestPostTurnHooksSetStructuredFinalIntent(t *testing.T) {
 	a := newTestAgent()
 	a.Reset()
 	var intent string
-	a.deps.gov.HookReg.Register(hooks.Hook{
+	a.deps.gov.HookReg.Register(policy.Hook{
 		Name:  "capture-intent",
-		Point: hooks.PostTurn,
-		On: func(s hooks.State) *hooks.Result {
-			intent = s.GetStr(hooks.StoreFinalIntent)
+		Point: policy.PostTurn,
+		On: func(s policy.State) *policy.Result {
+			intent = s.GetStr(policy.StoreFinalIntent)
 			return nil
 		},
 	})
 
-	ok := &ReasoningResult{
-		Action:      ActionChat,
+	ok := &reasoningResult{
+		Action:      actionChat,
 		ActionInput: "done",
 	}
 	a.turnRunner.applyPostTurnHooks(ok, isRecordableText(ok), nil)
-	if intent != hooks.FinalIntentFinal {
+	if intent != policy.FinalIntentFinal {
 		t.Fatalf("final intent = %q, want final", intent)
 	}
 
-	errResult := &ReasoningResult{
-		Action:      ActionChat,
+	errResult := &reasoningResult{
+		Action:      actionChat,
 		ActionInput: "LLM call failed",
 		IsError:     true,
 	}
 	a.turnRunner.applyPostTurnHooks(errResult, isRecordableText(errResult), nil)
-	if intent != hooks.FinalIntentError {
+	if intent != policy.FinalIntentError {
 		t.Fatalf("error intent = %q, want error", intent)
 	}
 
-	garbled := &ReasoningResult{
-		Action:          ActionChat,
+	garbled := &reasoningResult{
+		Action:          actionChat,
 		GarbledToolCall: true,
 	}
 	a.turnRunner.applyPostTurnHooks(garbled, isRecordableText(garbled), nil)
-	if intent != hooks.FinalIntentFormatError {
+	if intent != policy.FinalIntentFormatError {
 		t.Fatalf("garbled intent = %q, want format_error", intent)
 	}
 }
@@ -186,9 +202,9 @@ func TestPostTurnHooksSetStructuredFinalIntent(t *testing.T) {
 func TestHandleText_NormalChat_ConsecutiveFailuresReset(t *testing.T) {
 	a := newTestAgent()
 
-	errRR := &ReasoningResult{
+	errRR := &reasoningResult{
 		Thought:     "LLM call failed",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "error",
 		IsError:     true,
 	}
@@ -197,13 +213,35 @@ func TestHandleText_NormalChat_ConsecutiveFailuresReset(t *testing.T) {
 		t.Fatalf("expected consecutiveFailures=1 after error, got %d", a.run.consecutiveFailures)
 	}
 
-	okRR := &ReasoningResult{
+	okRR := &reasoningResult{
 		Thought:     "Direct reply",
-		Action:      ActionChat,
+		Action:      actionChat,
 		ActionInput: "Hello!",
 	}
 	a.turnRunner.handleText(okRR, nil)
 	if a.run.consecutiveFailures != 0 {
 		t.Errorf("expected consecutiveFailures=0 after normal chat, got %d", a.run.consecutiveFailures)
+	}
+}
+
+func TestPostToolStopClearsStaleFinalText(t *testing.T) {
+	ctxMgr := ctxmgr.NewSub("test", 128000, nil)
+	reg := tools.NewRegistry()
+	a := New(context.Background(), AgentConfig{CtxMgr: ctxMgr, Registry: reg})
+
+	a.run.lastText = "previous text"
+	a.run.finalText = "stale final"
+	a.run.finalPersisted = true
+	stop := policy.StopCompleted
+	a.applyPostToolHookResult(policy.Result{Stop: &stop})
+
+	if a.run.lastText != "" {
+		t.Fatalf("lastText = %q, want cleared", a.run.lastText)
+	}
+	if a.run.finalText != "" {
+		t.Fatalf("finalText = %q, want cleared", a.run.finalText)
+	}
+	if a.run.finalPersisted {
+		t.Fatal("finalPersisted = true, want false")
 	}
 }

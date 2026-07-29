@@ -6,7 +6,6 @@ import (
 )
 
 type Connector = connectors.Connector
-type ConnectorStatusViewer = connectors.ConnectorStatusViewer
 type ConnectorFactory = connectors.ConnectorFactory
 
 func RedactInputText(input string) string {

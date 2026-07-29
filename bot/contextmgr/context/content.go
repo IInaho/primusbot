@@ -2,7 +2,7 @@ package content
 
 import (
 	"fmt"
-	"nekocode/bot/todo"
+	commonview "nekocode/common/view"
 	"strconv"
 	"strings"
 
@@ -15,7 +15,7 @@ import (
 // External setters set fields directly:
 //
 //	prompt.Builder → Manager.SetSystemPrompt()
-//	skill.Registry  → Manager.SetSkillList()
+//	skill.Manager   → Manager.SetSkillList()
 //	summarizer      → Manager.SetArchive()
 //	todo system     → Manager.SetTodos()
 //	agent loop      → AddMessage(), AddToolResult()
@@ -36,8 +36,8 @@ type Content struct {
 
 	// Layer 2 — volatile suffix. ALL variable content goes HERE, after history.
 	Todo      string
-	TodoItems []todo.Item // structured copy, kept in sync with Todo
-	Hints     string      // per-turn system hints (quota, exploration status, etc.)
+	TodoItems []commonview.TodoItem // structured copy, kept in sync with Todo
+	Hints     string                // per-turn system hints (quota, exploration status, etc.)
 
 }
 
@@ -50,7 +50,7 @@ func New(systemPrompt string) Content {
 
 // -- setters ------------------------------------------------------------
 
-func (c *Content) LoadTodos(items []todo.Item) {
+func (c *Content) LoadTodos(items []commonview.TodoItem) {
 	c.TodoItems = items
 	c.Todo = formatTodoItems(items)
 }
@@ -70,11 +70,11 @@ func (c *Content) HasTasks() bool {
 	return len(c.TodoItems) > 0
 }
 
-func formatTodoItems(items []todo.Item) string {
+func formatTodoItems(items []commonview.TodoItem) string {
 	if len(items) == 0 {
 		return ""
 	}
-	done := todo.CountCompleted(items)
+	done := commonview.CountCompleted(items)
 	if done == len(items) {
 		return "All " + strconv.Itoa(done) + " tasks complete"
 	}

@@ -1,204 +1,150 @@
 package runtime
 
-import (
-	"fmt"
-)
+import "fmt"
+
+// management.go — ManagementRuntime 的实现：每个管理能力都是可选端口，
+// 未注入时 error 方法返回"不支持"，其余方法返回零值。
 
 func unsupportedManagementCapability(name string) error {
 	return fmt.Errorf("runtime: bot does not support %s management", name)
 }
 
-func (r *SessionRuntime) modelManager() (CoreModelManager, error) {
-	if r.modelManagement == nil {
-		return nil, unsupportedManagementCapability("model")
-	}
-	return r.modelManagement, nil
-}
-
-func (r *SessionRuntime) contextManager() (CoreContextManager, error) {
-	if r.contextManagement == nil {
-		return nil, unsupportedManagementCapability("context")
-	}
-	return r.contextManagement, nil
-}
-
-func (r *SessionRuntime) skillManager() (CoreSkillManager, error) {
-	if r.skillManagement == nil {
-		return nil, unsupportedManagementCapability("skill")
-	}
-	return r.skillManagement, nil
-}
-
-func (r *SessionRuntime) configManager() (CoreConfigManager, error) {
-	if r.configManagement == nil {
-		return nil, unsupportedManagementCapability("config")
-	}
-	return r.configManagement, nil
-}
-
-func (r *SessionRuntime) sessionManager() (CoreSessionManager, error) {
-	if r.sessionManagement == nil {
-		return nil, unsupportedManagementCapability("session")
-	}
-	return r.sessionManagement, nil
-}
-
 func (r *SessionRuntime) SwitchModel(name string) (string, string, error) {
-	manager, err := r.modelManager()
-	if err != nil {
-		return "", "", err
+	if r.modelManagement == nil {
+		return "", "", unsupportedManagementCapability("model")
 	}
-	return manager.SwitchModel(name)
+	return r.modelManagement.SwitchModel(name)
 }
 
 func (r *SessionRuntime) ContextStatus() string {
-	manager, err := r.contextManager()
-	if err != nil {
+	if r.contextManagement == nil {
 		return ""
 	}
-	return manager.ContextStatus()
+	return r.contextManagement.ContextStatus()
 }
 
 func (r *SessionRuntime) ContextReport() string {
-	manager, err := r.contextManager()
-	if err != nil {
-		return err.Error()
+	if r.contextManagement == nil {
+		return unsupportedManagementCapability("context").Error()
 	}
-	return manager.ContextReport()
+	return r.contextManagement.ContextReport()
 }
 
 func (r *SessionRuntime) ContextSnapshot() ContextSnapshot {
-	manager, err := r.contextManager()
-	if err != nil {
+	if r.contextManagement == nil {
 		return ContextSnapshot{}
 	}
-	return manager.ContextSnapshot()
+	return r.contextManagement.ContextSnapshot()
 }
 
 func (r *SessionRuntime) MemoryView(scope MemoryScope) MemoryView {
-	manager, err := r.contextManager()
-	if err != nil {
+	if r.contextManagement == nil {
 		return MemoryView{}
 	}
-	return manager.MemoryView(scope)
-}
-
-func (r *SessionRuntime) SelectSkill(name string) error {
-	manager, err := r.skillManager()
-	if err != nil {
-		return err
-	}
-	return manager.SelectSkill(name)
-}
-
-func (r *SessionRuntime) ClearSelectedSkill() {
-	manager, err := r.skillManager()
-	if err != nil {
-		return
-	}
-	manager.ClearSelectedSkill()
-}
-
-func (r *SessionRuntime) ConfigView() ConfigView {
-	manager, err := r.configManager()
-	if err != nil {
-		return ConfigView{}
-	}
-	return manager.ConfigView()
-}
-
-func (r *SessionRuntime) ApplyConfig(cfg ConfigView) (ConfigView, error) {
-	manager, err := r.configManager()
-	if err != nil {
-		return ConfigView{}, err
-	}
-	return manager.ApplyConfig(cfg)
-}
-
-func (r *SessionRuntime) SkillManagementView() SkillManagementView {
-	manager, err := r.skillManager()
-	if err != nil {
-		return SkillManagementView{}
-	}
-	return manager.SkillManagementView()
-}
-
-func (r *SessionRuntime) RefreshSkillManagement() SkillManagementView {
-	manager, err := r.skillManager()
-	if err != nil {
-		return SkillManagementView{}
-	}
-	return manager.RefreshSkillManagement()
-}
-
-func (r *SessionRuntime) SetPluginEnabled(name string, enabled bool) (SkillManagementView, error) {
-	manager, err := r.skillManager()
-	if err != nil {
-		return SkillManagementView{}, err
-	}
-	return manager.SetPluginEnabled(name, enabled)
+	return r.contextManagement.MemoryView(scope)
 }
 
 func (r *SessionRuntime) CWD() string {
-	manager, err := r.contextManager()
-	if err != nil {
+	if r.contextManagement == nil {
 		return ""
 	}
-	return manager.CWD()
+	return r.contextManagement.CWD()
 }
 
 func (r *SessionRuntime) ClearContext() {
-	manager, err := r.contextManager()
-	if err != nil {
+	if r.contextManagement == nil {
 		return
 	}
-	manager.ClearContext()
+	r.contextManagement.ClearContext()
+}
+
+func (r *SessionRuntime) SelectSkill(name string) error {
+	if r.skillManagement == nil {
+		return unsupportedManagementCapability("skill")
+	}
+	return r.skillManagement.SelectSkill(name)
+}
+
+func (r *SessionRuntime) ClearSelectedSkill() {
+	if r.skillManagement == nil {
+		return
+	}
+	r.skillManagement.ClearSelectedSkill()
+}
+
+func (r *SessionRuntime) SkillManagementView() SkillManagementView {
+	if r.skillManagement == nil {
+		return SkillManagementView{}
+	}
+	return r.skillManagement.SkillManagementView()
+}
+
+func (r *SessionRuntime) RefreshSkillManagement() SkillManagementView {
+	if r.skillManagement == nil {
+		return SkillManagementView{}
+	}
+	return r.skillManagement.RefreshSkillManagement()
+}
+
+func (r *SessionRuntime) SetPluginEnabled(name string, enabled bool) (SkillManagementView, error) {
+	if r.skillManagement == nil {
+		return SkillManagementView{}, unsupportedManagementCapability("skill")
+	}
+	return r.skillManagement.SetPluginEnabled(name, enabled)
+}
+
+func (r *SessionRuntime) ConfigView() ConfigView {
+	if r.configManagement == nil {
+		return ConfigView{}
+	}
+	return r.configManagement.ConfigView()
+}
+
+func (r *SessionRuntime) ApplyConfig(cfg ConfigView) (ConfigView, error) {
+	if r.configManagement == nil {
+		return ConfigView{}, unsupportedManagementCapability("config")
+	}
+	return r.configManagement.ApplyConfig(cfg)
 }
 
 func (r *SessionRuntime) CurrentSessionID() string {
-	manager, err := r.sessionManager()
-	if err != nil {
+	if r.sessionManagement == nil {
 		return ""
 	}
-	return manager.CurrentSessionID()
+	return r.sessionManagement.CurrentSessionID()
 }
 
 func (r *SessionRuntime) SetSession(id string) error {
-	manager, err := r.sessionManager()
-	if err != nil {
-		return err
+	if r.sessionManagement == nil {
+		return unsupportedManagementCapability("session")
 	}
-	return manager.SetSession(id)
+	return r.sessionManagement.SetSession(id)
 }
 
 func (r *SessionRuntime) ResumeSession(id string) error {
-	manager, err := r.sessionManager()
-	if err != nil {
-		return err
+	if r.sessionManagement == nil {
+		return unsupportedManagementCapability("session")
 	}
-	return manager.ResumeSession(id)
+	return r.sessionManagement.ResumeSession(id)
 }
 
 func (r *SessionRuntime) ListSessions() []SessionMeta {
-	manager, err := r.sessionManager()
-	if err != nil {
+	if r.sessionManagement == nil {
 		return nil
 	}
-	return manager.ListSessions()
+	return r.sessionManagement.ListSessions()
 }
 
 func (r *SessionRuntime) NewSession() (SessionMeta, error) {
-	manager, err := r.sessionManager()
-	if err != nil {
-		return SessionMeta{}, err
+	if r.sessionManagement == nil {
+		return SessionMeta{}, unsupportedManagementCapability("session")
 	}
-	return manager.NewSession()
+	return r.sessionManagement.NewSession()
 }
 
 func (r *SessionRuntime) DeleteSession(id string) error {
-	manager, err := r.sessionManager()
-	if err != nil {
-		return err
+	if r.sessionManagement == nil {
+		return unsupportedManagementCapability("session")
 	}
-	return manager.DeleteSession(id)
+	return r.sessionManagement.DeleteSession(id)
 }

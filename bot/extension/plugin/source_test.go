@@ -20,7 +20,7 @@ func TestSourceToRawURL(t *testing.T) {
 		{"http://github.com/user/repo", "https://raw.githubusercontent.com/user/repo/main/.claude-plugin/plugin.json"},
 	}
 	for _, tt := range tests {
-		got := SourceToRawURL(tt.input)
+		got := sourceToRawURL(tt.input)
 		if got != tt.want {
 			t.Errorf("SourceToRawURL(%q) = %q, want %q", tt.input, got, tt.want)
 		}
@@ -41,14 +41,14 @@ func TestIsLocalPath(t *testing.T) {
 		{"org/project", false},
 	}
 	for _, tt := range tests {
-		if got := IsLocalPath(tt.input); got != tt.want {
+		if got := isLocalPath(tt.input); got != tt.want {
 			t.Errorf("IsLocalPath(%q) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
 
 func TestExpandPluginEnv(t *testing.T) {
-	got := ExpandPluginEnv(map[string]string{"A": "${PLUGIN_ROOT}/bin", "B": "${CLAUDE_PLUGIN_ROOT}/lib"}, "/tmp/p")
+	got := expandPluginEnv(map[string]string{"A": "${PLUGIN_ROOT}/bin", "B": "${CLAUDE_PLUGIN_ROOT}/lib"}, "/tmp/p")
 	if got["A"] != "/tmp/p/bin" || got["B"] != "/tmp/p/lib" {
 		t.Fatalf("expanded env = %#v", got)
 	}

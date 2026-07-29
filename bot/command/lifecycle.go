@@ -5,15 +5,16 @@ import (
 	"strings"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/hooks"
+	"nekocode/bot/policy"
 	"nekocode/bot/prompt/planmode"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/util/text"
 )
 
-// SkillState tracks skill-related state shared between bot and command packages.
-type SkillState struct {
+// skillState tracks the selected skill's message range and pending hints;
+// it is owned by Handler and never leaves the command package.
+type skillState struct {
 	MsgStart   int
 	MsgEnd     int
 	WantsAgent bool
@@ -42,19 +43,18 @@ type skillLoadCallbackTool interface {
 
 // Deps bundles services needed by registration and lifecycle operations.
 type Deps struct {
-	CtxMgr        *ctxmgr.Manager
-	Ag            func() PlanModeController // dynamic: returns current agent
-	Skills        SkillProvider
-	ToolRegistry  *tools.Registry
-	ContextWindow int
-	GetConfigFn   func() (provider, model string)           // dynamic config for /config and /model
-	ListModelsFn  func() []string                           // available model names for /model
-	FreshStart    func() (string, error)                    // /new callback
-	SwitchModel   func(name string) (string, string, error) // /model callback
+	CtxMgr       *ctxmgr.Manager
+	Ag           func() PlanModeController // dynamic: returns current agent
+	Skills       SkillProvider
+	ToolRegistry *tools.Registry
+	HookReg      *policy.Registry
+	GetConfigFn  func() (provider, model string)           // dynamic config for /config and /model
+	ListModelsFn func() []string                           // available model names for /model
+	SwitchModel  func(name string) (string, string, error) // /model callback
 }
 
-// RegisterAll wires built-in and dynamic slash commands.
-func RegisterAll(p *Parser, deps Deps, st *SkillState) {
+// registerAll wires built-in and dynamic slash commands.
+func registerAll(p *Parser, deps Deps, st *skillState) {
 	RegisterDefaults(p, deps)
 
 	// /plan: enter read-only exploration mode.
@@ -161,7 +161,7 @@ func ContextReport(ctxMgr *ctxmgr.Manager, toolDescs []core.Descriptor) string {
 }
 
 // ForceFreshStart archives current conversation and starts a new session.
-func ForceFreshStart(ctxMgr *ctxmgr.Manager, skills SkillProvider, hookReg *hooks.Registry) (string, error) {
+func ForceFreshStart(ctxMgr *ctxmgr.Manager, skills SkillProvider, hookReg *policy.Registry) (string, error) {
 	count, oldTokens, _ := ctxMgr.Stats()
 	skills.ClearLoaded()
 	// Reset hook session state so guards like completionQualityHook
@@ -187,8 +187,8 @@ func ForceFreshStart(ctxMgr *ctxmgr.Manager, skills SkillProvider, hookReg *hook
 	return fmt.Sprintf("%d messages, ~%d tokens → %s (~%d tokens)", count, oldTokens, d, newTokens), nil
 }
 
-// ClearSkillContext removes skill messages from the previous turn.
-func ClearSkillContext(ctxMgr *ctxmgr.Manager, st *SkillState) {
+// clearSkillContext removes skill messages from the previous turn.
+func clearSkillContext(ctxMgr *ctxmgr.Manager, st *skillState) {
 	if st.MsgStart < 0 || st.MsgEnd <= st.MsgStart {
 		return
 	}

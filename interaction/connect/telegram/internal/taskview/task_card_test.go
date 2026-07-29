@@ -38,7 +38,7 @@ func TestTaskTrackerSuppressesTaskReceiptAndRendersCleanDiff(t *testing.T) {
 			Preview:  diff,
 		},
 	})
-	if !strings.Contains(msg, "<b>Diff</b>") || !strings.Contains(msg, "README.md") || !strings.Contains(msg, "+1 -1") || !strings.Contains(msg, "+new") {
+	if !strings.Contains(msg, "<b>差异</b>") || !strings.Contains(msg, "README.md") || !strings.Contains(msg, "+1 -1") || !strings.Contains(msg, "+new") {
 		t.Fatalf("diff preview not rendered:\n%s", msg)
 	}
 	if strings.Contains(msg, "EDIT_PREVIEW_JSON_B64") || strings.Contains(msg, "[README.md#abc]") {
@@ -46,7 +46,7 @@ func TestTaskTrackerSuppressesTaskReceiptAndRendersCleanDiff(t *testing.T) {
 	}
 
 	got := tracker.DiffSummary("")
-	if !strings.Contains(got, "<b>Diff</b>") || !strings.Contains(got, "+new") {
+	if !strings.Contains(got, "<b>差异</b>") || !strings.Contains(got, "+new") {
 		t.Fatalf("diff summary not captured:\n%s", got)
 	}
 }
@@ -112,7 +112,7 @@ func TestTaskTrackerDoneReplyShowsResultOnly(t *testing.T) {
 	if !strings.Contains(done, "tests passed") {
 		t.Fatalf("done reply missing result:\n%s", done)
 	}
-	if strings.Contains(done, "Done") || strings.Contains(done, "run tests") || strings.Contains(done, "Steps:") {
+	if strings.Contains(done, "Done") || strings.Contains(done, "run tests") || strings.Contains(done, "步骤:") {
 		t.Fatalf("done reply should not repeat status, user message, or counts:\n%s", done)
 	}
 }
@@ -159,15 +159,15 @@ func TestStatusAndLastHaveDistinctScopes(t *testing.T) {
 	})
 
 	status := tracker.Status()
-	if !strings.Contains(status, "<b>Status</b>") || !strings.Contains(status, "Task: update docs") {
+	if !strings.Contains(status, "<b>状态</b>") || !strings.Contains(status, "任务: update docs") {
 		t.Fatalf("status missing concise fields:\n%s", status)
 	}
-	if strings.Contains(status, "Result") || strings.Contains(status, "tests passed") || strings.Contains(status, "<b>Tools</b>") {
+	if strings.Contains(status, "结果") || strings.Contains(status, "tests passed") || strings.Contains(status, "<b>工具</b>") {
 		t.Fatalf("status should not include last-result details:\n%s", status)
 	}
 
 	last := tracker.LastSummary()
-	if !strings.Contains(last, "<b>Done</b>") || !strings.Contains(last, "Result") || !strings.Contains(last, "tests passed") {
+	if !strings.Contains(last, "<b>完成</b>") || !strings.Contains(last, "结果") || !strings.Contains(last, "tests passed") {
 		t.Fatalf("last should include latest result details:\n%s", last)
 	}
 }
@@ -186,7 +186,7 @@ func TestTaskTrackerApprovalMessage(t *testing.T) {
 			Kind: "permission",
 		},
 	})
-	if !strings.Contains(msg, "<b>Approval</b>") || strings.Contains(msg, "/approve") || !strings.Contains(msg, "<pre>go test ./...</pre>") {
+	if !strings.Contains(msg, "<b>需要审批</b>") || strings.Contains(msg, "/approve") || !strings.Contains(msg, "<pre>go test ./...</pre>") {
 		t.Fatalf("approval message missing fields:\n%s", msg)
 	}
 }
@@ -252,5 +252,38 @@ func TestTaskTrackerBuildQuestionOptionReply(t *testing.T) {
 	got := reply.Answers[0][0]
 	if id != "q_1" || got != "No" {
 		t.Fatalf("reply id=%q answer=%q answers=%#v", id, got, reply.Answers)
+	}
+}
+
+func TestBuildQuestionMultiOptionReply(t *testing.T) {
+	tracker := NewTracker()
+	view := controlruntime.QuestionView{
+		ID: "q_multi",
+		Questions: []controlruntime.QuestionItem{{
+			Multiple: true,
+			Options: []controlruntime.QuestionOption{
+				{Label: "A"}, {Label: "B"}, {Label: "C"},
+			},
+		}},
+	}
+	tracker.RenderEvent(controlruntime.Event{Type: controlruntime.EventQuestionRequested, Payload: view})
+
+	reply, id, err := tracker.BuildQuestionMultiOptionReply("q_multi", []int{2, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "q_multi" {
+		t.Fatalf("id = %q", id)
+	}
+	// Labels come back in option order, not click order.
+	if len(reply.Answers) != 1 || len(reply.Answers[0]) != 2 || reply.Answers[0][0] != "A" || reply.Answers[0][1] != "C" {
+		t.Fatalf("answers = %#v, want [[A C]]", reply.Answers)
+	}
+
+	if _, _, err := tracker.BuildQuestionMultiOptionReply("q_multi", nil); err == nil {
+		t.Fatal("empty selection should error")
+	}
+	if _, _, err := tracker.BuildQuestionMultiOptionReply("q_missing", []int{0}); err == nil {
+		t.Fatal("unknown question should error")
 	}
 }

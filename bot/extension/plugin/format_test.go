@@ -18,7 +18,7 @@ func TestFormatInstallPreview(t *testing.T) {
 		HasInstallStub: true,
 	}
 
-	out := FormatInstallPreview(p)
+	out := formatInstallPreview(p)
 	for _, want := range []string{"demo-plugin", "v1.2.3", "demo description", "Skills: 1", "Agents: 1", "[!] install.sh detected"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("preview = %q, missing %q", out, want)
@@ -37,7 +37,7 @@ func TestFormatInstallResult(t *testing.T) {
 		HasInstallStub: true,
 	}
 
-	out := FormatInstallResult(p)
+	out := formatInstallResult(p)
 	for _, want := range []string{"Installed plugin", "demo-plugin", "install.sh", "Skills: 1"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("result = %q, missing %q", out, want)

@@ -49,17 +49,17 @@ type Manifest struct {
 }
 
 // ParseManifest reads .claude-plugin/plugin.json from a plugin directory.
-func ParseManifest(pluginDir string) (*Manifest, error) {
+func parseManifest(pluginDir string) (*Manifest, error) {
 	path := filepath.Join(pluginDir, ".claude-plugin", "plugin.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
-	return ParseManifestData(data)
+	return parseManifestData(data)
 }
 
 // ParseManifestData parses manifest JSON from raw bytes.
-func ParseManifestData(data []byte) (*Manifest, error) {
+func parseManifestData(data []byte) (*Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
@@ -71,7 +71,7 @@ func ParseManifestData(data []byte) (*Manifest, error) {
 }
 
 // HasManifest checks if a directory contains .claude-plugin/plugin.json.
-func HasManifest(dir string) bool {
+func hasManifest(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, ".claude-plugin", "plugin.json"))
 	return err == nil
 }

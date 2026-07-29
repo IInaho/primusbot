@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"nekocode/bot/agent/llmstream"
-	"nekocode/bot/agent/runtime/model"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/tools/runtime/core"
@@ -12,7 +11,7 @@ import (
 
 func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), phase func(string)) ([]core.ToolCallItem, string, error) {
 	toolDefs := e.filteredToolDefs(allowed)
-	result, err := model.CallLLMWithRetry(ctx, e.llmClient, func() llmstream.LLMCallOptions {
+	result, err := llmstream.CallLLMWithRetry(ctx, e.llmClient, func() llmstream.LLMCallOptions {
 		return llmstream.LLMCallOptions{
 			Ctx:      ctx,
 			Messages: mgr.Build(),

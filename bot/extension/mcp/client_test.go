@@ -15,7 +15,7 @@ import (
 
 // startMockMCP builds and starts a minimal MCP server that responds to
 // initialize, tools/list, and tools/call JSON-RPC methods.
-func startMockMCP(t *testing.T, tools []ToolDef) (*exec.Cmd, func()) {
+func startMockMCP(t *testing.T, tools []toolDef) (*exec.Cmd, func()) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -102,11 +102,11 @@ func main() {
 }
 
 func TestClientInitialize(t *testing.T) {
-	mockTools := []ToolDef{
+	mockTools := []toolDef{
 		{
 			Name:        "mock-tool",
 			Description: "A mock tool",
-			InputSchema: InputSchema{
+			InputSchema: inputSchema{
 				Type: "object",
 				Properties: map[string]types.Property{
 					"input": {Type: "string", Description: "input param"},
@@ -121,9 +121,9 @@ func TestClientInitialize(t *testing.T) {
 	stdout, _ := cmd.StdoutPipe()
 	cmd.Start()
 
-	c := &Client{
-		Name:   "test-mcp",
-		Config: ServerConfig{Command: cmd.Path},
+	c := &client{
+		name:   "test-mcp",
+		config: ServerConfig{Command: cmd.Path},
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: bufio.NewReader(stdout),
@@ -156,13 +156,13 @@ func TestClientInitialize(t *testing.T) {
 }
 
 func TestClientStartStop(t *testing.T) {
-	mockTools := []ToolDef{
-		{Name: "test", Description: "test tool", InputSchema: InputSchema{Type: "object"}},
+	mockTools := []toolDef{
+		{Name: "test", Description: "test tool", InputSchema: inputSchema{Type: "object"}},
 	}
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	c := NewClient("test", ServerConfig{Command: cmd.Path})
+	c := newClient("test", ServerConfig{Command: cmd.Path})
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -187,13 +187,13 @@ func TestClientStartStop(t *testing.T) {
 }
 
 func TestClientDoubleStart(t *testing.T) {
-	mockTools := []ToolDef{
-		{Name: "test", Description: "test", InputSchema: InputSchema{Type: "object"}},
+	mockTools := []toolDef{
+		{Name: "test", Description: "test", InputSchema: inputSchema{Type: "object"}},
 	}
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	c := NewClient("test", ServerConfig{Command: cmd.Path})
+	c := newClient("test", ServerConfig{Command: cmd.Path})
 	if err := c.Start(); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestClientDoubleStart(t *testing.T) {
 }
 
 func TestClientCallToolNotStarted(t *testing.T) {
-	c := NewClient("offline", ServerConfig{Command: "/nonexistent"})
+	c := newClient("offline", ServerConfig{Command: "/nonexistent"})
 	_, err := c.CallTool("test", nil)
 	if err == nil {
 		t.Error("should fail when server cannot start")
@@ -265,7 +265,7 @@ func main() {
 		t.Fatalf("build mock server: %v\n%s", err, out)
 	}
 
-	c := NewClient("hang-list", ServerConfig{Command: outPath})
+	c := newClient("hang-list", ServerConfig{Command: outPath})
 	c.requestTimeout = 50 * time.Millisecond
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)

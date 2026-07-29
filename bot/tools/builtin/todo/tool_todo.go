@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"nekocode/bot/todo"
 	"nekocode/bot/tools/runtime/core"
+	commonview "nekocode/common/view"
 	"strings"
 	"sync"
 
@@ -15,11 +15,11 @@ import (
 type TodoWriteTool struct {
 	toolhelpers.SequentialSafeTool
 	mu       sync.Mutex
-	onUpdate todo.Func
-	items    []todo.Item
+	onUpdate commonview.TodoFunc
+	items    []commonview.TodoItem
 }
 
-func (t *TodoWriteTool) SetUpdateFn(fn todo.Func) {
+func (t *TodoWriteTool) SetUpdateFn(fn commonview.TodoFunc) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onUpdate = fn
@@ -37,7 +37,7 @@ func (t *TodoWriteTool) Parameters() []core.Parameter {
 }
 
 func (t *TodoWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	var items []todo.Item
+	var items []commonview.TodoItem
 	switch v := args["todos"].(type) {
 	case string:
 		if v == "" {
@@ -66,9 +66,9 @@ func (t *TodoWriteTool) Execute(ctx context.Context, args map[string]any) (strin
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Task list updated (%d items):\n", len(items))
-	done := todo.CountCompleted(items)
+	done := commonview.CountCompleted(items)
 	for i, it := range items {
-		fmt.Fprintf(&b, "%d. %s %s\n", i+1, todo.StatusIcon(it.Status), it.Content)
+		fmt.Fprintf(&b, "%d. %s %s\n", i+1, commonview.TodoStatusIcon(it.Status), it.Content)
 	}
 	if done == len(items) {
 		fmt.Fprintf(&b, "All %d tasks complete.", done)

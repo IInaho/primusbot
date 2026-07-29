@@ -10,43 +10,31 @@ import (
 	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/memory"
-	"nekocode/bot/hooks"
-	"nekocode/bot/hooks/builtin"
+	"nekocode/bot/policy"
+	"nekocode/bot/policy/builtin"
 	systemprompt "nekocode/bot/prompt/system"
 	"nekocode/bot/provider"
-	"nekocode/bot/todo"
-	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
-	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/workspace"
 	"nekocode/bot/view"
+	commonview "nekocode/common/view"
 )
 
 type Bot struct {
-	botCore
-	botRuntime
-	ext       *extensionFacade
-	cb        *callbackBus
-	subWiring *subagentWiring
-	sess      *sessionFacade
-	mu        sync.Mutex
-}
-
-type botCore struct {
-	cfg           *config.Config
-	ctxMgr        *ctxmgr.Manager
-	cmdParser     *command.Parser
-	skillState    *command.SkillState
-	promptBuilder *systemprompt.Builder
 	cwd           string
-}
-
-type botRuntime struct {
-	ag           *runtime.Agent
-	toolRegistry *tools.Registry
-	shellTool    *shell.ShellTool
-	hookReg      *hooks.Registry
+	cfg           *config.Config
+	promptBuilder *systemprompt.Builder
+	ctxMgr        *ctxmgr.Manager
+	hookReg       *policy.Registry
+	ag            *runtime.Agent
+	toolbox       *catalog.Toolbox
+	cmd           *command.Handler
+	ext           *extensionFacade
+	cb            *callbackBus
+	subWiring     *subagentWiring
+	sess          *sessionFacade
+	mu            sync.Mutex
 }
 
 func New() *Bot {
@@ -55,12 +43,18 @@ func New() *Bot {
 
 	b.initConfig()
 	b.initCtxMgr()
-	b.cmdParser = command.NewParser()
-	b.skillState = &command.SkillState{MsgStart: -1}
 	b.initSession()
 	b.reinit()
 
 	return b
+}
+
+// Close releases lifecycle resources held by the bot (currently the
+// stateful shell tool inside the toolbox).
+func (b *Bot) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.toolbox.Shutdown()
 }
 
 func (b *Bot) initConfig() {
@@ -79,14 +73,20 @@ func (b *Bot) initCtxMgr() {
 
 // reinit rebuilds the runtime facades, agent, summarizer, and commands.
 // Called from New() for initial setup and from ApplyConfig() for hot reload.
+//
+// 步骤顺序由隐式依赖决定（见各步注释），调整前先确认依赖方。
 func (b *Bot) reinit() {
+	// 1. 工具环境最先：ext/subWiring 构造要拿 Registry，initAgent 的
+	//    AgentConfig.Registry 也是它。
 	b.initToolRegistry()
+	// 2. 钩子注册表其次：ext 构造和 initAgent 的 AgentConfig.HookReg 都消费它。
 	b.initHooks()
 	if b.cb == nil {
 		b.cb = &callbackBus{}
 	}
 	// Inject the declarative permission policy (from config) and workspace/home
 	// so the rule engine can resolve path anchors. cfg may be nil if Load failed.
+	// 必须在 initAgent 之前：applyCallbacks 把 policy/confirm 灌进 executor。
 	b.cb.cwd = b.cwd
 	b.cb.home, _ = os.UserHomeDir()
 	if b.cfg != nil {
@@ -100,13 +100,22 @@ func (b *Bot) reinit() {
 	if b.ctxMgr != nil && b.cfg != nil && b.cfg.ContextWindow > 0 {
 		b.ctxMgr.SetContextWindow(b.cfg.ContextWindow)
 	}
-	b.ext = newExtensionFacade(b.ctxMgr, b.toolRegistry, b.hookReg, b.cfg.ContextWindow)
-	b.subWiring = newSubagentWiring(b.toolRegistry, b.ctxMgr, b.cwd, b.cfg.ContextWindow)
+	// 3. 扩展与子代理门面：依赖 toolbox.Registry 和 hookReg（第 1、2 步）。
+	b.ext = newExtensionFacade(b.ctxMgr, b.toolbox.Registry, b.hookReg, b.cfg.ContextWindow)
+	b.subWiring = newSubagentWiring(b.toolbox.Registry, b.ctxMgr, b.cwd, b.cfg.ContextWindow)
+	// 4. 扩展初始化：向 Registry 注册插件/MCP 工具、加载技能；
+	//    先于 initCommands（$skill 命令来自 ext.skills）。
 	b.ext.InitPlugins()
 	b.ext.InitConfigMCPServers(b.cfg.MCPServers)
 	b.ext.InitSkills()
+	// 5. Agent：依赖第 1-3 步的全部产物；applyCallbacks 还会向 Registry
+	//    里的 question 工具写回调。同时把 merge client 写进 ctxMgr。
 	b.initAgent()
+	// 6. Summarizer 在 agent 之后：它读 ctxMgr.MergeClient()，
+	//    而 merge client 是 initAgent 刚设置的。
 	b.initSummarizer()
+	// 7. 命令最后：Deps 同时引用 agent（/plan）、ext.skills（$skill）、
+	//    ctxMgr 与 Registry。
 	b.initCommands()
 }
 
@@ -132,23 +141,15 @@ func (b *Bot) initSummarizer() {
 }
 
 func (b *Bot) initToolRegistry() {
-	existingShell := b.shellTool
-	b.toolRegistry = tools.NewRegistry()
-	catalog.RegisterAll(b.toolRegistry, b.cfg.ImageGenModels)
-	if existingShell != nil {
-		b.toolRegistry.Register(existingShell)
-		b.shellTool = existingShell
+	if b.toolbox == nil {
+		b.toolbox = catalog.NewToolbox(b.cfg.ImageGenModels)
 		return
 	}
-	if t, err := b.toolRegistry.Get("shell"); err == nil {
-		if sh, ok := t.(*shell.ShellTool); ok {
-			b.shellTool = sh
-		}
-	}
+	b.toolbox.RebuildRegistry(b.cfg.ImageGenModels)
 }
 
 func (b *Bot) initHooks() {
-	b.hookReg = hooks.NewRegistry()
+	b.hookReg = policy.NewRegistry()
 	if b.sess != nil {
 		b.hookReg.SetSessionID(b.sess.CurrentID())
 	}
@@ -165,29 +166,31 @@ func (b *Bot) initAgent() {
 	mergeClient.SetMaxTokens(2000)
 	b.ctxMgr.SetMergeClient(mergeClient)
 
-	b.ag = runtime.New(context.Background(), b.ctxMgr, llmClient, b.toolRegistry)
-	b.ag.SetHookRegistry(b.hookReg)
+	b.ag = runtime.New(context.Background(), runtime.AgentConfig{
+		CtxMgr:   b.ctxMgr,
+		LLM:      llmClient,
+		Registry: b.toolbox.Registry,
+		HookReg:  b.hookReg,
+		TodoWriter: func(items []commonview.TodoItem) {
+			b.ctxMgr.SetTodos(items)
+			b.cb.todoWriter()(todoItemsToView(items))
+		},
+	})
 	b.applyCallbacks()
 
 	// Inject the permission engine into the shell tool so builtin sandbox
 	// rules (e.g. pnpm dev → network) are applied.
-	if b.shellTool != nil {
-		b.shellTool.SetSandboxProfiler(b.ag.SandboxProfiler())
-	}
+	b.toolbox.SetSandboxProfiler(b.ag.SandboxProfiler())
 
 	b.subWiring.WireTaskTool(fm, b.ag)
 }
 
 func (b *Bot) applyCallbacks() {
 	b.cb.applyAgentControlCallbacksTo(b.ag)
-	b.ag.WireTodoWrite(func(items []todo.Item) {
-		b.ctxMgr.SetTodos(items)
-		b.cb.todoWriter()(todoItemsToView(items))
-	})
 	b.setQuestionFunc(b.cb.questionFn)
 }
 
-func todoItemsToView(items []todo.Item) []view.TodoItem {
+func todoItemsToView(items []commonview.TodoItem) []view.TodoItem {
 	out := make([]view.TodoItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, view.TodoItem{Content: item.Content, Status: item.Status})
@@ -196,10 +199,10 @@ func todoItemsToView(items []todo.Item) []view.TodoItem {
 }
 
 func (b *Bot) setQuestionFunc(fn view.QuestionFunc) {
-	if fn == nil || b.toolRegistry == nil {
+	if fn == nil || b.toolbox.Registry == nil {
 		return
 	}
-	t, err := b.toolRegistry.Get("question")
+	t, err := b.toolbox.Registry.Get("question")
 	if err != nil {
 		return
 	}
@@ -210,20 +213,22 @@ func (b *Bot) setQuestionFunc(fn view.QuestionFunc) {
 
 func (b *Bot) initCommands() {
 	skills := skillCommandProvider{manager: b.ext.skills}
-	command.RegisterAll(b.cmdParser, command.Deps{
-		CtxMgr:        b.ctxMgr,
-		Ag:            func() command.PlanModeController { return b.getAgent() },
-		Skills:        skills,
-		ToolRegistry:  b.toolRegistry,
-		ContextWindow: b.cfg.ContextWindow,
-		GetConfigFn:   b.ProviderModel,
-		ListModelsFn:  b.cfg.AllModelNames,
-		FreshStart: func() (string, error) {
-			return command.ForceFreshStart(b.ctxMgr, skills, b.hookReg)
-		},
-		SwitchModel: b.SwitchModel,
-	}, b.skillState)
+	deps := command.Deps{
+		CtxMgr:       b.ctxMgr,
+		Ag:           func() command.PlanModeController { return b.getAgent().Executor() },
+		Skills:       skills,
+		ToolRegistry: b.toolbox.Registry,
+		HookReg:      b.hookReg,
+		GetConfigFn:  b.ProviderModel,
+		ListModelsFn: b.cfg.AllModelNames,
+		SwitchModel:  b.SwitchModel,
+	}
+	if b.cmd == nil {
+		b.cmd = command.NewHandler(deps)
+	} else {
+		b.cmd.RegisterAll(deps)
+	}
 
-	b.ext.RegisterPluginCommands(b.cmdParser, b.cb.InstallCallbacks())
-	b.sess.RegisterCommands(b.cmdParser)
+	b.ext.RegisterPluginCommands(b.cmd.Parser(), b.cb.InstallCallbacks())
+	b.sess.RegisterCommands(b.cmd.Parser())
 }

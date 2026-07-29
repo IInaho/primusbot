@@ -9,11 +9,11 @@ import (
 )
 
 func TestMCPToolAdapter(t *testing.T) {
-	mockTools := []ToolDef{
+	mockTools := []toolDef{
 		{
 			Name:        "search-files",
 			Description: "Search for files matching a pattern",
-			InputSchema: InputSchema{
+			InputSchema: inputSchema{
 				Type: "object",
 				Properties: map[string]types.Property{
 					"pattern": {Type: "string", Description: "Glob pattern to match"},
@@ -26,7 +26,7 @@ func TestMCPToolAdapter(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	c := NewClient("search-mcp", ServerConfig{Command: cmd.Path})
+	c := newClient("search-mcp", ServerConfig{Command: cmd.Path})
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestMCPToolAdapter(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 
-	mt := NewMCPTool(c, tools[0])
+	mt := newMCPTool(c, tools[0])
 
 	if !strings.HasPrefix(mt.Name(), "search-mcp__") {
 		t.Errorf("Name = %q, should have prefix search-mcp__", mt.Name())
@@ -63,8 +63,8 @@ func TestMCPToolAdapter(t *testing.T) {
 }
 
 func TestMCPToolExecute(t *testing.T) {
-	mockTools := []ToolDef{
-		{Name: "echo", Description: "Echo back", InputSchema: InputSchema{
+	mockTools := []toolDef{
+		{Name: "echo", Description: "Echo back", InputSchema: inputSchema{
 			Type:       "object",
 			Properties: map[string]types.Property{"msg": {Type: "string"}},
 		}},
@@ -72,14 +72,14 @@ func TestMCPToolExecute(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	c := NewClient("echo-mcp", ServerConfig{Command: cmd.Path})
+	c := newClient("echo-mcp", ServerConfig{Command: cmd.Path})
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer c.Close()
 
 	tools, _ := c.ListTools()
-	mt := NewMCPTool(c, tools[0])
+	mt := newMCPTool(c, tools[0])
 
 	result, err := mt.Execute(context.Background(), map[string]any{"msg": "hello"})
 	if err != nil {

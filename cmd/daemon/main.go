@@ -23,7 +23,7 @@ func main() {
 	token := flag.String("token", os.Getenv("NEKOCODE_DAEMON_TOKEN"), "optional bearer token for HTTP API")
 	flag.Parse()
 
-	rt := defaultbot.NewSessionRuntimeWithTelegram()
+	rt := defaultbot.NewSessionRuntimeWithConnectors()
 	defer rt.Close()
 
 	handler := httpapi.New(rt).Handler()

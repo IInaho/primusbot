@@ -52,7 +52,7 @@ func classifyBash(args map[string]any) Semantics {
 	scan := parseShell(cmd)
 	lower := strings.ToLower(cmd)
 	sem := Semantics{}
-	if BashLooksExploratory(cmd) {
+	if bashLooksExploratory(cmd) {
 		sem.Exploratory = true
 		sem.SourceProducing = true
 	}
@@ -69,7 +69,7 @@ func classifyBash(args map[string]any) Semantics {
 	return sem
 }
 
-func BashLooksExploratory(cmd string) bool {
+func bashLooksExploratory(cmd string) bool {
 	scan := parseShell(cmd)
 	if scan.OK {
 		return slices.ContainsFunc(scan.Calls, callLooksExploratory)

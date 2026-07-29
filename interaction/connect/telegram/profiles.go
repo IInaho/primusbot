@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"nekocode/interaction/connect/core"
 )
 
 func (c *Connector) connectActive(ctx context.Context) (string, error) {
@@ -61,12 +63,12 @@ func (c *Connector) pairProfile(ctx context.Context, args []string) (string, err
 		}
 		profile.BotUsername = me.Username
 	}
-	nonce, err := newPairingNonce()
+	nonce, err := core.NewNonce(18)
 	if err != nil {
 		return "", err
 	}
-	profile.PairingNonce = nonce
-	profile.PairingExpires = time.Now().Add(pairingTTL).Unix()
+	profile.Nonce = nonce
+	profile.Expires = time.Now().Add(pairingTTL).Unix()
 	if err := saveConfig(cfg); err != nil {
 		return "", err
 	}
@@ -157,9 +159,7 @@ func (c *Connector) profileReport(withStatus bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c.mu.Lock()
-	running := c.running
-	c.mu.Unlock()
+	running := c.base.IsRunning()
 	if len(cfg.Profiles) == 0 {
 		if withStatus {
 			return "Telegram is not configured.\n\n" + setupInstructions(), nil
@@ -186,9 +186,9 @@ func (c *Connector) useProfile(ctx context.Context, args []string) (string, erro
 		return "", fmt.Errorf("telegram profile %q not found", name)
 	}
 	c.mu.Lock()
-	wasRunning := c.running
 	active := c.active
 	c.mu.Unlock()
+	wasRunning := c.base.IsRunning()
 	if wasRunning && active != "" && active != cfg.Profiles[idx].Name {
 		if err := c.Stop(); err != nil {
 			return "", err
@@ -222,8 +222,8 @@ func (c *Connector) unpairProfile(args []string) (string, error) {
 		return "", fmt.Errorf("telegram profile %q not found", name)
 	}
 	cfg.Profiles[idx].Owner = nil
-	cfg.Profiles[idx].PairingNonce = ""
-	cfg.Profiles[idx].PairingExpires = 0
+	cfg.Profiles[idx].Nonce = ""
+	cfg.Profiles[idx].Expires = 0
 	if err := saveConfig(cfg); err != nil {
 		return "", err
 	}
@@ -245,9 +245,7 @@ func (c *Connector) removeProfile(args []string) (string, error) {
 	}
 	removed := cfg.Profiles[idx]
 	if cfg.ActiveProfile == removed.Name {
-		c.mu.Lock()
-		wasRunning := c.running
-		c.mu.Unlock()
+		wasRunning := c.base.IsRunning()
 		if wasRunning {
 			if err := c.Stop(); err != nil {
 				return "", err
@@ -268,9 +266,7 @@ func (c *Connector) removeProfile(args []string) (string, error) {
 }
 
 func (c *Connector) resetConfig() (string, error) {
-	c.mu.Lock()
-	wasRunning := c.running
-	c.mu.Unlock()
+	wasRunning := c.base.IsRunning()
 	if wasRunning {
 		if err := c.Stop(); err != nil {
 			return "", err

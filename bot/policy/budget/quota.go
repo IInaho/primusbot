@@ -39,15 +39,8 @@ func (q *ToolQuota) consume() error {
 	return nil
 }
 
-// ConsumeTool routes by tool name. Returns error if quota exhausted.
-// Only consumes quota for information-gathering tools.
-func (q *ToolQuota) ConsumeTool(toolName string) error {
-	if semantics.ClassifyToolCall(toolName, nil).Exploratory {
-		return q.consume()
-	}
-	return nil
-}
-
+// ConsumeCall charges one quota slot when the call is exploratory.
+// Returns error if quota exhausted.
 func (q *ToolQuota) ConsumeCall(toolName string, args map[string]any) error {
 	sem := semantics.ClassifyToolCall(toolName, args)
 	if sem.Exploratory {
