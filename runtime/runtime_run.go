@@ -229,7 +229,11 @@ func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input strin
 	}
 	if r.sessions != nil {
 		nextSessionID := r.sessions.CurrentSessionID()
-		if sessionID != nextSessionID {
+		// Only announce a real switch to another non-empty session (e.g.
+		// /sessions <id>). Commands like /model leave the session empty via
+		// saveSession's no-message cleanup; announcing that would wipe the
+		// command's own system output from the UI.
+		if nextSessionID != "" && nextSessionID != sessionID {
 			host.lease.emit(func() {
 				r.events.Publish(Event{
 					RunID: runID, Type: EventSessionChanged, Source: SourceRef{Kind: "bot"},

@@ -35,6 +35,46 @@ func TestManagerPublishesSessionChangeFromServiceState(t *testing.T) {
 	}
 }
 
+// TestManagerSessionClearanceDoesNotPublishSessionChange guards against a
+// regression where a plain command (e.g. /model) cleared the empty session ID
+// via saveSession's no-message cleanup, which used to be announced as a
+// session_changed event and wiped the command's own system output from the UI.
+func TestManagerSessionClearanceDoesNotPublishSessionChange(t *testing.T) {
+	runner := &sessionCommandRunner{current: "session_1"}
+	runner.command = func(string, RunHost) CommandResult {
+		runner.current = "" // simulate saveSession clearing an empty session
+		return CommandResult{Action: CommandHandled, Output: "handled"}
+	}
+	rt := New(runner)
+
+	runID, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"},
+		Text:   "/model deepseek",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+	events := rt.events.History(EventFilter{
+		RunID: runID,
+		Types: []EventType{EventSessionChanged},
+	})
+	if len(events) != 0 {
+		t.Fatalf("session_changed events = %d, want 0 (empty session clearance must not be announced)", len(events))
+	}
+	// The command's system output must still be published.
+	var sawOutput bool
+	for _, ev := range rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventSystemMessage}}) {
+		p, ok := ev.Payload.(MessagePayload)
+		if ok && p.Content == "handled" {
+			sawOutput = true
+		}
+	}
+	if !sawOutput {
+		t.Fatal("command system output missing after session clearance")
+	}
+}
+
 func TestManagerSessionMutationsPublishCurrentSession(t *testing.T) {
 	runner := &sessionCommandRunner{current: "session_1"}
 	rt := New(runner)
