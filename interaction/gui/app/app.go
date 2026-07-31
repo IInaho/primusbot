@@ -1,5 +1,5 @@
-// app.go — Wails App 桥接层: 将 bot.Bot 的核心能力暴露给前端。
-// 流式对话通过 Wails Events 推送，前端用 EventsOn 接收。
+// Package app adapts runtime.Manager to the Wails binding surface.
+// Runtime events are projected to Wails events consumed by the frontend.
 //
 // 事件协议 (Run-form):
 //
@@ -43,18 +43,36 @@ import (
 // App 是绑定到 Wails 前端的应用实例。
 type App struct {
 	ctx   context.Context
-	rt    runtimeBackend
+	rt    runtimeClient
 	mu    sync.Mutex
 	runs  int
 	ready atomic.Bool
 	start time.Time
 }
 
-type runtimeBackend interface {
-	controlruntime.Client
+type runtimeClient interface {
+	controlruntime.Interaction
+	CurrentModel() controlruntime.ModelSelection
+	SwitchModel(string) (controlruntime.ModelSelection, error)
+	ContextSnapshot() controlruntime.ContextSnapshot
+	MemoryView(controlruntime.MemoryScope) controlruntime.MemoryView
+	SkillManagementView() controlruntime.SkillManagementView
+	SelectSkill(string) error
+	ClearSelectedSkill() error
+	RefreshSkillManagement() (controlruntime.SkillManagementView, error)
+	SetPluginEnabled(string, bool) (controlruntime.SkillManagementView, error)
+	ConfigView() controlruntime.ConfigView
+	ApplyConfig(controlruntime.ConfigView) (controlruntime.ConfigView, error)
+	CurrentSessionID() string
+	ListSessions() []controlruntime.SessionMeta
+	SessionMessages() []controlruntime.DisplayMessage
+	ResumeSession(string) error
+	NewSession() (controlruntime.SessionMeta, error)
+	DeleteSession(string) error
+	Close() error
 }
 
-// NewApp 创建 App 实例，bot.Bot 在这里初始化以消除 startup/domReady 竞态。
+// NewApp creates the Wails adapter and its standard runtime.
 func NewApp() (*App, error) {
 	rt, err := standard.New()
 	if err != nil {
@@ -77,13 +95,15 @@ func (a *App) Startup(ctx context.Context) {
 // Shutdown 在窗口关闭时调用。
 func (a *App) Shutdown(_ context.Context) {
 	wailsruntime.LogInfo(a.ctx, "NekoCode GUI shutting down")
-	a.rt.Close()
+	if err := a.rt.Close(); err != nil {
+		wailsruntime.LogError(a.ctx, "runtime shutdown failed: "+err.Error())
+	}
 }
 
 // DomReady 在前端 DOM 就绪时调用。
 func (a *App) DomReady(_ context.Context) {
 	wailsruntime.LogInfo(a.ctx, "Frontend DOM ready")
-	events, err := a.rt.Subscribe(a.ctx, controlruntime.EventFilter{})
+	events, err := a.rt.Events(a.ctx, controlruntime.EventFilter{})
 	if err != nil {
 		wailsruntime.LogError(a.ctx, "runtime subscribe failed: "+err.Error())
 		return
@@ -174,8 +194,7 @@ func (a *App) SendMessage(input string) {
 	wailsruntime.EventsEmit(a.ctx, "agent:status", map[string]string{
 		"status": "thinking",
 	})
-	_, err := a.rt.Submit(a.ctx, controlruntime.Input{
-		Kind:   controlruntime.InputMessage,
+	_, err := a.rt.StartRun(a.ctx, controlruntime.Input{
 		Source: controlruntime.SourceRef{Kind: "gui"},
 		Text:   input,
 	})
@@ -192,6 +211,8 @@ func (a *App) SendMessage(input string) {
 
 func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 	switch ev.Type {
+	case controlruntime.EventRunStarted:
+		wailsruntime.EventsEmit(a.ctx, "agent:status", map[string]string{"status": "running"})
 	case controlruntime.EventAssistantDelta:
 		if p, ok := ev.Payload.(controlruntime.DeltaPayload); ok {
 			wailsruntime.EventsEmit(a.ctx, "agent:delta", map[string]any{
@@ -213,29 +234,46 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		}
 	case controlruntime.EventTodosUpdated:
 		wailsruntime.EventsEmit(a.ctx, "agent:todos", map[string]any{"items": ev.Payload})
+	case controlruntime.EventSessionChanged:
+		if p, ok := ev.Payload.(controlruntime.SessionPayload); ok {
+			wailsruntime.EventsEmit(a.ctx, "session:changed", map[string]any{
+				"id": p.ID, "messages": a.rt.SessionMessages(),
+			})
+		}
+	case controlruntime.EventMetricsUpdated:
+		if metrics, ok := ev.Payload.(controlruntime.MetricsSnapshot); ok {
+			wailsruntime.EventsEmit(a.ctx, "agent:metrics", map[string]any{
+				"prompt": metrics.TurnPrompt, "completion": metrics.TurnCompletion,
+				"cacheHit": 0, "cacheMiss": 0,
+				"elapsedMs":    time.Since(a.startTime()).Milliseconds(),
+				"compactCount": metrics.CompactCount,
+			})
+		}
 	case controlruntime.EventToolStarted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionToolStart, p)
+			a.dispatchToolEvent(ev.Type, p)
 		}
 	case controlruntime.EventToolBlocked:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionToolBlocked, p)
+			a.dispatchToolEvent(ev.Type, p)
 		}
 	case controlruntime.EventToolPreview:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionToolPreview, p)
+			a.dispatchToolEvent(ev.Type, p)
 		}
 	case controlruntime.EventToolCompleted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionExecuteTool, p)
+			a.dispatchToolEvent(ev.Type, p)
 		}
 	case controlruntime.EventSubAgentStarted:
-		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionSubAgentStart, p)
+		if p, ok := ev.Payload.(controlruntime.SubAgentPayload); ok {
+			wailsruntime.EventsEmit(a.ctx, "agent:subagent_start", map[string]any{
+				"id": p.ID, "subType": p.Type, "colorIdx": p.Color,
+			})
 		}
 	case controlruntime.EventSubAgentEnded:
-		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			a.dispatchStep(controlruntime.StepActionSubAgentEnd, p)
+		if p, ok := ev.Payload.(controlruntime.SubAgentPayload); ok {
+			wailsruntime.EventsEmit(a.ctx, "agent:subagent_end", map[string]any{"id": p.ID})
 		}
 	case controlruntime.EventApprovalRequested:
 		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
@@ -257,13 +295,13 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 			})
 		}
 	case controlruntime.EventRunDone:
-		payload, _ := ev.Payload.(controlruntime.DonePayload)
+		payload, _ := ev.Payload.(controlruntime.RunResult)
 		a.emitRunDone(payload.Output, "")
 	case controlruntime.EventRunFailed:
-		payload, _ := ev.Payload.(controlruntime.DonePayload)
+		payload, _ := ev.Payload.(controlruntime.RunResult)
 		a.emitRunDone(payload.Output, payload.Error)
-	case controlruntime.EventRunAborted:
-		a.emitRunDone("", "aborted")
+	case controlruntime.EventRunCancelled:
+		a.emitRunDone("", "cancelled")
 	case controlruntime.EventConnectorStatus:
 		if p, ok := ev.Payload.(controlruntime.ConnectorStatusPayload); ok {
 			wailsruntime.EventsEmit(a.ctx, "agent:step", map[string]string{
@@ -280,15 +318,6 @@ func (a *App) emitRunDone(output, errStr string) {
 		"id":    a.runNumber(),
 		"delta": "",
 		"done":  true,
-	})
-	stats := a.rt.Stats()
-	wailsruntime.EventsEmit(a.ctx, "agent:metrics", map[string]any{
-		"prompt":       stats.TurnPrompt,
-		"completion":   stats.TurnCompletion,
-		"cacheHit":     0,
-		"cacheMiss":    0,
-		"elapsedMs":    time.Since(a.startTime()).Milliseconds(),
-		"compactCount": stats.CompactCount,
 	})
 	wailsruntime.EventsEmit(a.ctx, "agent:done", map[string]string{
 		"output": output,
@@ -314,17 +343,19 @@ func (a *App) startTime() time.Time {
 	return a.start
 }
 
-func (a *App) dispatchStep(action controlruntime.StepAction, p controlruntime.ToolPayload) {
-	switch action {
-	case controlruntime.StepActionToolStart:
+func (a *App) dispatchToolEvent(eventType controlruntime.EventType, p controlruntime.ToolPayload) {
+	switch eventType {
+	case controlruntime.EventToolStarted:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_start", map[string]any{
-			"id":       toolEventID(p),
-			"toolName": p.ToolName,
-			"args":     p.Args,
-			"preview":  p.Preview,
-			"blocked":  false,
+			"id":            toolEventID(p),
+			"toolName":      p.ToolName,
+			"args":          p.Args,
+			"preview":       p.Preview,
+			"blocked":       false,
+			"subAgentId":    p.SubAgentID,
+			"subAgentColor": p.SubAgentColor,
 		})
-	case controlruntime.StepActionToolBlocked:
+	case controlruntime.EventToolBlocked:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_start", map[string]any{
 			"id":       toolEventID(p),
 			"toolName": p.ToolName,
@@ -333,35 +364,20 @@ func (a *App) dispatchStep(action controlruntime.StepAction, p controlruntime.To
 			"blocked":  true,
 			"reason":   p.Output,
 		})
-	case controlruntime.StepActionToolPreview:
+	case controlruntime.EventToolPreview:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_preview", map[string]any{
 			"toolName": p.ToolName,
 			"preview":  p.Preview,
 		})
-	case controlruntime.StepActionExecuteTool:
+	case controlruntime.EventToolCompleted:
 		wailsruntime.EventsEmit(a.ctx, "agent:tool_done", map[string]any{
-			"toolName": p.ToolName,
-			"args":     p.Args,
-			"output":   p.Output,
-			"isError":  p.IsError,
-			"id":       toolEventID(p),
-		})
-	case controlruntime.StepActionSubAgentStart:
-		wailsruntime.EventsEmit(a.ctx, "agent:subagent_start", map[string]any{
-			"id":       p.Args,
-			"subType":  p.ToolName,
-			"colorIdx": parseIntSafe(p.Output),
-		})
-	case controlruntime.StepActionSubAgentEnd:
-		wailsruntime.EventsEmit(a.ctx, "agent:subagent_end", map[string]any{
-			"id": p.Args,
-		})
-	default:
-		wailsruntime.EventsEmit(a.ctx, "agent:step", map[string]string{
-			"action":   string(action),
-			"toolName": p.ToolName,
-			"toolArgs": p.Args,
-			"output":   p.Output,
+			"toolName":      p.ToolName,
+			"args":          p.Args,
+			"output":        p.Output,
+			"isError":       p.IsError,
+			"id":            toolEventID(p),
+			"subAgentId":    p.SubAgentID,
+			"subAgentColor": p.SubAgentColor,
 		})
 	}
 }
@@ -375,46 +391,27 @@ func toolEventID(p controlruntime.ToolPayload) string {
 	return uuid.NewString()
 }
 
-func parseIntSafe(s string) int {
-	n := 0
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			break
-		}
-		n = n*10 + int(r-'0')
-	}
-	return n
-}
-
 func (a *App) Abort() {
-	_ = a.rt.Abort(a.ctx, "")
+	_ = a.rt.CancelRun(a.ctx, "")
 	wailsruntime.EventsEmit(a.ctx, "agent:status", map[string]string{
 		"status": "idle",
 	})
 }
 
-func (a *App) ProviderModel() string {
-	p, m := a.rt.ProviderModel()
-	if p == "" {
+func (a *App) CurrentModel() string {
+	selection := a.rt.CurrentModel()
+	if selection.Provider == "" {
 		return ""
 	}
-	return p + "|" + m
+	return selection.Provider + "|" + selection.Model
 }
 
 func (a *App) SwitchModel(name string) (string, error) {
-	model, provider, err := a.rt.SwitchModel(name)
+	selection, err := a.rt.SwitchModel(name)
 	if err != nil {
 		return "", err
 	}
-	return provider + "|" + model, nil
-}
-
-func (a *App) ContextStatus() string {
-	return a.rt.ContextStatus()
-}
-
-func (a *App) ContextReport() string {
-	return a.rt.ContextReport()
+	return selection.Provider + "|" + selection.Model, nil
 }
 
 func (a *App) ContextSnapshot() controlruntime.ContextSnapshot {
@@ -430,7 +427,7 @@ func (a *App) SelectSkill(name string) error {
 }
 
 func (a *App) ClearSelectedSkill() {
-	a.rt.ClearSelectedSkill()
+	_ = a.rt.ClearSelectedSkill()
 }
 
 func (a *App) GetConfig() controlruntime.ConfigView {
@@ -450,7 +447,8 @@ func (a *App) GetSkillManagement() controlruntime.SkillManagementView {
 }
 
 func (a *App) RefreshSkillManagement() controlruntime.SkillManagementView {
-	return a.rt.RefreshSkillManagement()
+	view, _ := a.rt.RefreshSkillManagement()
+	return view
 }
 
 func (a *App) SetPluginEnabled(name string, enabled bool) (controlruntime.SkillManagementView, error) {
@@ -506,22 +504,10 @@ func (a *App) ReadImageBase64(path string) (string, error) {
 
 	home, _ := os.UserHomeDir()
 	nekocodeDir := filepath.Join(home, ".nekocode")
-	cwd := a.rt.CWD()
-
-	allowed := func(dir, target string) bool {
-		rel, err := filepath.Rel(dir, target)
-		if err != nil {
-			return false
-		}
-		return !strings.Contains(rel, "..")
-	}
-
-	if !allowed(cwd, abs) && !allowed(nekocodeDir, abs) {
-		return "", fmt.Errorf("path outside allowed directories: %s", abs)
-	}
+	cwd := a.currentSessionCWD()
 
 	ext := strings.ToLower(filepath.Ext(abs))
-	mime := "image/jpeg"
+	var mime string
 	switch ext {
 	case ".png":
 		mime = "image/png"
@@ -539,7 +525,26 @@ func (a *App) ReadImageBase64(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
+
+	realPath, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve image target: %w", err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat image: %w", err)
+	}
+	realInfo, err := os.Stat(realPath)
+	if err != nil || !os.SameFile(info, realInfo) {
+		return "", fmt.Errorf("image target changed while opening: %s", abs)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("image is not a regular file: %s", abs)
+	}
+	if !pathWithin(cwd, realPath) && !pathWithin(nekocodeDir, realPath) {
+		return "", fmt.Errorf("path outside allowed directories: %s", abs)
+	}
 
 	data, err := io.ReadAll(io.LimitReader(f, 20<<20))
 	if err != nil {
@@ -548,6 +553,29 @@ func (a *App) ReadImageBase64(path string) (string, error) {
 
 	encoded := base64.StdEncoding.EncodeToString(data)
 	return fmt.Sprintf("data:%s;base64,%s", mime, encoded), nil
+}
+
+func pathWithin(dir, target string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(realDir, target)
+	return err == nil && rel != ".." && !filepath.IsAbs(rel) &&
+		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func (a *App) currentSessionCWD() string {
+	current := a.rt.CurrentSessionID()
+	for _, session := range a.rt.ListSessions() {
+		if session.ID == current {
+			return session.CWD
+		}
+	}
+	return ""
 }
 
 // ReplyConfirm 由前端调用，回复确认弹窗。
@@ -564,7 +592,7 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 // req.CanEscalatePermission 当作"用户已勾选授权"使用，导致 GUI 中用户点
 // "允许"按钮就静默授权了沙箱/主机升级，与 TUI 的两个独立按钮语义不一致。
 func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
-	_ = a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
+	_ = a.rt.DecideApproval(a.ctx, id, controlruntime.ApprovalDecision{
 		Allowed:  ok,
 		Remember: ok && remember,
 	})
@@ -575,7 +603,7 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 // 才会被采用；否则 withPermission 强制为 false（防止前端误用"允许并授权"
 // 按钮对不可升级的工具下放授权）。
 func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, withPermission bool) {
-	_ = a.rt.Approve(a.ctx, id, controlruntime.ApprovalDecision{
+	_ = a.rt.DecideApproval(a.ctx, id, controlruntime.ApprovalDecision{
 		Allowed:             ok,
 		Remember:            ok && remember,
 		AllowWithPermission: ok && withPermission,
@@ -588,5 +616,5 @@ func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 	if answersJSON != "" {
 		_ = json.Unmarshal([]byte(answersJSON), &answers)
 	}
-	_ = a.rt.Answer(a.ctx, id, controlruntime.QuestionReply{Answers: answers, Rejected: rejected})
+	_ = a.rt.AnswerQuestion(a.ctx, id, controlruntime.QuestionReply{Answers: answers, Rejected: rejected})
 }

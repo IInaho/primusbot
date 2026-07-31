@@ -19,85 +19,37 @@ type tickFakeBot struct {
 	submitted []string
 }
 
-func (b *tickFakeBot) Submit(_ context.Context, input controlruntime.Input) (controlruntime.RunID, error) {
+func (b *tickFakeBot) StartRun(_ context.Context, input controlruntime.Input) (controlruntime.RunID, error) {
 	b.mu.Lock()
 	b.submitted = append(b.submitted, input.Text)
 	b.mu.Unlock()
 	return "", nil
 }
-func (*tickFakeBot) Steer(context.Context, controlruntime.RunID, controlruntime.Input) error {
+func (*tickFakeBot) SteerRun(context.Context, controlruntime.RunID, controlruntime.Input) error {
 	return nil
 }
-func (*tickFakeBot) Abort(context.Context, controlruntime.RunID) error { return nil }
-func (*tickFakeBot) Publish(controlruntime.Event)                      {}
-func (*tickFakeBot) Approve(context.Context, string, controlruntime.ApprovalDecision) error {
+func (*tickFakeBot) CancelRun(context.Context, controlruntime.RunID) error { return nil }
+func (*tickFakeBot) DecideApproval(context.Context, string, controlruntime.ApprovalDecision) error {
 	return nil
 }
-func (*tickFakeBot) Answer(context.Context, string, controlruntime.QuestionReply) error { return nil }
-func (*tickFakeBot) Subscribe(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error) {
+func (*tickFakeBot) AnswerQuestion(context.Context, string, controlruntime.QuestionReply) error {
+	return nil
+}
+func (*tickFakeBot) Events(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error) {
 	return make(chan controlruntime.Event), nil
 }
-func (*tickFakeBot) Connect(context.Context, string, []string) (string, error) {
-	return "", nil
+func (*tickFakeBot) CommandCatalog() []string { return nil }
+func (*tickFakeBot) Close() error             { return nil }
+func (*tickFakeBot) CurrentModel() controlruntime.ModelSelection {
+	return controlruntime.ModelSelection{Provider: "test", Model: "test"}
 }
-func (*tickFakeBot) Disconnect(string) (string, error) {
-	return "", nil
+func (*tickFakeBot) SwitchModel(string) (controlruntime.ModelSelection, error) {
+	return controlruntime.ModelSelection{}, nil
 }
-func (*tickFakeBot) CurrentRunView() (controlruntime.RunView, bool) {
-	return controlruntime.RunView{}, false
-}
-func (*tickFakeBot) RunView(controlruntime.RunID) (controlruntime.RunView, bool) {
-	return controlruntime.RunView{}, false
-}
-func (*tickFakeBot) ListRunViews(int) []controlruntime.RunView {
-	return nil
-}
-func (*tickFakeBot) ArtifactView(controlruntime.RunID) (controlruntime.ArtifactView, bool) {
-	return controlruntime.ArtifactView{}, false
-}
-func (*tickFakeBot) ConnectView() controlruntime.ConnectView {
-	return controlruntime.ConnectView{}
-}
-func (*tickFakeBot) SkillHint() (string, bool) { return "", false }
-func (*tickFakeBot) Stats() controlruntime.BotStats {
-	return controlruntime.BotStats{}
-}
-func (*tickFakeBot) CommandNames() []string          { return nil }
-func (*tickFakeBot) Close()                          {}
-func (*tickFakeBot) ProviderModel() (string, string) { return "test", "test" }
-func (*tickFakeBot) SwitchModel(string) (string, string, error) {
-	return "", "", nil
-}
-func (*tickFakeBot) ContextStatus() string { return "" }
-func (*tickFakeBot) ContextReport() string { return "" }
-func (*tickFakeBot) ContextSnapshot() controlruntime.ContextSnapshot {
-	return controlruntime.ContextSnapshot{}
-}
-func (*tickFakeBot) MemoryView(controlruntime.MemoryScope) controlruntime.MemoryView {
-	return controlruntime.MemoryView{}
-}
-func (*tickFakeBot) SelectSkill(string) error { return nil }
-func (*tickFakeBot) ClearSelectedSkill()      {}
 func (*tickFakeBot) SessionMessages() []controlruntime.DisplayMessage {
 	return nil
 }
-func (*tickFakeBot) ConfigView() controlruntime.ConfigView { return controlruntime.ConfigView{} }
-func (*tickFakeBot) ApplyConfig(controlruntime.ConfigView) (controlruntime.ConfigView, error) {
-	return controlruntime.ConfigView{}, nil
-}
-func (*tickFakeBot) SkillManagementView() controlruntime.SkillManagementView {
-	return controlruntime.SkillManagementView{}
-}
-func (*tickFakeBot) RefreshSkillManagement() controlruntime.SkillManagementView {
-	return controlruntime.SkillManagementView{}
-}
-func (*tickFakeBot) SetPluginEnabled(string, bool) (controlruntime.SkillManagementView, error) {
-	return controlruntime.SkillManagementView{}, nil
-}
-func (*tickFakeBot) CWD() string                                { return "" }
-func (*tickFakeBot) ClearContext()                              {}
 func (*tickFakeBot) CurrentSessionID() string                   { return "" }
-func (*tickFakeBot) SetSession(string) error                    { return nil }
 func (*tickFakeBot) ResumeSession(string) error                 { return nil }
 func (*tickFakeBot) ListSessions() []controlruntime.SessionMeta { return nil }
 func (*tickFakeBot) NewSession() (controlruntime.SessionMeta, error) {
@@ -111,19 +63,22 @@ func (b *tickFakeBot) submittedInputs() []string {
 	return append([]string(nil), b.submitted...)
 }
 
-type blockingStatsBot struct {
+type blockingMetricsBot struct {
 	tickFakeBot
-	statsCalled chan struct{}
+	metricsCalled chan struct{}
 }
 
-func (b *blockingStatsBot) Stats() controlruntime.BotStats {
-	close(b.statsCalled)
+func (b *blockingMetricsBot) Metrics() controlruntime.MetricsSnapshot {
+	close(b.metricsCalled)
 	select {}
 }
 
 func TestSummarizeProcessingTickUpdatesView(t *testing.T) {
 	bot := &tickFakeBot{}
-	m := NewModel(bot)
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(*Model)
 
@@ -155,9 +110,12 @@ func TestSummarizeProcessingTickUpdatesView(t *testing.T) {
 	}
 }
 
-func TestSummarizeProcessingTickDoesNotReadStats(t *testing.T) {
-	bot := &blockingStatsBot{statsCalled: make(chan struct{})}
-	m := NewModel(bot)
+func TestSummarizeProcessingTickDoesNotReadMetrics(t *testing.T) {
+	bot := &blockingMetricsBot{metricsCalled: make(chan struct{})}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = model.(*Model)
 
@@ -177,8 +135,8 @@ func TestSummarizeProcessingTickDoesNotReadStats(t *testing.T) {
 	}
 
 	select {
-	case <-bot.statsCalled:
-		t.Fatal("summarize processing tick should not call Bot.Stats")
+	case <-bot.metricsCalled:
+		t.Fatal("summarize processing tick should not call runtime metrics")
 	default:
 	}
 }

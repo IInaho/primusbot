@@ -27,7 +27,7 @@ func NewToolbox(imageGen []config.ImageGenConfig) *Toolbox {
 // preserved.
 func (e *Toolbox) RebuildRegistry(imageGen []config.ImageGenConfig) {
 	existing := e.shell
-	e.Registry = tools.NewRegistry()
+	e.Registry = tools.New()
 	RegisterAll(e.Registry, imageGen)
 	if existing != nil {
 		e.Registry.Register(existing)

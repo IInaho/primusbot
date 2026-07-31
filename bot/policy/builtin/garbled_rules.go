@@ -8,7 +8,7 @@ import (
 
 func GarbledCircuitBreaker() policy.Hook {
 	return policy.Hook{
-		Name: "garbled_circuit_breaker", Point: policy.PostTurn,
+		Name: "garbled_circuit_breaker", Point: policy.Stop,
 		On: func(s policy.State) *policy.Result {
 			if s.Facts().Response.GarbledCount >= 5 {
 				stop := policy.StopFormatError

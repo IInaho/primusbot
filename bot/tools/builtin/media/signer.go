@@ -25,12 +25,6 @@ func NewSigner(accessKey, secretKey, region, service string) *Signer {
 	}
 }
 
-func NewSignerWithClock(accessKey, secretKey, region, service string, now func() time.Time) *Signer {
-	s := NewSigner(accessKey, secretKey, region, service)
-	s.now = now
-	return s
-}
-
 // SignResult holds the headers that must be set on the outgoing request.
 type SignResult struct {
 	Authorization  string

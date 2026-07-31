@@ -2,12 +2,16 @@ package subagent
 
 import (
 	_ "embed"
+	"fmt"
+	"os"
+
+	goyaml "gopkg.in/yaml.v3"
 
 	"nekocode/bot/policy"
 	"nekocode/bot/tools/runtime/execution"
-	"nekocode/bot/view"
+	"nekocode/protocol"
 	"nekocode/util/registry"
-	commonview "nekocode/common/view"
+	"nekocode/util/yaml"
 )
 
 //go:embed prompts/executor.md
@@ -27,7 +31,7 @@ type AgentType struct {
 
 // ToolCallEvent is fired for each tool executed inside a sub-agent.
 type ToolCallEvent struct {
-	Action   commonview.StepAction
+	Action   protocol.StepAction
 	CallID   string
 	ToolName string
 	ToolArgs string
@@ -43,7 +47,7 @@ type RunConfig struct {
 	ContextWindow int
 	OnPhase       func(phase string)
 	AddTokens     func(prompt, compl int)
-	ConfirmFn     view.ConfirmFunc
+	ConfirmFn     protocol.ConfirmFunc
 	Handoff       string                 // injected into system prompt for cross-agent context
 	OnToolCall    func(ev ToolCallEvent) // sub-agent tool execution callback
 	ToolState     *execution.ExecutionState
@@ -87,4 +91,41 @@ func Get(name string) (AgentType, bool) {
 		return a, ok
 	}
 	return plugins.Get(name)
+}
+
+// AgentDef is parsed from an agents/*.md file (Claude Code format).
+type AgentDef struct {
+	Name         string   `yaml:"name"`
+	Tools        []string `yaml:"tools"`
+	SystemPrompt string   // markdown body (after frontmatter)
+}
+
+// ParseAgentMD parses a single agents/*.md file.
+func ParseAgentMD(path string) (*AgentDef, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read agent file: %w", err)
+	}
+	yamlBytes, body, err := yaml.ParseYAMLFrontmatter(string(data))
+	if err != nil {
+		return nil, err
+	}
+	var def AgentDef
+	if err := goyaml.Unmarshal(yamlBytes, &def); err != nil {
+		return nil, fmt.Errorf("invalid frontmatter: %w", err)
+	}
+	if def.Name == "" {
+		return nil, fmt.Errorf("missing required field: name")
+	}
+	def.SystemPrompt = body
+	return &def, nil
+}
+
+// ToAgentType converts an AgentDef to AgentType for the subagent engine.
+func (d *AgentDef) ToAgentType() AgentType {
+	return AgentType{
+		Name:         d.Name,
+		SystemPrompt: d.SystemPrompt,
+		Tools:        d.Tools,
+	}
 }

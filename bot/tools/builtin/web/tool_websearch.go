@@ -7,19 +7,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"nekocode/bot/tools/runtime/toolhelpers"
-	"nekocode/bot/tools/runtime/toolutil"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
 	"nekocode/util/text"
 )
 
 type WebSearchTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 	client *http.Client
 }
 
@@ -41,7 +40,7 @@ func (t *WebSearchTool) Parameters() []core.Parameter {
 }
 
 func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	query, err := toolhelpers.RequireStringArg(args, "query")
+	query, err := toolutil.RequireStringArg(args, "query")
 	if err != nil {
 		return "", err
 	}
@@ -62,7 +61,7 @@ func exaEndpoint() string {
 }
 
 func (t *WebSearchTool) searchExa(ctx context.Context, query string, n int) (string, error) {
-	body, _ := json.Marshal(map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "tools/call",
@@ -77,8 +76,14 @@ func (t *WebSearchTool) searchExa(ctx context.Context, query string, n int) (str
 			},
 		},
 	})
+	if err != nil {
+		return "", fmt.Errorf("encode search request: %w", err)
+	}
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, exaEndpoint(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, exaEndpoint(), bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build search request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if k := os.Getenv("EXA_API_KEY"); k != "" {
@@ -89,7 +94,7 @@ func (t *WebSearchTool) searchExa(ctx context.Context, query string, n int) (str
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

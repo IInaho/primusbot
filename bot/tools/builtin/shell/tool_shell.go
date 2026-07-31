@@ -14,7 +14,7 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
 	"nekocode/bot/tools/runtime/sandbox"
-	"nekocode/bot/tools/runtime/toolhelpers"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 const (
@@ -133,7 +133,7 @@ func (t *ShellTool) run(ctx context.Context, args map[string]any, grant core.Per
 }
 
 func (t *ShellTool) start(ctx context.Context, args map[string]any, registry *TaskRegistry, grant core.PermissionRequest) (string, error) {
-	command, err := toolhelpers.RequireStringArg(args, "command")
+	command, err := toolutil.RequireStringArg(args, "command")
 	if err != nil {
 		return "", err
 	}

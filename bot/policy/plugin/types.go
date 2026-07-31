@@ -3,7 +3,7 @@ package plugin
 type Point string
 
 const (
-	PreTurn     Point = "pre_turn"
+	PreModel    Point = "pre_model"
 	PreToolUse  Point = "pre_tool_use"
 	PostToolUse Point = "post_tool_use"
 	UserSubmit  Point = "user_submit"

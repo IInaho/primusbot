@@ -25,13 +25,13 @@ func skipOnLandlockUnavailable(t *testing.T, err error) {
 
 func TestLandlockAvailable(t *testing.T) {
 	if !landlockAvailable() {
-		t.Skipf("Landlock not available: %s", landlockReasonUnavailable())
+		t.Skip("Landlock not available")
 	}
 }
 
 func TestRunLandlockBash_SimpleEcho(t *testing.T) {
 	if !landlockAvailable() {
-		t.Skipf("Landlock not available: %s", landlockReasonUnavailable())
+		t.Skip("Landlock not available")
 	}
 	ws := t.TempDir()
 	out, err := runLandlockBash(t.Context(), "echo hello", Profile{Workspace: ws}, 10*time.Second)
@@ -46,7 +46,7 @@ func TestRunLandlockBash_SimpleEcho(t *testing.T) {
 
 func TestRunLandlockBash_WriteProtection(t *testing.T) {
 	if !landlockAvailable() {
-		t.Skipf("Landlock not available: %s", landlockReasonUnavailable())
+		t.Skip("Landlock not available")
 	}
 	ws := t.TempDir()
 	denied := t.TempDir()
@@ -74,7 +74,7 @@ func TestRunLandlockBash_WriteProtection(t *testing.T) {
 
 func TestRunLandlockBash_Timeout(t *testing.T) {
 	if !landlockAvailable() {
-		t.Skipf("Landlock not available: %s", landlockReasonUnavailable())
+		t.Skip("Landlock not available")
 	}
 	ws := t.TempDir()
 	_, err := runLandlockBash(t.Context(), "sleep 30", Profile{Workspace: ws}, 2*time.Second)
@@ -91,7 +91,7 @@ func TestRunLandlockBash_Timeout(t *testing.T) {
 // backend is disabled, run falls back to the Landlock backend.
 func TestRun_FallbackToLandlock(t *testing.T) {
 	if !landlockAvailable() {
-		t.Skipf("Landlock not available: %s", landlockReasonUnavailable())
+		t.Skip("Landlock not available")
 	}
 	t.Setenv("NEKOCODE_DISABLE_NATIVE_SANDBOX", "1")
 	ws := t.TempDir()

@@ -27,12 +27,12 @@ func TestMCPToolAdapter(t *testing.T) {
 	defer cleanup()
 
 	c := newClient("search-mcp", ServerConfig{Command: cmd.Path})
-	if err := c.Start(); err != nil {
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer c.Close()
 
-	tools, err := c.ListTools()
+	tools, err := c.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
@@ -73,12 +73,12 @@ func TestMCPToolExecute(t *testing.T) {
 	defer cleanup()
 
 	c := newClient("echo-mcp", ServerConfig{Command: cmd.Path})
-	if err := c.Start(); err != nil {
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	defer c.Close()
 
-	tools, _ := c.ListTools()
+	tools, _ := c.ListTools(context.Background())
 	mt := newMCPTool(c, tools[0])
 
 	result, err := mt.Execute(context.Background(), map[string]any{"msg": "hello"})

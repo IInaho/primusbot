@@ -8,12 +8,11 @@ import (
 
 	"nekocode/bot/config"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type ImageGenTool struct {
-	toolhelpers.SequentialSafeTool
+	toolutil.SequentialSafeTool
 	client *http.Client
 	models []config.ImageGenConfig
 }
@@ -43,7 +42,7 @@ func (t *ImageGenTool) Parameters() []core.Parameter {
 }
 
 func (t *ImageGenTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	prompt, err := toolhelpers.RequireStringArg(args, "prompt")
+	prompt, err := toolutil.RequireStringArg(args, "prompt")
 	if err != nil {
 		return "", err
 	}

@@ -9,12 +9,11 @@ import (
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type TreeTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 }
 
 func (t *TreeTool) Name() string { return "tree" }
@@ -31,7 +30,7 @@ func (t *TreeTool) Parameters() []core.Parameter {
 }
 
 func (t *TreeTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path, err := toolhelpers.RequireStringArg(args, "path")
+	path, err := toolutil.RequireStringArg(args, "path")
 	if err != nil {
 		return "", err
 	}
@@ -40,8 +39,8 @@ func (t *TreeTool) Execute(ctx context.Context, args map[string]any) (string, er
 		return "", err
 	}
 
-	depth := toolhelpers.ClampIntArg(args, "depth", 3, 1, 6)
-	limit := toolhelpers.ClampIntArg(args, "limit", 400, 1, 800)
+	depth := toolutil.ClampIntArg(args, "depth", 3, 1, 6)
+	limit := toolutil.ClampIntArg(args, "limit", 400, 1, 800)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s/\n", filepath.Base(safePath))

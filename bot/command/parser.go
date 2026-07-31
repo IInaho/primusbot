@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,7 +19,7 @@ type Command struct {
 	Raw    string
 }
 
-type HandlerFunc func(cmd *Command) (string, bool)
+type HandlerFunc func(ctx context.Context, cmd *Command) (string, bool)
 
 type commandKey struct {
 	Prefix string
@@ -83,7 +84,7 @@ func (p *Parser) Parse(input string) *Command {
 	return &Command{Prefix: prefix, Name: name, Args: args, Raw: input}
 }
 
-func (p *Parser) Execute(cmd *Command) (string, bool) {
+func (p *Parser) Execute(ctx context.Context, cmd *Command) (string, bool) {
 	if cmd.Name == "" {
 		return "", false
 	}
@@ -93,7 +94,10 @@ func (p *Parser) Execute(cmd *Command) (string, bool) {
 	if !exists {
 		return "Unknown command: " + prefix + name + ". Type /help for available commands.", true
 	}
-	return entry.Handler(cmd)
+	if err := ctx.Err(); err != nil {
+		return "Command cancelled: " + err.Error(), true
+	}
+	return entry.Handler(ctx, cmd)
 }
 
 func normalizePrefix(prefix string) string {
@@ -115,9 +119,12 @@ func commandPrefix(input string) string {
 
 // RegisterDefaults registers the built-in slash commands using Deps directly.
 func RegisterDefaults(p *Parser, deps Deps) {
-	getConfig := func() string { pr, m := deps.GetConfigFn(); return pr + "/" + m }
+	getConfig := func() string {
+		selection := deps.GetConfigFn()
+		return selection.Provider + "/" + selection.Model
+	}
 
-	p.Register("help", func(cmd *Command) (string, bool) {
+	p.Register("help", func(_ context.Context, cmd *Command) (string, bool) {
 		return `Built-in slash commands:
   /help        Show this help message
   /new         Start a new conversation (keeps summary)
@@ -136,16 +143,16 @@ Dynamic dollar commands:
 `, true
 	})
 
-	p.Register("clear", func(cmd *Command) (string, bool) {
+	p.Register("clear", func(_ context.Context, cmd *Command) (string, bool) {
 		deps.CtxMgr.Clear()
 		return "Conversation history cleared.", true
 	})
 
-	p.Register("context", func(cmd *Command) (string, bool) {
+	p.Register("context", func(_ context.Context, cmd *Command) (string, bool) {
 		return ContextReport(deps.CtxMgr, deps.ToolRegistry.Descriptors()), true
 	})
 
-	p.Register("summarize", func(cmd *Command) (string, bool) {
+	p.Register("summarize", func(_ context.Context, cmd *Command) (string, bool) {
 		result, err := ForceSummarize(deps.CtxMgr, true)
 		if err != nil {
 			return "Summarize failed: " + err.Error(), true
@@ -153,7 +160,7 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("new", func(cmd *Command) (string, bool) {
+	p.Register("new", func(_ context.Context, cmd *Command) (string, bool) {
 		result, err := ForceFreshStart(deps.CtxMgr, deps.Skills, deps.Policy)
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
@@ -161,11 +168,11 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("config", func(cmd *Command) (string, bool) {
+	p.Register("config", func(_ context.Context, cmd *Command) (string, bool) {
 		return getConfig(), true
 	})
 
-	p.Register("model", func(cmd *Command) (string, bool) {
+	p.Register("model", func(_ context.Context, cmd *Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "Current: %s\n", getConfig())
@@ -179,10 +186,9 @@ Dynamic dollar commands:
 			sb.WriteString("\n/model <name> to switch")
 			return sb.String(), true
 		}
-		model, provider, err := deps.SwitchModel(cmd.Args[0])
-		if err != nil {
+		if err := deps.SwitchModel(cmd.Args[0]); err != nil {
 			return err.Error(), true
 		}
-		return fmt.Sprintf("Switched to %s/%s", provider, model), true
+		return "Switched to " + getConfig(), true
 	})
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"nekocode/bot/tools/runtime/toolhelpers"
-	"nekocode/bot/tools/runtime/toolutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,21 +11,51 @@ import (
 	"time"
 
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
+	utilhttp "nekocode/util/http"
 	"nekocode/util/text"
 )
 
 type WebFetchTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 	client *http.Client
 }
 
 func NewWebFetchTool() *WebFetchTool {
-	c := toolutil.NewToolHTTPClient(15 * time.Second)
+	transport := utilhttp.NewSharedTransport()
+	transport.Proxy = nil
+	dialer := &net.Dialer{}
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("invalid destination: %w", err)
+		}
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve destination: %w", err)
+		}
+		var lastErr error
+		for _, ip := range ips {
+			if isPrivateIP(ip) {
+				return nil, fmt.Errorf("private network access denied")
+			}
+			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("destination has no public IP address")
+	}
+	c := &http.Client{Transport: transport, Timeout: 15 * time.Second}
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return fmt.Errorf("too many redirects")
 		}
-		return nil
+		return validateURL(req.URL.String())
 	}
 	return &WebFetchTool{client: c}
 }
@@ -46,7 +74,7 @@ func (t *WebFetchTool) Parameters() []core.Parameter {
 }
 
 func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	rawURL, err := toolhelpers.RequireStringArg(args, "url")
+	rawURL, err := toolutil.RequireStringArg(args, "url")
 	if err != nil {
 		return "", err
 	}
@@ -55,7 +83,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("URL validation failed: %w", err)
 	}
 
-	prompt := toolhelpers.OptStringArg(args, "prompt", "")
+	prompt := toolutil.OptStringArg(args, "prompt", "")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -68,7 +96,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
@@ -135,15 +163,14 @@ func validateURL(rawURL string) error {
 }
 
 func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
 	privateBlocks := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"169.254.0.0/16",
-		"fc00::/7",
+		"100.64.0.0/10",
+		"198.18.0.0/15",
+		"fec0::/10",
 	}
 	for _, cidr := range privateBlocks {
 		_, block, _ := net.ParseCIDR(cidr)

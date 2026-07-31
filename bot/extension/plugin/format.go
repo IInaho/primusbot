@@ -63,7 +63,7 @@ func formatInfo(p *Plugin) string {
 	fmt.Fprintf(&sb, "Description: %s\n", p.Description)
 	fmt.Fprintf(&sb, "Directory:   %s\n", p.Dir)
 	if p.Source != "" {
-		fmt.Fprintf(&sb, "Source:      %s\n", p.Source)
+		fmt.Fprintf(&sb, "Source:      %s\n", sanitizeSource(p.Source))
 	}
 	fmt.Fprintf(&sb, "Enabled:     %v\n", p.Enabled)
 	fmt.Fprintf(&sb, "Skills:      %d dirs\n", len(p.SkillDirs()))

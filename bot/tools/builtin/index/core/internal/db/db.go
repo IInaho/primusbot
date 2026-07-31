@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"zombiezen.com/go/sqlite"
@@ -18,9 +19,8 @@ func OpenDB(path string) (*DB, error) {
 	pool, err := sqlitex.NewPool(path, sqlitex.PoolOptions{
 		PrepareConn: func(conn *sqlite.Conn) error {
 			stmt := conn.Prep("PRAGMA foreign_keys = ON;")
-			_, err := stmt.Step()
-			stmt.Finalize()
-			return err
+			_, stepErr := stmt.Step()
+			return errors.Join(stepErr, stmt.Finalize())
 		},
 	})
 	if err != nil {
@@ -28,8 +28,7 @@ func OpenDB(path string) (*DB, error) {
 	}
 	d := &DB{pool: pool}
 	if err := d.migrate(); err != nil {
-		pool.Close()
-		return nil, err
+		return nil, errors.Join(err, pool.Close())
 	}
 	return d, nil
 }

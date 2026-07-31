@@ -67,10 +67,10 @@ func validatePluginOutput(schema []byte, output string) error {
 		return nil
 	}
 	if !isValidJSON(output) {
-		return fmt.Errorf("Output is not valid JSON (output_schema specified). Output rejected.")
+		return fmt.Errorf("output is not valid JSON (output_schema specified); output rejected")
 	}
 	if err := validateAgainstSchema(schema, output); err != nil {
-		return fmt.Errorf("Schema validation failed: %v. Output rejected.", err)
+		return fmt.Errorf("schema validation failed: %v; output rejected", err)
 	}
 	return nil
 }

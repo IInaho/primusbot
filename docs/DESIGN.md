@@ -66,7 +66,7 @@ Logo 同时适配亮/暗背景：
 | `/help` | 显示可用命令列表（自动生成，含动态 skill） |
 | `/new` | 开始新对话（保留上一任务摘要） |
 | `/clear` | 清空所有对话历史和摘要 |
-| `/context` | 上下文窗口详细分解 + 彩色 bar + used/total |
+| `/context` | 上下文窗口详细分解 + 纯文本 bar + used/total |
 | `/summarize` | 手动触发上下文压缩，返回压缩前后对比 |
 | `/config` | 显示当前 provider 和 model |
 | `/model [name]` | 列出或切换模型 |
@@ -244,7 +244,7 @@ LLM 生成的摘要需要经过二次校验：检查是否保留了代码片段�
 Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
 
 - **loopRunner** — 主循环驱动，管理生命周期状态（idle/running/steering/stopped）
-- **turnRunner** — 单轮处理：PreTurn hooks → 模型推理 → 工具执行 → PostTurn hooks
+- **turnRunner** — 单轮处理：准备事实 → PreModel → 模型推理 → 工具执行或 Stop
 - **modelRunner** — LLM 调用封装，含重试、流回调、响应分类（chat/tool_call/garbled/error）
 - **toolRunner** — 工具执行编排，含配额过滤、结果收集、子代理槽位管理
 
@@ -354,20 +354,20 @@ Agent 运行时通过钩子系统在关键节点注入策略控制，分为内�
 
 | 钩子 | 触发点 | 职责 |
 |------|--------|------|
-| QuotaHook | PreTurn | 配额限制检查 |
-| ToolResultGuardrailHook | PreModelRequest | 工具结果护栏 |
+| QuotaHook | PreModel | 配额限制检查 |
+| ToolResultGuardrailHook | PreModel | 工具结果护栏 |
 | ReadBeforeWriteHook | PreToolUse | 写前必读强制 |
-| ReadOnlySpiralHook | PostTool | 只读螺旋提醒 |
-| VerificationHook | PostTurn | 未完成任务最终检查 |
-| ExplorationExhaustedHook | PreTurn | 探索耗尽提醒 |
-| ExploreCascadeHook | PostTool | 探索级联提醒 |
-| ProgressStallHook | PostTool | 进度停滞提醒 |
-| GarbledCircuitBreaker | PostTurn | 乱码断路器 |
-**钩子事件点**：PreTurn → PreModelRequest → PreToolUse → PostToolUse → PostTool → PostTurn
+| ReadOnlySpiralHook | PostToolBatch | 只读螺旋提醒 |
+| VerificationHook | Stop | 未完成任务最终检查 |
+| ExplorationExhaustedHook | PreModel | 探索耗尽提醒 |
+| ExploreCascadeHook | PostToolBatch | 探索级联提醒 |
+| ProgressStallHook | PostToolBatch | 进度停滞提醒 |
+| GarbledCircuitBreaker | Stop | 乱码断路器 |
+**钩子事件点**：UserSubmit → PreModel → PreToolUse → PostToolUse → PostToolBatch → Stop
 
 **钩子动作**：`Hint`（建议）、`BlockTool`（阻止工具）、`RequireTool`（强制工具）、`BlockFinal`（阻止最终回复）
 
-运行时只调用 `Policy.BeginTurn/BeforeModel/BeforeTool/RecordTools/AfterTurn`。
+运行时只调用 `Policy.OnUserSubmit/BeginTurn/BeforeModel/BeforeTool/RecordTools/BeforeStop`。
 Hook 读取类型化 `Facts`，去重状态按 hook 隔离，不共享字符串 key。
 
 **插件钩子**：用户可通过 JSON 配置自定义钩子，支持 shell 命令和 JavaScript 两种执行方式。事件点包括 PreToolUse、PostToolUse、PostToolUseFailure、UserPromptSubmit、SessionStart、Stop。

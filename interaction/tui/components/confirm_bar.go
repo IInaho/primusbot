@@ -22,13 +22,7 @@ func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
 	return &ConfirmBar{sty: sty, selected: 0}
 }
 
-func (c *ConfirmBar) SetRequest(req *controlruntime.ConfirmRequest) {
-	c.req = req
-	c.selected = 0
-	c.respond = nil
-}
-
-func (c *ConfirmBar) SetRequestWithResponder(req *controlruntime.ConfirmRequest, respond func(ok bool, remember bool)) {
+func (c *ConfirmBar) SetRequest(req *controlruntime.ConfirmRequest, respond func(ok bool, remember bool)) {
 	c.req = req
 	c.selected = 0
 	c.respond = respond
@@ -71,8 +65,6 @@ func (c *ConfirmBar) Submit() {
 func (c *ConfirmBar) Respond(ok bool, remember bool) {
 	if c.respond != nil {
 		c.respond(ok, remember)
-	} else if c.req.Response != nil {
-		c.req.Response <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	}
 	c.req = nil
 	c.respond = nil

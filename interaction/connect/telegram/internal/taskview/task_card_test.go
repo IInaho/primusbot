@@ -63,7 +63,7 @@ func TestTaskTrackerEscapesTelegramHTML(t *testing.T) {
 	msg := tracker.RenderEvent(controlruntime.Event{
 		RunID: "run_html",
 		Type:  controlruntime.EventRunDone,
-		Payload: controlruntime.DonePayload{
+		Payload: controlruntime.RunResult{
 			Output: "edited <README> & report",
 		},
 	})
@@ -105,7 +105,7 @@ func TestTaskTrackerDoneReplyShowsResultOnly(t *testing.T) {
 	done := tracker.RenderEvent(controlruntime.Event{
 		RunID: runID,
 		Type:  controlruntime.EventRunDone,
-		Payload: controlruntime.DonePayload{
+		Payload: controlruntime.RunResult{
 			Output: "tests passed",
 		},
 	})
@@ -122,7 +122,7 @@ func TestTaskTrackerSuppressesEmptyDoneReply(t *testing.T) {
 	done := tracker.RenderEvent(controlruntime.Event{
 		RunID: "run_empty_done",
 		Type:  controlruntime.EventRunDone,
-		Payload: controlruntime.DonePayload{
+		Payload: controlruntime.RunResult{
 			Output: "",
 		},
 	})
@@ -153,7 +153,7 @@ func TestStatusAndLastHaveDistinctScopes(t *testing.T) {
 	_ = tracker.RenderEvent(controlruntime.Event{
 		RunID: runID,
 		Type:  controlruntime.EventRunDone,
-		Payload: controlruntime.DonePayload{
+		Payload: controlruntime.RunResult{
 			Output: "tests passed",
 		},
 	})

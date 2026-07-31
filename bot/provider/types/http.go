@@ -34,7 +34,7 @@ func DoJSONRequest(ctx context.Context, url string, headers map[string]string, b
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -58,13 +58,13 @@ func StreamSSE(
 	errCh chan<- error,
 	parseEvent func(data string, tokenCh chan<- StreamToken) error,
 ) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		case <-done:
 		}
 	}()

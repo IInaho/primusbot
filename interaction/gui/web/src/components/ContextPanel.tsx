@@ -1,7 +1,7 @@
 import { cn } from '../lib/classnames'
-import type { view } from '../../wailsjs/go/models'
-type ContextSegment = view.ContextSegment
-type ContextSnapshot = view.ContextSnapshot
+import type { runtime } from '../../wailsjs/go/models'
+type ContextSegment = runtime.ContextSegment
+type ContextSnapshot = runtime.ContextSnapshot
 
 interface ContextPanelProps {
   open: boolean

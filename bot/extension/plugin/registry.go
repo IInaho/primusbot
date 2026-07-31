@@ -16,9 +16,10 @@ import (
 
 // registry manages plugin lifecycle.
 type registry struct {
-	mu       sync.RWMutex
-	plugins  map[string]*Plugin
-	baseDirs []string
+	mu        sync.RWMutex
+	installMu sync.Mutex
+	plugins   map[string]*Plugin
+	baseDirs  []string
 
 	Logf func(string, ...any)
 }
@@ -60,6 +61,9 @@ func (r *registry) LoadAll() {
 			r.loadPlugin(pluginDir, regData, seen)
 		}
 	}
+	if err := r.saveRegistryFile(); err != nil && r.Logf != nil {
+		r.Logf("plugin: migrate registry: %v", err)
+	}
 }
 
 func (r *registry) loadPlugin(pluginDir string, regData registryJSON, seen map[string]bool) *Plugin {
@@ -80,7 +84,7 @@ func (r *registry) loadPlugin(pluginDir string, regData registryJSON, seen map[s
 	var installedAt time.Time
 	if re, ok := regData.Plugins[m.Name]; ok {
 		enabled = re.Enabled
-		source = re.Source
+		source = sanitizeSource(re.Source)
 		if t, err := time.Parse(time.RFC3339, re.InstalledAt); err == nil {
 			installedAt = t
 		}
@@ -106,21 +110,42 @@ func newPluginFromManifest(m *Manifest, dir, source string) *Plugin {
 
 // Uninstall removes a plugin from disk and registry.
 func (r *registry) Uninstall(name string) error {
-	r.mu.RLock()
-	p, ok := r.plugins[name]
-	r.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("plugin %q not found", name)
-	}
-
-	if err := os.RemoveAll(p.Dir); err != nil {
-		return fmt.Errorf("remove plugin dir: %w", err)
-	}
+	r.installMu.Lock()
+	defer r.installMu.Unlock()
 
 	r.mu.Lock()
+	p, ok := r.plugins[name]
+	if !ok {
+		r.mu.Unlock()
+		return fmt.Errorf("plugin %q not found", name)
+	}
+	backupDir, err := os.MkdirTemp(filepath.Dir(p.Dir), ".uninstall-")
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("create uninstall backup: %w", err)
+	}
+	if err := os.Remove(backupDir); err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("prepare uninstall backup: %w", err)
+	}
+	if err := os.Rename(p.Dir, backupDir); err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("backup plugin dir: %w", err)
+	}
 	delete(r.plugins, name)
-	r.saveRegistryFile()
+	if err := r.saveRegistryFile(); err != nil {
+		r.plugins[name] = p
+		restoreErr := os.Rename(backupDir, p.Dir)
+		r.mu.Unlock()
+		if restoreErr != nil {
+			return fmt.Errorf("save registry: %w (restore plugin: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("save registry: %w", err)
+	}
 	r.mu.Unlock()
+	if err := os.RemoveAll(backupDir); err != nil && r.Logf != nil {
+		r.Logf("plugin: remove uninstall backup %s: %v", backupDir, err)
+	}
 	return nil
 }
 
@@ -149,8 +174,12 @@ func (r *registry) Enable(name string) error {
 	if !ok {
 		return fmt.Errorf("plugin %q not found", name)
 	}
+	previous := p.Enabled
 	p.Enabled = true
-	r.saveRegistryFile()
+	if err := r.saveRegistryFile(); err != nil {
+		p.Enabled = previous
+		return err
+	}
 	return nil
 }
 
@@ -162,8 +191,12 @@ func (r *registry) Disable(name string) error {
 	if !ok {
 		return fmt.Errorf("plugin %q not found", name)
 	}
+	previous := p.Enabled
 	p.Enabled = false
-	r.saveRegistryFile()
+	if err := r.saveRegistryFile(); err != nil {
+		p.Enabled = previous
+		return err
+	}
 	return nil
 }
 
@@ -223,21 +256,44 @@ func (r *registry) loadRegistryFile() registryJSON {
 	return reg
 }
 
-func (r *registry) saveRegistryFile() {
+func (r *registry) saveRegistryFile() error {
 	path, err := r.registryPath()
 	if err != nil {
-		return
+		return err
 	}
 	reg := registryJSON{Plugins: make(map[string]registryEntry)}
 	for name, p := range r.plugins {
 		reg.Plugins[name] = registryEntry{
 			Version:     p.Version,
-			Source:      p.Source,
+			Source:      sanitizeSource(p.Source),
 			Enabled:     p.Enabled,
 			InstalledAt: p.InstalledAt.Format(time.RFC3339),
 		}
 	}
-	data, _ := json.MarshalIndent(reg, "", "  ")
-	os.MkdirAll(filepath.Dir(path), 0o755)
-	os.WriteFile(path, data, 0o644)
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".registry-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

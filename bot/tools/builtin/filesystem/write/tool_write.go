@@ -6,14 +6,13 @@ import (
 	"nekocode/bot/tools/builtin/diff"
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 	"os"
 	"path/filepath"
 )
 
 type WriteTool struct {
-	toolhelpers.WriteModeTool
+	toolutil.WriteModeTool
 }
 
 func (t *WriteTool) Name() string { return "write" }
@@ -49,11 +48,11 @@ func (t *WriteTool) Preview(args map[string]any) string {
 }
 
 func (t *WriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path, err := toolhelpers.RequireStringArg(args, "path")
+	path, err := toolutil.RequireStringArg(args, "path")
 	if err != nil {
 		return "", err
 	}
-	content, err := toolhelpers.RequireStringArg(args, "content")
+	content, err := toolutil.RequireStringArg(args, "content")
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +67,7 @@ func (t *WriteTool) Execute(ctx context.Context, args map[string]any) (string, e
 	if err := os.MkdirAll(filepath.Dir(safePath), 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
-	mode := toolhelpers.GetFileMode(safePath)
+	mode := toolutil.GetFileMode(safePath)
 	if err := os.WriteFile(safePath, []byte(content), mode); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}

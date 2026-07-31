@@ -4,6 +4,14 @@ import (
 	"testing"
 )
 
+func TestSupportedLanguages(t *testing.T) {
+	for _, ext := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rs"} {
+		if supportedLangs[ext].lang == nil {
+			t.Fatalf("missing language for %s", ext)
+		}
+	}
+}
+
 func TestParseFileGo(t *testing.T) {
 	p := NewParser()
 	src := []byte(`package main

@@ -103,7 +103,7 @@ func (s *gatewaySession) run(ctx context.Context, onMessage func(inboundMessage)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	go func() {
 		<-ctx.Done()
 		_ = conn.Close()

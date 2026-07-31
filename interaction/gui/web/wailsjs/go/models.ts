@@ -1,4 +1,4 @@
-export namespace view {
+export namespace runtime {
 	
 	export class WorkspaceConfig {
 	    path: string;

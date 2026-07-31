@@ -8,9 +8,10 @@ import (
 )
 
 func TestSignerUsesStableDateAndPayloadHash(t *testing.T) {
-	signer := NewSignerWithClock("ak", "sk", "cn-north-1", "cv", func() time.Time {
+	signer := NewSigner("ak", "sk", "cn-north-1", "cv")
+	signer.now = func() time.Time {
 		return time.Date(2026, 6, 19, 12, 34, 56, 0, time.UTC)
-	})
+	}
 	query := url.Values{"q": {"a b"}}
 	got, err := signer.Sign("POST", "/api", "example.com", query, []byte(`{"x":1}`))
 	if err != nil {

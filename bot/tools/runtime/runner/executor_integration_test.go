@@ -2,7 +2,7 @@ package runner_test
 
 import (
 	"context"
-	"nekocode/bot/view"
+	"nekocode/protocol"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +29,7 @@ type writeTool struct{ testTool }
 func (t *writeTool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeSequential }
 
 func TestExecutorBatch(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&testTool{name: "read"})
 	r.Register(&testTool{name: "safe"})
 	r.Register(&writeTool{testTool{name: "writer"}})
@@ -51,7 +51,7 @@ func TestExecutorBatch(t *testing.T) {
 }
 
 func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&testTool{name: "read"})
 	r.Register(&writeTool{testTool{name: "write"}})
 	e := runner.NewExecutor(r)
@@ -70,7 +70,7 @@ func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 }
 
 func TestExecutorPlanMode(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&writeTool{testTool{name: "writer"}})
 	e := runner.NewExecutor(r)
 	e.SetPlanMode(true)
@@ -84,12 +84,12 @@ func TestExecutorPlanMode(t *testing.T) {
 }
 
 func TestExecutorConfirm(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&writeTool{testTool{name: "writer"}})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"writer"}}, "/repo", "/home/user")
 
-	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply { return view.Deny() })
+	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply { return protocol.Deny() })
 
 	results := e.ExecuteBatch(context.Background(), []core.ToolCallItem{
 		{ID: "1", Name: "writer"},
@@ -100,14 +100,14 @@ func TestExecutorConfirm(t *testing.T) {
 }
 
 func TestExecutorShellRunAndPoll(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&shell.ShellTool{})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	prompts := 0
-	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
+	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
 		prompts++
-		if req.Kind != view.ConfirmKindPermission {
+		if req.Kind != protocol.ConfirmKindPermission {
 			t.Fatalf("unexpected confirm kind: %+v", req)
 		}
 		if req.ToolName != "shell" {
@@ -122,7 +122,7 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		if req.CanEscalatePermission {
 			t.Fatalf("plain shell command should not expose merged capability escalation: %+v", req)
 		}
-		return view.ConfirmReply{Allowed: true}
+		return protocol.ConfirmReply{Allowed: true}
 	})
 
 	start := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -168,13 +168,13 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 }
 
 func TestExecutorShellRunAppliesBashDenyRules(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&shell.ShellTool{})
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
-	e.SetConfirmFn(func(req view.ConfirmRequest) view.ConfirmReply {
+	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
 		t.Fatalf("denied shell command should not prompt: %+v", req)
-		return view.Deny()
+		return protocol.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
@@ -194,7 +194,7 @@ func TestExecutorShellRunAppliesBashDenyRules(t *testing.T) {
 }
 
 func TestExecutorDoesNotOwnReadBeforeWriteGovernance(t *testing.T) {
-	r := tools.NewRegistry()
+	r := tools.New()
 	r.Register(&testTool{name: "read"})
 	r.Register(&writeTool{testTool{name: "write"}})
 	e := runner.NewExecutor(r)

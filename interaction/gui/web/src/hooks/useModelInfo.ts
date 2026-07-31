@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { safeProviderModel } from '../lib/wails'
+import { safeCurrentModel } from '../lib/wails'
 
 export function useModelInfo(refreshKey = 0): string {
   const [model, setModel] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    safeProviderModel()
+    safeCurrentModel()
       .then((v: string) => {
         if (cancelled) return
         if (!v) return

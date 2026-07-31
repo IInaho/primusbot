@@ -61,7 +61,7 @@ func renderEvent(ev controlruntime.Event) string {
 		b.WriteString("\n(Answer in the TUI — in-feishu answers land in phase 2.)")
 		return b.String()
 	case controlruntime.EventRunFailed:
-		p, ok := ev.Payload.(controlruntime.DonePayload)
+		p, ok := ev.Payload.(controlruntime.RunResult)
 		if !ok {
 			return ""
 		}

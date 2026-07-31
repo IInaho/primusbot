@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/interaction/connect/core"
+	"nekocode/interaction/connect"
 )
 
-const pairingTTL = core.DefaultPairingTTL
+const pairingTTL = connect.DefaultPairingTTL
 
 const section = "telegram"
 
@@ -33,20 +33,20 @@ type BotProfile struct {
 	BotUsername  string  `json:"bot_username,omitempty"`
 	Owner        *Device `json:"owner,omitempty"`
 	UpdateOffset int     `json:"update_offset,omitempty"`
-	core.Pairing
+	connect.Pairing
 }
 
 // Device is the paired telegram user; the lifecycle primitives live in the
 // shared connector core (int64 user/chat IDs).
-type Device = core.Owner[int64]
+type Device = connect.Owner[int64]
 
 func configPath() string {
-	return core.DefaultFileStore().Path()
+	return connect.DefaultFileStore().Path()
 }
 
 func loadConfig() (Config, error) {
 	var cfg Config
-	if err := core.DefaultFileStore().Load(section, &cfg); err != nil {
+	if err := connect.DefaultFileStore().Load(section, &cfg); err != nil {
 		return Config{}, err
 	}
 	cfg.normalize()
@@ -56,7 +56,7 @@ func loadConfig() (Config, error) {
 func saveConfig(cfg Config) error {
 	cfg.normalize()
 	cfg.clearLegacy()
-	return core.DefaultFileStore().Save(section, cfg)
+	return connect.DefaultFileStore().Save(section, cfg)
 }
 
 func (c *Config) normalize() {
@@ -66,7 +66,7 @@ func (c *Config) normalize() {
 			BotToken:     strings.TrimSpace(c.BotToken),
 			BotUsername:  strings.TrimSpace(c.BotUsername),
 			UpdateOffset: c.UpdateOffset,
-			Pairing: core.Pairing{
+			Pairing: connect.Pairing{
 				Nonce:   c.PairingNonce,
 				Expires: c.PairingExpires,
 			},
@@ -136,14 +136,6 @@ func (c Config) activeProfile() (BotProfile, bool) {
 	return c.Profiles[idx], true
 }
 
-func (c *Config) activeProfileRef() (*BotProfile, bool) {
-	idx := c.activeIndex()
-	if idx < 0 {
-		return nil, false
-	}
-	return &c.Profiles[idx], true
-}
-
 func (p BotProfile) pairedChatIDs() []int64 {
 	if p.Owner == nil || p.Owner.ChatID == 0 {
 		return nil
@@ -156,7 +148,7 @@ func (p BotProfile) isAllowed(userID int64) bool {
 }
 
 func (p *BotProfile) setOwner(userID int64, username string, chatID int64) {
-	core.SetOwner(&p.Owner, userID, username, chatID, time.Now())
+	connect.SetOwner(&p.Owner, userID, username, chatID, time.Now())
 }
 
 func (p *BotProfile) touchOwner(userID int64, username string, chatID int64) {

@@ -13,7 +13,7 @@ const (
 
 func ToolResultGuardrailHook() policy.Hook {
 	return policy.Hook{
-		Name: "tool_result_guardrail", Point: policy.PreModelRequest,
+		Name: "tool_result_guardrail", Point: policy.PreModel,
 		On: func(s policy.State) *policy.Result {
 			count := int64(s.Facts().Model.ToolResults)
 			lastWarned := s.Int("last_warned")
@@ -66,7 +66,7 @@ func ReadBeforeWriteHook() policy.Hook {
 
 func ReadOnlySpiralHook() policy.Hook {
 	return policy.Hook{
-		Name: "read_only_spiral", Point: policy.PostTool,
+		Name: "read_only_spiral", Point: policy.PostToolBatch,
 		On: func(s policy.State) *policy.Result {
 			streak := s.Facts().Activity.ReadOnlyStreak
 			hint := policy.ReadOnlySpiralHint(streak)

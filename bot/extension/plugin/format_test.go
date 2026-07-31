@@ -44,3 +44,16 @@ func TestFormatInstallResult(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatInfoRedactsSourceCredentials(t *testing.T) {
+	out := formatInfo(&Plugin{
+		Manifest: Manifest{Name: "demo"},
+		Source:   "https://token:secret@github.com/owner/repo",
+	})
+	if strings.Contains(out, "token") || strings.Contains(out, "secret") {
+		t.Fatalf("formatInfo exposed source credentials: %q", out)
+	}
+	if !strings.Contains(out, "https://github.com/owner/repo") {
+		t.Fatalf("formatInfo source = %q", out)
+	}
+}

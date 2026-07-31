@@ -6,12 +6,11 @@ import (
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type ReadTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 }
 
 func (t *ReadTool) Name() string { return "read" }
@@ -30,7 +29,7 @@ func (t *ReadTool) Parameters() []core.Parameter {
 const maxReadLines = 500
 
 func (t *ReadTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path, err := toolhelpers.RequireStringArg(args, "path")
+	path, err := toolutil.RequireStringArg(args, "path")
 	if err != nil {
 		return "", err
 	}

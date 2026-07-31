@@ -1,0 +1,255 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+)
+
+type contextRunner struct {
+	testBot
+	snapshot ContextSnapshot
+	memory   MemoryView
+}
+
+func (b *contextRunner) ContextSnapshot() ContextSnapshot  { return b.snapshot }
+func (b *contextRunner) MemoryView(MemoryScope) MemoryView { return b.memory }
+
+func TestManagerDiscoversRunnerCapabilities(t *testing.T) {
+	runner := &contextRunner{
+		snapshot: ContextSnapshot{Budget: 100, Used: 40},
+		memory:   MemoryView{Scope: MemoryScopeProject, Path: "/tmp/memory.md"},
+	}
+	rt := New(runner)
+
+	if !rt.Capabilities().Context {
+		t.Fatal("context capability not discovered")
+	}
+	if got := rt.ContextSnapshot(); got.Budget != 100 || got.Used != 40 {
+		t.Fatalf("ContextSnapshot = %#v", got)
+	}
+	if got := rt.MemoryView(MemoryScopeProject); got.Path != "/tmp/memory.md" {
+		t.Fatalf("MemoryView = %#v", got)
+	}
+}
+
+func TestManagerReportsUnsupportedOptionalCapabilities(t *testing.T) {
+	rt := New(RunnerFunc(func(_ context.Context, _ string, _ RunHost) (string, error) {
+		return "", nil
+	}))
+
+	if rt.Capabilities().Models {
+		t.Fatal("unexpected model capability")
+	}
+	if rt.Capabilities().Sessions {
+		t.Fatal("unexpected session capability")
+	}
+	if got := rt.CurrentModel(); got != (ModelSelection{}) {
+		t.Fatalf("CurrentModel = %#v, want zero value", got)
+	}
+	if got := rt.SessionMessages(); got != nil {
+		t.Fatalf("SessionMessages = %#v, want nil", got)
+	}
+}
+
+func TestNewRejectsNilRunner(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("New(nil) did not panic")
+		}
+	}()
+	New(nil)
+}
+
+type reentrantModelMutator struct {
+	testBot
+	runtime *Manager
+	called  chan struct{}
+}
+
+type closeDuringMutationRunner struct {
+	testBot
+	started chan struct{}
+	release chan struct{}
+	closed  chan struct{}
+}
+
+func (r *closeDuringMutationRunner) SwitchModel(name string) (ModelSelection, error) {
+	close(r.started)
+	<-r.release
+	return ModelSelection{Model: name}, nil
+}
+
+func (r *closeDuringMutationRunner) Close() error {
+	close(r.closed)
+	return nil
+}
+
+func (r *reentrantModelMutator) SwitchModel(name string) (ModelSelection, error) {
+	_ = r.runtime.Status()
+	close(r.called)
+	return ModelSelection{Model: name}, nil
+}
+
+func TestMutationDoesNotHoldRuntimeStateLockAcrossRunnerCall(t *testing.T) {
+	runner := &reentrantModelMutator{called: make(chan struct{})}
+	rt := New(runner)
+	runner.runtime = rt
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := rt.SwitchModel("next")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("SwitchModel: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SwitchModel deadlocked when mutator queried runtime status")
+	}
+}
+
+func TestInteractionResolutionHonorsCancelledContext(t *testing.T) {
+	rt := New(RunnerFunc(func(context.Context, string, RunHost) (string, error) {
+		return "", nil
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := rt.DecideApproval(ctx, "approval", ApprovalDecision{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("DecideApproval error = %v, want context.Canceled", err)
+	}
+	if err := rt.AnswerQuestion(ctx, "question", QuestionReply{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AnswerQuestion error = %v, want context.Canceled", err)
+	}
+}
+
+func TestCloseWaitsForActiveMutation(t *testing.T) {
+	runner := &closeDuringMutationRunner{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		closed:  make(chan struct{}),
+	}
+	rt := New(runner)
+	mutationDone := make(chan error, 1)
+	go func() {
+		_, err := rt.SwitchModel("next")
+		mutationDone <- err
+	}()
+	<-runner.started
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- rt.Close() }()
+	select {
+	case <-runner.closed:
+		t.Fatal("runner closed while mutation was still active")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(runner.release)
+	if err := <-mutationDone; err != nil {
+		t.Fatalf("SwitchModel: %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-runner.closed:
+	default:
+		t.Fatal("runner was not closed after mutation completed")
+	}
+}
+
+type liveMetricsRunner struct {
+	started     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func newLiveMetricsRunner() *liveMetricsRunner {
+	return &liveMetricsRunner{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (r *liveMetricsRunner) Run(ctx context.Context, _ string, _ RunHost) (string, error) {
+	close(r.started)
+	select {
+	case <-r.release:
+		return "done", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (*liveMetricsRunner) Metrics() MetricsSnapshot {
+	return MetricsSnapshot{TurnPrompt: 12, TurnCompletion: 3}
+}
+
+func (r *liveMetricsRunner) unblock() {
+	r.releaseOnce.Do(func() { close(r.release) })
+}
+
+func TestMetricsUpdatedPublishedWhileRunActive(t *testing.T) {
+	runner := newLiveMetricsRunner()
+	rt := New(runner)
+	t.Cleanup(func() {
+		runner.unblock()
+		if err := rt.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+
+	events, err := rt.Events(context.Background(), EventFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := rt.StartRun(context.Background(), Input{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.started
+
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	started := false
+	for {
+		select {
+		case event := <-events:
+			if event.RunID != runID {
+				continue
+			}
+			if event.Type == EventRunStarted {
+				started = true
+				continue
+			}
+			if event.Type != EventMetricsUpdated {
+				continue
+			}
+			if !started {
+				t.Fatal("metrics_updated arrived before run_started")
+			}
+			metrics, ok := event.Payload.(MetricsSnapshot)
+			if !ok {
+				t.Fatalf("metrics payload type = %T", event.Payload)
+			}
+			if metrics.TurnPrompt != 12 || metrics.TurnCompletion != 3 {
+				t.Fatalf("metrics payload = %+v", metrics)
+			}
+			if status := rt.Status().RunStatus; status != RunRunning {
+				t.Fatalf("metrics arrived after run stopped: status = %s", status)
+			}
+			runner.unblock()
+			waitForRun(t, rt, runID)
+			return
+		case <-timer.C:
+			t.Fatal("no metrics_updated event while run was active")
+		}
+	}
+}

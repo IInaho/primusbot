@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"testing"
 
 	"nekocode/bot/tools"
@@ -27,10 +28,10 @@ func TestManagerAddServer(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
 
-	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
+	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	assertNames(t, registry, "srv__alpha", "srv__beta")
@@ -45,10 +46,10 @@ func TestManagerAddServer(t *testing.T) {
 }
 
 func TestManagerAddServerStartFailure(t *testing.T) {
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
 
-	if err := m.Add("config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"}); err == nil {
+	if err := m.Add(context.Background(), "config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"}); err == nil {
 		t.Fatal("Add should fail for a missing command")
 	}
 	assertNames(t, registry)
@@ -68,10 +69,10 @@ func TestManagerRemoveServer(t *testing.T) {
 	})
 	defer cleanup()
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
 
-	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
+	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -98,13 +99,13 @@ func TestManagerReAddReplacesTools(t *testing.T) {
 	})
 	defer cleanup2()
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
 
-	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
+	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
 		t.Fatalf("first Add: %v", err)
 	}
-	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd2.Path}); err != nil {
+	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd2.Path}); err != nil {
 		t.Fatalf("second Add: %v", err)
 	}
 
@@ -124,12 +125,12 @@ func TestManagerRejectsDuplicateNameFromDifferentOwner(t *testing.T) {
 	})
 	defer cleanup2()
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
-	if err := m.Add("plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
+	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
 		t.Fatalf("add plugin server: %v", err)
 	}
-	if err := m.Add("config:srv", "srv", ServerConfig{Command: cmd2.Path}); err == nil {
+	if err := m.Add(context.Background(), "config:srv", "srv", ServerConfig{Command: cmd2.Path}); err == nil {
 		t.Fatal("duplicate display name should be rejected")
 	}
 	assertNames(t, registry, "srv__alpha")
@@ -148,14 +149,14 @@ func TestManagerClose(t *testing.T) {
 	})
 	defer cleanup()
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	m := New(registry)
 
-	if err := m.Add("config:a", "a", ServerConfig{Command: cmd.Path}); err != nil {
+	if err := m.Add(context.Background(), "config:a", "a", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add a: %v", err)
 	}
 	// A server that fails to start still holds health state that Close clears.
-	_ = m.Add("config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"})
+	_ = m.Add(context.Background(), "config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"})
 
 	m.Close()
 	assertNames(t, registry)

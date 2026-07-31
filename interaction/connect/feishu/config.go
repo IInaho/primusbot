@@ -5,33 +5,33 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/interaction/connect/core"
+	"nekocode/interaction/connect"
 )
 
 const (
 	section    = "feishu"
-	pairingTTL = core.DefaultPairingTTL
+	pairingTTL = connect.DefaultPairingTTL
 )
 
 // Config is the feishu connector configuration: a single app (app_id +
 // app_secret) paired with one owner (DM-only MVP, no multi-profile).
 // The pairing state machine and owner lifecycle come from the shared
-// connector core.
+// connector connect.
 type Config struct {
-	AppID     string              `json:"app_id,omitempty"`
-	AppSecret string              `json:"app_secret,omitempty"`
-	Owner     *core.Owner[string] `json:"owner,omitempty"`
-	core.Pairing
+	AppID     string                 `json:"app_id,omitempty"`
+	AppSecret string                 `json:"app_secret,omitempty"`
+	Owner     *connect.Owner[string] `json:"owner,omitempty"`
+	connect.Pairing
 }
 
 func loadConfig() (Config, error) {
 	var cfg Config
-	err := core.DefaultFileStore().Load(section, &cfg)
+	err := connect.DefaultFileStore().Load(section, &cfg)
 	return cfg, err
 }
 
 func saveConfig(cfg Config) error {
-	return core.DefaultFileStore().Save(section, cfg)
+	return connect.DefaultFileStore().Save(section, cfg)
 }
 
 func (c Config) configured() bool {
@@ -44,13 +44,13 @@ func (c Config) isAllowed(openID string) bool {
 
 // finishPairing binds the owner and clears the pairing state.
 func (c *Config) finishPairing(openID, chatID string) {
-	core.SetOwner(&c.Owner, openID, "", chatID, time.Now())
-	c.Pairing.Clear()
+	connect.SetOwner(&c.Owner, openID, "", chatID, time.Now())
+	c.Clear()
 }
 
 func (c *Config) unpair() {
 	c.Owner = nil
-	c.Pairing.Clear()
+	c.Clear()
 }
 
 func (c *Config) touchOwner(openID, chatID string) {
@@ -73,5 +73,5 @@ func setupInstructions() string {
 
 /connect feishu add <app-id> <app-secret>
 
-Config path: %s`, core.DefaultFileStore().Path())
+Config path: %s`, connect.DefaultFileStore().Path())
 }

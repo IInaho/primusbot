@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"nekocode/common/debug"
+	"nekocode/logger"
 )
 
 const maxHookAuditEvents = 64
@@ -64,7 +64,7 @@ func hookAuditEvent(h Hook, point HookPoint, state State, result *Result, sessio
 }
 
 func logHookAudit(event hookAudit) {
-	debug.Log("hook_audit session=%s point=%s hook=%s action=%s tool=%s trigger={%s} detail=%q",
+	logger.Log("hook_audit session=%s point=%s hook=%s action=%s tool=%s trigger={%s} detail=%q",
 		emptyAsDash(event.Session), event.Point, event.Hook, event.Action, emptyAsDash(event.Tool), event.Trigger, event.Detail)
 }
 

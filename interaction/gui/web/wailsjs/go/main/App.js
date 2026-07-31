@@ -10,16 +10,12 @@ export function ClearSelectedSkill() {
   return window['go']['main']['App']['ClearSelectedSkill']();
 }
 
-export function ContextReport() {
-  return window['go']['main']['App']['ContextReport']();
-}
-
 export function ContextSnapshot() {
   return window['go']['main']['App']['ContextSnapshot']();
 }
 
-export function ContextStatus() {
-  return window['go']['main']['App']['ContextStatus']();
+export function CurrentModel() {
+  return window['go']['main']['App']['CurrentModel']();
 }
 
 export function DeleteSession(arg1) {
@@ -44,10 +40,6 @@ export function LoadSession(arg1) {
 
 export function NewSession() {
   return window['go']['main']['App']['NewSession']();
-}
-
-export function ProviderModel() {
-  return window['go']['main']['App']['ProviderModel']();
 }
 
 export function ReadImageBase64(arg1) {

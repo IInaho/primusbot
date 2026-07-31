@@ -4,14 +4,12 @@ package policy
 type HookPoint string
 
 const (
-	PreTurn         HookPoint = "pre_turn"
-	PreModelRequest HookPoint = "pre_model_request"
-	PreToolUse      HookPoint = "pre_tool_use"
-	PostToolUse     HookPoint = "post_tool_use"
-	PostTool        HookPoint = "post_tool"
-	PostTurn        HookPoint = "post_turn"
-	UserSubmit      HookPoint = "user_submit"
-	Stop            HookPoint = "stop"
+	UserSubmit    HookPoint = "user_submit"
+	PreModel      HookPoint = "pre_model"
+	PreToolUse    HookPoint = "pre_tool_use"
+	PostToolUse   HookPoint = "post_tool_use"
+	PostToolBatch HookPoint = "post_tool_batch"
+	Stop          HookPoint = "stop"
 )
 
 type Hint struct {

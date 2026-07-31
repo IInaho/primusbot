@@ -178,7 +178,7 @@ type stubRuntime struct {
 	published  []controlruntime.Event
 }
 
-func (s *stubRuntime) Approve(_ context.Context, approvalID string, decision controlruntime.ApprovalDecision) error {
+func (s *stubRuntime) DecideApproval(_ context.Context, approvalID string, decision controlruntime.ApprovalDecision) error {
 	s.approveID = approvalID
 	s.decision = decision
 	return s.approveErr

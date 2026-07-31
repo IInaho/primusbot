@@ -172,12 +172,6 @@ func (e *hookEngine) setSessionID(id string) {
 	e.mu.Unlock()
 }
 
-func (e *hookEngine) list() []Hook {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return slices.Clone(e.hooks)
-}
-
 func (e *hookEngine) unregisterPrefix(prefix string) {
 	if prefix == "" {
 		return

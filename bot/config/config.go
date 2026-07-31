@@ -96,15 +96,14 @@ var Default = Config{
 }
 
 func Load() (*Config, error) {
-	// Always copy Default so callers that mutate the config (e.g. SwitchModel)
-	// cannot pollute the package-level global.
-	cfg := Default
+	cfg := Default.Clone()
 
 	configPath := Path()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return &cfg, nil
 	}
+	_ = os.Chmod(configPath, 0o600)
 
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "config: %s is malformed JSON (%v) — using defaults. Fix or delete the file to silence this warning.\n", configPath, err)
@@ -133,6 +132,49 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// Clone returns an independently mutable configuration value.
+func (c Config) Clone() Config {
+	out := c
+	out.Models = append([]ModelConfig(nil), c.Models...)
+	out.ImageGenModels = append([]ImageGenConfig(nil), c.ImageGenModels...)
+	out.Workspaces = append([]WorkspaceConfig(nil), c.Workspaces...)
+
+	if c.MCPServers != nil {
+		out.MCPServers = make(map[string]MCPServerConfig, len(c.MCPServers))
+		for name, server := range c.MCPServers {
+			server.Args = append([]string(nil), server.Args...)
+			server.Env = cloneStrings(server.Env)
+			out.MCPServers[name] = server
+		}
+	}
+	if c.Permissions != nil {
+		permissions := *c.Permissions
+		permissions.Allow = append([]string(nil), c.Permissions.Allow...)
+		permissions.Ask = append([]string(nil), c.Permissions.Ask...)
+		permissions.Deny = append([]string(nil), c.Permissions.Deny...)
+		if c.Permissions.Sandbox != nil {
+			permissions.Sandbox = make(map[string]SandboxConfig, len(c.Permissions.Sandbox))
+			for name, sandbox := range c.Permissions.Sandbox {
+				sandbox.WritableRoots = append([]string(nil), sandbox.WritableRoots...)
+				permissions.Sandbox[name] = sandbox
+			}
+		}
+		out.Permissions = &permissions
+	}
+	return out
+}
+
+func cloneStrings(input map[string]string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func Save(cfg Config) error {

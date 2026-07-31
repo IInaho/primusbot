@@ -45,8 +45,6 @@ type Ledger struct {
 	turnHasProgress     bool
 }
 
-type pathSet map[string]struct{}
-
 // New creates an empty ledger.
 func New() *Ledger {
 	return &Ledger{

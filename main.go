@@ -50,20 +50,12 @@ func (a *App) Abort() {
 	a.impl.Abort()
 }
 
-func (a *App) ProviderModel() string {
-	return a.impl.ProviderModel()
+func (a *App) CurrentModel() string {
+	return a.impl.CurrentModel()
 }
 
 func (a *App) SwitchModel(name string) (string, error) {
 	return a.impl.SwitchModel(name)
-}
-
-func (a *App) ContextStatus() string {
-	return a.impl.ContextStatus()
-}
-
-func (a *App) ContextReport() string {
-	return a.impl.ContextReport()
 }
 
 func (a *App) ContextSnapshot() controlruntime.ContextSnapshot {

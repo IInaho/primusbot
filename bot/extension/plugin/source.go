@@ -1,14 +1,15 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	utilhttp "nekocode/util/http"
-	"nekocode/util/runtime"
 	"nekocode/util/text"
 )
 
@@ -42,6 +43,35 @@ func isLocalPath(s string) bool {
 		(!strings.Contains(s, "://") && !text.LooksLikeGit(s))
 }
 
+func validateSource(source string) error {
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return fmt.Errorf("invalid plugin source: %w", err)
+	}
+	if parsed.User != nil ||
+		(strings.Contains(source, "@") &&
+			(parsed.Scheme != "" || strings.Contains(source, "github.com") || strings.Contains(source, "gitlab.com"))) {
+		return fmt.Errorf("plugin source URL must not contain credentials")
+	}
+	return nil
+}
+
+func sanitizeSource(source string) string {
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.User == nil {
+		at := strings.LastIndex(source, "@")
+		if at >= 0 {
+			suffix := source[at+1:]
+			if strings.Contains(suffix, "github.com") || strings.Contains(suffix, "gitlab.com") {
+				return suffix
+			}
+		}
+		return source
+	}
+	parsed.User = nil
+	return parsed.String()
+}
+
 func expandPluginEnv(env map[string]string, pluginRoot string) map[string]string {
 	if env == nil {
 		return nil
@@ -72,8 +102,8 @@ var fetchClient = &http.Client{
 	Timeout:   10 * time.Second,
 }
 
-func fetchURL(url string) ([]byte, error) {
-	ctx, cancel := runtime.ShortContext()
+func fetchURL(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -83,7 +113,7 @@ func fetchURL(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}

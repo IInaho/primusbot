@@ -1,5 +1,5 @@
 // Command hooks-guard shows how to inject governance into an agent through
-// AgentConfig.Policy: a custom PreToolUse hook that blocks reads of .env
+// agent.Config.Policy: a custom PreToolUse hook that blocks reads of .env
 // files and dangerous shell commands. The agent sees the block reason and
 // must answer without touching the protected files.
 //
@@ -17,13 +17,13 @@ import (
 	"os"
 	"strings"
 
-	"nekocode/bot/agent/runtime"
+	agentcore "nekocode/bot/agent"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
-	commonview "nekocode/common/view"
+	"nekocode/protocol"
 )
 
 // guardHook blocks tool calls that touch .env files or run destructive
@@ -60,23 +60,28 @@ func main() {
 	}
 	model := getenv("NEKOCODE_MODEL", "gpt-4o-mini")
 
-	llm := provider.NewClientWithProtocol(apiKey, os.Getenv("NEKOCODE_BASE_URL"), model, getenv("NEKOCODE_PROTOCOL", "openai"))
+	llm := provider.New(provider.Config{
+		APIKey: apiKey, BaseURL: os.Getenv("NEKOCODE_BASE_URL"),
+		Model: model, Protocol: getenv("NEKOCODE_PROTOCOL", "openai"),
+	})
 
-	registry := tools.NewRegistry()
+	registry := tools.New()
 	catalog.RegisterAll(registry, nil)
 
 	gov := policy.New()
 	gov.Register(guardHook())
 
-	agent := runtime.New(context.Background(), runtime.AgentConfig{
-		CtxMgr:   ctxmgr.NewSub("You are a helpful assistant.", 128000, nil),
-		LLM:      llm,
-		Registry: registry,
-		Policy:   gov,
+	agent := agentcore.New(context.Background(), agentcore.Config{
+		Context: ctxmgr.New(ctxmgr.Config{
+			SystemPrompt: "You are a helpful assistant.", ContextWindow: 128000,
+		}),
+		Model:  llm,
+		Tools:  registry,
+		Policy: gov,
 	})
 
-	result := agent.Run("读取当前目录下的 .env 文件，告诉我里面配置了哪些环境变量", func(ev commonview.StepEvent) {
-		if ev.Action == commonview.StepActionToolBlocked {
+	result := agent.Run("读取当前目录下的 .env 文件，告诉我里面配置了哪些环境变量", func(ev protocol.StepEvent) {
+		if ev.Action == protocol.StepActionToolBlocked {
 			fmt.Printf("[blocked] %s: %s\n", ev.ToolName, ev.Output)
 		}
 	})

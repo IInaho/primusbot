@@ -33,7 +33,7 @@ func discoverSkills(dirs []string) []string {
 		if err != nil {
 			continue
 		}
-		filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
+		_ = filepath.Walk(absDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
@@ -77,7 +77,7 @@ func loadSkill(path string) (*Skill, error) {
 
 func auxiliaryFiles(walkRoot, dir string) []string {
 	var files []string
-	filepath.WalkDir(walkRoot, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(walkRoot, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}

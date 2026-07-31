@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { cn } from '../../lib/classnames'
-import type { view } from '../../../wailsjs/go/models'
-type SessionMeta = view.SessionMeta
+import type { runtime } from '../../../wailsjs/go/models'
+type SessionMeta = runtime.SessionMeta
 
 interface SessionItemProps {
   session: SessionMeta

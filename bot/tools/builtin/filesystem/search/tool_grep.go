@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 	"os"
 	"os/exec"
@@ -14,7 +13,7 @@ import (
 )
 
 type GrepTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 }
 
 func (t *GrepTool) Name() string { return "grep" }
@@ -32,12 +31,12 @@ func (t *GrepTool) Parameters() []core.Parameter {
 }
 
 func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	pattern, err := toolhelpers.RequireStringArg(args, "pattern")
+	pattern, err := toolutil.RequireStringArg(args, "pattern")
 	if err != nil {
 		return "", err
 	}
 
-	basePath := toolhelpers.OptStringArg(args, "path", ".")
+	basePath := toolutil.OptStringArg(args, "path", ".")
 	safeBasePath, err := toolutil.ValidatePathReadable(basePath)
 	if err != nil {
 		return "", err

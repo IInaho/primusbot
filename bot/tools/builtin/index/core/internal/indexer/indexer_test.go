@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	graphpkg "nekocode/bot/tools/builtin/index/core/internal/graph"
 )
 
 func setupTestProject(t *testing.T) string {
@@ -81,7 +83,7 @@ func TestIndexAll(t *testing.T) {
 	// Check that we have call edges
 	callEdges := 0
 	for _, e := range g.Edges {
-		if e.Kind == EdgeCalls {
+		if e.Kind == graphpkg.EdgeCalls {
 			callEdges++
 		}
 	}
@@ -92,7 +94,7 @@ func TestIndexAll(t *testing.T) {
 	// Import edges should be created (associated with file nodes)
 	importEdges := 0
 	for _, e := range g.Edges {
-		if e.Kind == EdgeImports {
+		if e.Kind == graphpkg.EdgeImports {
 			importEdges++
 		}
 	}
@@ -132,7 +134,7 @@ func TestIndexAllResolveReferences(t *testing.T) {
 	// Check that cross-file call edges are resolved (ToID != 0)
 	unresolved := 0
 	for _, e := range g.Edges {
-		if e.Kind == EdgeCalls && e.ToID == 0 {
+		if e.Kind == graphpkg.EdgeCalls && e.ToID == 0 {
 			unresolved++
 		}
 	}
@@ -242,15 +244,15 @@ func TestQueryDepsEndToEnd(t *testing.T) {
 }
 
 func TestResolveReferences(t *testing.T) {
-	g := NewGraph()
+	g := graphpkg.NewGraph()
 	// Simulate two files: main calls handler.Handle
-	mainFn := &Node{Name: "main", Kind: KindFunc, File: "main.go", Line: 1, PkgPath: "main"}
-	handleFn := &Node{Name: "Handle", Kind: KindFunc, File: "handler.go", Line: 1, PkgPath: "handler"}
+	mainFn := &graphpkg.Node{Name: "main", Kind: graphpkg.KindFunc, File: "main.go", Line: 1, PkgPath: "main"}
+	handleFn := &graphpkg.Node{Name: "Handle", Kind: graphpkg.KindFunc, File: "handler.go", Line: 1, PkgPath: "handler"}
 	g.AddNode(mainFn)
 	g.AddNode(handleFn)
 
 	// Unresolved call edge
-	e := &Edge{FromID: mainFn.ID, ToID: 0, Kind: EdgeCalls, CalleeName: "Handle"}
+	e := &graphpkg.Edge{FromID: mainFn.ID, ToID: 0, Kind: graphpkg.EdgeCalls, CalleeName: "Handle"}
 	g.AddEdge(e)
 
 	indexer := &Indexer{}
@@ -262,16 +264,16 @@ func TestResolveReferences(t *testing.T) {
 }
 
 func TestResolveReferencesSamePackagePriority(t *testing.T) {
-	g := NewGraph()
+	g := graphpkg.NewGraph()
 	// Two packages both have a function named "Process"
-	mainFn := &Node{Name: "main", Kind: KindFunc, File: "main.go", Line: 1, PkgPath: "main"}
-	processMain := &Node{Name: "Process", Kind: KindFunc, File: "main.go", Line: 10, PkgPath: "main"}
-	processOther := &Node{Name: "Process", Kind: KindFunc, File: "other.go", Line: 1, PkgPath: "other"}
+	mainFn := &graphpkg.Node{Name: "main", Kind: graphpkg.KindFunc, File: "main.go", Line: 1, PkgPath: "main"}
+	processMain := &graphpkg.Node{Name: "Process", Kind: graphpkg.KindFunc, File: "main.go", Line: 10, PkgPath: "main"}
+	processOther := &graphpkg.Node{Name: "Process", Kind: graphpkg.KindFunc, File: "other.go", Line: 1, PkgPath: "other"}
 	g.AddNode(mainFn)
 	g.AddNode(processMain)
 	g.AddNode(processOther)
 
-	e := &Edge{FromID: mainFn.ID, ToID: 0, Kind: EdgeCalls, CalleeName: "Process"}
+	e := &graphpkg.Edge{FromID: mainFn.ID, ToID: 0, Kind: graphpkg.EdgeCalls, CalleeName: "Process"}
 	g.AddEdge(e)
 
 	indexer := &Indexer{}

@@ -1,20 +1,15 @@
 package runtime
 
 import (
-	commonview "nekocode/common/view"
+	"fmt"
+
+	"nekocode/protocol"
 	"nekocode/runtime/internal/core"
 )
 
+const ProtocolVersion = core.ProtocolVersion
+
 type RunID = core.RunID
-
-type InputKind = core.InputKind
-
-const (
-	InputMessage       = core.InputMessage
-	InputCommand       = core.InputCommand
-	InputApprovalReply = core.InputApprovalReply
-	InputQuestionReply = core.InputQuestionReply
-)
 
 type SourceRef = core.SourceRef
 type SenderRef = core.SenderRef
@@ -29,7 +24,7 @@ const (
 	RunWaitingQuestion = core.RunWaitingQuestion
 	RunDone            = core.RunDone
 	RunFailed          = core.RunFailed
-	RunAborted         = core.RunAborted
+	RunCancelled       = core.RunCancelled
 )
 
 type EventType = core.EventType
@@ -54,9 +49,10 @@ const (
 	EventRunStarted        = core.EventRunStarted
 	EventRunDone           = core.EventRunDone
 	EventRunFailed         = core.EventRunFailed
-	EventRunAborted        = core.EventRunAborted
-	EventSessionResumed    = core.EventSessionResumed
+	EventRunCancelled      = core.EventRunCancelled
+	EventSessionChanged    = core.EventSessionChanged
 	EventConnectorStatus   = core.EventConnectorStatus
+	EventMetricsUpdated    = core.EventMetricsUpdated
 )
 
 type Event = core.Event
@@ -64,18 +60,210 @@ type EventFilter = core.EventFilter
 type MessagePayload = core.MessagePayload
 type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
-type TodoItem = commonview.TodoItem
-type BotStats = commonview.BotStats
-type ContextSnapshot = commonview.ContextSnapshot
-type MemoryScope = commonview.MemoryScope
-type MemorySection = commonview.MemorySection
-type MemoryView = commonview.MemoryView
-type SessionMeta = commonview.SessionMeta
-type DisplayMessage = commonview.DisplayMessage
-type ConfigView = commonview.ConfigView
-type SkillManagementView = commonview.SkillManagementView
+type TodoItem = protocol.TodoItem
+
+// MetricsSnapshot is independent from run lifecycle status.
+type MetricsSnapshot = protocol.Metrics
 type ToolPayload = core.ToolPayload
-type DonePayload = core.DonePayload
+type SubAgentPayload = core.SubAgentPayload
+type SessionPayload = core.SessionPayload
+type RunResult = core.RunResult
+
+// ModelSelection identifies the active provider and model.
+type ModelSelection struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// ContextSegment describes one visible part of the active context window.
+type ContextSegment struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Tokens int    `json:"tokens"`
+	Tone   string `json:"tone"`
+}
+
+// ContextSnapshot is the structured context status exposed by a Runner.
+type ContextSnapshot struct {
+	Budget          int              `json:"budget"`
+	Used            int              `json:"used"`
+	Free            int              `json:"free"`
+	PercentUsed     float64          `json:"percentUsed"`
+	SystemPrompt    int              `json:"systemPrompt"`
+	ToolDefTokens   int              `json:"toolDefTokens"`
+	TodoText        int              `json:"todoText"`
+	SkillList       int              `json:"skillList"`
+	MessageTokens   int              `json:"messageTokens"`
+	ToolDefCount    int              `json:"toolDefCount"`
+	MessageCount    int              `json:"messageCount"`
+	UserMessages    int              `json:"userMessages"`
+	AssistantMsgs   int              `json:"assistantMsgs"`
+	ToolResults     int              `json:"toolResults"`
+	Archived        int              `json:"archived"`
+	CompactCount    int              `json:"compactCount"`
+	TrimCount       int              `json:"trimCount"`
+	CacheHitTokens  int              `json:"cacheHitTokens"`
+	CacheMissTokens int              `json:"cacheMissTokens"`
+	CacheHitRatio   float64          `json:"cacheHitRatio"`
+	SubCount        int              `json:"subCount"`
+	SubTokens       int              `json:"subTokens"`
+	SubCacheHit     int              `json:"subCacheHit"`
+	SubCacheMiss    int              `json:"subCacheMiss"`
+	Segments        []ContextSegment `json:"segments"`
+}
+
+type MemoryScope string
+
+const MemoryScopeProject MemoryScope = "project"
+
+type MemorySection struct {
+	Key     string `json:"key"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Empty   bool   `json:"empty"`
+}
+
+type MemoryView struct {
+	Scope    MemoryScope     `json:"scope"`
+	Path     string          `json:"path,omitempty"`
+	Content  string          `json:"content"`
+	Sections []MemorySection `json:"sections,omitempty"`
+	Empty    bool            `json:"empty"`
+}
+
+// SessionMeta is a lightweight descriptor for a persisted session.
+type SessionMeta struct {
+	ID        string `json:"id"`
+	CWD       string `json:"cwd"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	MsgCount  int    `json:"msgCount"`
+}
+
+// DisplayMessage is a persistent conversation projection for interaction
+// surfaces.
+type DisplayMessage struct {
+	Role    string         `json:"role"`
+	Content string         `json:"content"`
+	Blocks  []DisplayBlock `json:"blocks,omitempty"`
+	Images  []ImageRef     `json:"images,omitempty"`
+}
+
+type DisplayBlock struct {
+	ToolName string `json:"toolName"`
+	Args     string `json:"args,omitempty"`
+	Content  string `json:"content"`
+	IsError  bool   `json:"isError,omitempty"`
+}
+
+type ImageRef struct {
+	Path   string `json:"path"`
+	URL    string `json:"url,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
+// ConfigView is the configuration contract exposed to interaction surfaces.
+type ConfigView struct {
+	Path           string                     `json:"path"`
+	Exists         bool                       `json:"exists"`
+	Active         string                     `json:"active"`
+	ContextWindow  int                        `json:"context_window"`
+	FlashModel     string                     `json:"flash_model,omitempty"`
+	Models         []ModelConfig              `json:"models"`
+	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"`
+	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
+	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
+}
+
+type ModelConfig struct {
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	APIKey   string `json:"api_key"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"base_url,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+}
+
+type ImageGenConfig struct {
+	Name      string `json:"name"`
+	Provider  string `json:"provider"`
+	APIKey    string `json:"api_key"`
+	SecretKey string `json:"secret_key"`
+	BaseURL   string `json:"base_url,omitempty"`
+	Model     string `json:"model,omitempty"`
+}
+
+type MCPServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled bool              `json:"enabled"`
+}
+
+type PermissionsConfig struct {
+	Allow   []string                 `json:"allow,omitempty"`
+	Ask     []string                 `json:"ask,omitempty"`
+	Deny    []string                 `json:"deny,omitempty"`
+	Sandbox map[string]SandboxConfig `json:"sandbox,omitempty"`
+}
+
+type SandboxConfig struct {
+	SandboxMode   string   `json:"sandbox_mode,omitempty"`
+	Network       bool     `json:"network,omitempty"`
+	WritableRoots []string `json:"writable_roots,omitempty"`
+}
+
+type WorkspaceConfig struct {
+	Path   string `json:"path"`
+	Access string `json:"access,omitempty"`
+}
+
+// SkillManagementView is the extension management projection exposed by a
+// Runner.
+type SkillManagementView struct {
+	Skills  []SkillView     `json:"skills"`
+	Plugins []PluginView    `json:"plugins"`
+	MCP     []MCPServerView `json:"mcp"`
+}
+
+type SkillView struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Dir         string   `json:"dir,omitempty"`
+	Files       []string `json:"files,omitempty"`
+	Loaded      bool     `json:"loaded"`
+	Source      string   `json:"source"`
+	SourceKind  string   `json:"sourceKind"`
+	Plugin      string   `json:"plugin,omitempty"`
+}
+
+type PluginView struct {
+	Name        string   `json:"name"`
+	Version     string   `json:"version,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Dir         string   `json:"dir,omitempty"`
+	Enabled     bool     `json:"enabled"`
+	Skills      []string `json:"skills,omitempty"`
+	SkillNames  []string `json:"skillNames,omitempty"`
+	Agents      []string `json:"agents,omitempty"`
+	Commands    []string `json:"commands,omitempty"`
+	MCPServers  []string `json:"mcpServers,omitempty"`
+	HasHooks    bool     `json:"hasHooks,omitempty"`
+}
+
+type MCPServerView struct {
+	Name          string   `json:"name"`
+	Plugin        string   `json:"plugin"`
+	Command       string   `json:"command"`
+	Args          []string `json:"args,omitempty"`
+	PluginEnabled bool     `json:"pluginEnabled"`
+	Status        string   `json:"status,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	ToolCount     int      `json:"toolCount,omitempty"`
+}
 
 type ApprovalStatus = core.ApprovalStatus
 
@@ -86,20 +274,19 @@ const (
 	ApprovalExpired  = core.ApprovalExpired
 )
 
-type ConfirmKind = core.ConfirmKind
+type ConfirmKind = protocol.ConfirmKind
 
 const (
-	ConfirmKindPermission = core.ConfirmKindPermission
-	ConfirmKindInstall    = core.ConfirmKindInstall
+	ConfirmKindPermission = protocol.ConfirmKindPermission
+	ConfirmKindInstall    = protocol.ConfirmKindInstall
 )
 
-type ConfirmRequest = core.ConfirmRequest
-type ConfirmReply = core.ConfirmReply
+type ConfirmRequest = protocol.ConfirmRequest
+type ConfirmReply = protocol.ConfirmReply
 type ApprovalDecision = core.ApprovalDecision
 type ApprovalView = core.ApprovalView
-type Control = core.Control
 type ConnectorRuntime = core.ConnectorRuntime
-type RunView = core.RunView
+type RunSnapshot = core.RunSnapshot
 
 type ToolStatus = core.ToolStatus
 
@@ -110,8 +297,7 @@ const (
 )
 
 type ToolView = core.ToolView
-type ArtifactView = core.ArtifactView
-type ArtifactItem = core.ArtifactItem
+type SubAgentView = core.SubAgentView
 type ConnectorStatusPayload = core.ConnectorStatusPayload
 type ConnectView = core.ConnectView
 type ConnectorView = core.ConnectorView
@@ -126,55 +312,37 @@ const (
 )
 
 type QuestionView = core.QuestionView
-type QuestionOption = core.QuestionOption
-type QuestionItem = core.QuestionItem
-type QuestionReply = core.QuestionReply
-type QuestionRequest = core.QuestionRequest
+type QuestionOption = protocol.QuestionOption
+type QuestionItem = protocol.QuestionItem
+type QuestionReply = protocol.QuestionReply
+type QuestionRequest = protocol.QuestionRequest
 
-type Query interface {
-	CurrentRunView() (RunView, bool)
-	RunView(runID RunID) (RunView, bool)
-	ListRunViews(limit int) []RunView
-	ArtifactView(runID RunID) (ArtifactView, bool)
-	ConnectView() ConnectView
-	Stats() BotStats
-	ContextSnapshot() ContextSnapshot
-	MemoryView(scope MemoryScope) MemoryView
-	ListSessions() []SessionMeta
-	SessionMessages() []DisplayMessage
-	CommandNames() []string
-	ProviderModel() (provider, model string)
-}
-
-type Management interface {
-	SwitchModel(name string) (model, provider string, err error)
-	ContextStatus() string
-	ContextReport() string
-	SelectSkill(name string) error
-	ClearSelectedSkill()
-	ConfigView() ConfigView
-	ApplyConfig(cfg ConfigView) (ConfigView, error)
-	SkillManagementView() SkillManagementView
-	RefreshSkillManagement() SkillManagementView
-	SetPluginEnabled(name string, enabled bool) (SkillManagementView, error)
-	CWD() string
-	ClearContext()
-	CurrentSessionID() string
-	SetSession(id string) error
-	ResumeSession(id string) error
-	ListSessions() []SessionMeta
-	NewSession() (SessionMeta, error)
-	DeleteSession(id string) error
-}
-
-// Client is the full application-facing view of one Manager instance.
-type Client interface {
-	Control
-	Query
-	Management
-	Close()
-}
+type ErrorCode string
 
 const (
-	MemoryScopeProject = commonview.MemoryScopeProject
+	ErrorInvalidInput ErrorCode = "invalid_input"
+	ErrorClosed       ErrorCode = "closed"
+	ErrorBusy         ErrorCode = "busy"
+	ErrorNotFound     ErrorCode = "not_found"
+	ErrorConflict     ErrorCode = "conflict"
+	ErrorUnsupported  ErrorCode = "unsupported"
 )
+
+// ProtocolError gives transports a stable code without coupling them to
+// runtime's internal error strings.
+type ProtocolError struct {
+	Code      ErrorCode `json:"code"`
+	Operation string    `json:"operation,omitempty"`
+	Message   string    `json:"message"`
+}
+
+func (e *ProtocolError) Error() string {
+	if e.Operation == "" {
+		return "runtime: " + e.Message
+	}
+	return fmt.Sprintf("runtime: %s: %s", e.Operation, e.Message)
+}
+
+func protocolError(code ErrorCode, operation, message string) error {
+	return &ProtocolError{Code: code, Operation: operation, Message: message}
+}

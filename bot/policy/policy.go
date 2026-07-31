@@ -3,12 +3,46 @@
 package policy
 
 import (
+	"fmt"
 	"sync"
 
-	"nekocode/bot/policy/budget"
 	"nekocode/bot/policy/exploration"
 	"nekocode/bot/policy/ledger"
+	"nekocode/bot/policy/semantics"
 )
+
+const quotaExhaustedMsg = `[配额] 本轮读取配额已达上限 (%d)。基于已有信息继续，不要重试。`
+
+type toolQuota struct {
+	maxSlots int
+	used     int
+}
+
+func computeToolQuota(usedTokens, contextWindow int) toolQuota {
+	if contextWindow <= 0 {
+		return toolQuota{maxSlots: 3}
+	}
+	ratio := float64(usedTokens) / float64(contextWindow)
+	switch {
+	case ratio < 0.15:
+		return toolQuota{maxSlots: 8}
+	case ratio < 0.30:
+		return toolQuota{maxSlots: 4}
+	default:
+		return toolQuota{maxSlots: 2}
+	}
+}
+
+func (q *toolQuota) consumeCall(toolName string, args map[string]any) error {
+	if !semantics.ClassifyToolCall(toolName, args).Exploratory {
+		return nil
+	}
+	q.used++
+	if q.used > q.maxSlots {
+		return fmt.Errorf(quotaExhaustedMsg, q.maxSlots)
+	}
+	return nil
+}
 
 type Policy struct {
 	mu sync.Mutex
@@ -18,7 +52,7 @@ type Policy struct {
 	exploration *exploration.Tracker
 
 	turn           Turn
-	quota          budget.ToolQuota
+	quota          toolQuota
 	readsLeft      int
 	modelResults   int
 	garbledCount   int
@@ -63,7 +97,7 @@ func (p *Policy) ResetRun() {
 	}
 	p.mu.Lock()
 	p.turn = Turn{}
-	p.quota = budget.ToolQuota{}
+	p.quota = toolQuota{}
 	p.readsLeft = 0
 	p.modelResults = 0
 	p.garbledCount = 0
@@ -74,19 +108,18 @@ func (p *Policy) ResetRun() {
 	p.hooks.reset()
 }
 
-// BeginTurn starts one policy turn and evaluates its hooks.
-func (p *Policy) BeginTurn(turn Turn, usedTokens, contextWindow int) []Result {
+// BeginTurn publishes the facts shared by policy hooks in one model turn.
+func (p *Policy) BeginTurn(turn Turn, usedTokens, contextWindow int) {
 	if p == nil {
-		return nil
+		return
 	}
 	p.ledger.BeginTurn()
 	p.mu.Lock()
 	p.turn = turn
-	p.quota = budget.ComputeQuota(usedTokens, contextWindow)
-	p.readsLeft = p.quota.MaxSlots
+	p.quota = computeToolQuota(usedTokens, contextWindow)
+	p.readsLeft = p.quota.maxSlots
 	p.modelResults = 0
 	p.mu.Unlock()
-	return p.evaluate(PreTurn, ToolFacts{})
 }
 
 // BeforeModel evaluates policy immediately before a model request.
@@ -97,11 +130,11 @@ func (p *Policy) BeforeModel(toolResultCount int) []Result {
 	p.mu.Lock()
 	p.modelResults = toolResultCount
 	p.mu.Unlock()
-	return p.evaluate(PreModelRequest, ToolFacts{})
+	return p.evaluate(PreModel, ToolFacts{})
 }
 
-// AfterTurn records the response outcome and evaluates end-of-turn policy.
-func (p *Policy) AfterTurn(result TurnResult) []Result {
+// BeforeStop records the response outcome and lets policy accept or reject it.
+func (p *Policy) BeforeStop(result TurnResult) []Result {
 	if p == nil {
 		return nil
 	}
@@ -112,7 +145,7 @@ func (p *Policy) AfterTurn(result TurnResult) []Result {
 	p.mu.Unlock()
 	facts := p.facts(ToolFacts{})
 	facts.Response.Intent = result.Intent
-	return p.hooks.evaluate(PostTurn, facts)
+	return p.hooks.evaluate(Stop, facts)
 }
 
 // OnUserSubmit evaluates hooks after user input enters the run.
@@ -121,14 +154,6 @@ func (p *Policy) OnUserSubmit() []Result {
 		return nil
 	}
 	return p.evaluate(UserSubmit, ToolFacts{})
-}
-
-// OnStop evaluates hooks before the run stops.
-func (p *Policy) OnStop() []Result {
-	if p == nil {
-		return nil
-	}
-	return p.evaluate(Stop, ToolFacts{})
 }
 
 // Snapshot returns the persistable event ledger.

@@ -1,15 +1,20 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../useSessions'
-import type { view } from '../../../wailsjs/go/models'
-type SessionMeta = view.SessionMeta
+import type { runtime } from '../../../wailsjs/go/models'
+type SessionMeta = runtime.SessionMeta
 
 const mockSafeListSessions = vi.fn<() => Promise<SessionMeta[] | null>>()
 const mockSafeNewSession = vi.fn<() => Promise<SessionMeta | null>>()
 const mockSafeLoadSession = vi.fn()
 const mockSafeDeleteSession = vi.fn<(_: string) => Promise<void>>()
+let sessionChanged: ((event: unknown) => void) | undefined
 
 vi.mock('../../lib/wails', () => ({
+  safeEventsOn: (event: string, callback: (payload: unknown) => void) => {
+    if (event === 'session:changed') sessionChanged = callback
+    return () => {}
+  },
   safeListSessions: () => mockSafeListSessions(),
   safeNewSession: () => mockSafeNewSession(),
   safeLoadSession: (id: string) => mockSafeLoadSession(id),
@@ -28,6 +33,7 @@ const meta = (id: string): SessionMeta => ({
 describe('useSessions', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionChanged = undefined
     mockSafeListSessions.mockResolvedValue([])
     mockSafeNewSession.mockResolvedValue(meta('draft'))
     mockSafeLoadSession.mockResolvedValue([])
@@ -53,7 +59,7 @@ describe('useSessions', () => {
     expect(result.current.currentId).toBeNull()
   })
 
-  it('does not insert a new draft session into the history list', async () => {
+  it('selects a new draft without inserting it into the history list', async () => {
     const { result } = renderHook(() => useSessions())
     await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -63,7 +69,7 @@ describe('useSessions', () => {
     })
 
     expect(result.current.sessions).toEqual([])
-    expect(result.current.currentId).toBeNull()
+    expect(result.current.currentId).toBe('draft')
   })
 
   it('clears the current selection after deleting the last persisted session', async () => {
@@ -80,6 +86,60 @@ describe('useSessions', () => {
     })
 
     expect(result.current.sessions).toEqual([])
+    expect(result.current.currentId).toBeNull()
+  })
+
+  it('synchronizes the current session from runtime events', async () => {
+    mockSafeListSessions
+      .mockResolvedValueOnce([meta('one')])
+      .mockResolvedValueOnce([meta('two'), meta('one')])
+    const { result } = renderHook(() => useSessions())
+
+    await waitFor(() => expect(result.current.currentId).toBe('one'))
+
+    act(() => {
+      sessionChanged?.({ id: 'two' })
+    })
+
+    await waitFor(() => expect(result.current.currentId).toBe('two'))
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['two', 'one'])
+  })
+
+  it('ignores stale session list results from older runtime events', async () => {
+    mockSafeListSessions.mockResolvedValueOnce([meta('one')])
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.currentId).toBe('one'))
+
+    let resolveOlder!: (sessions: SessionMeta[]) => void
+    let resolveLatest!: (sessions: SessionMeta[]) => void
+    mockSafeListSessions
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveLatest = resolve }))
+
+    act(() => sessionChanged?.({ id: 'two' }))
+    act(() => sessionChanged?.({ id: 'three' }))
+    expect(result.current.currentId).toBe('three')
+
+    await act(async () => resolveLatest([meta('three')]))
+    await waitFor(() => expect(result.current.sessions.map((session) => session.id)).toEqual(['three']))
+    await act(async () => resolveOlder([meta('two')]))
+
+    expect(result.current.currentId).toBe('three')
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['three'])
+  })
+
+  it('preserves an authoritative empty current session across refreshes', async () => {
+    mockSafeListSessions.mockResolvedValue([meta('one')])
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.currentId).toBe('one'))
+
+    act(() => sessionChanged?.({ id: '' }))
+    await waitFor(() => expect(result.current.currentId).toBeNull())
+    await act(async () => {
+      await result.current.refresh()
+    })
+
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['one'])
     expect(result.current.currentId).toBeNull()
   })
 

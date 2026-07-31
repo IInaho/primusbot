@@ -20,9 +20,8 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 			"permission_scope":        "once",
 			"workspace":               "/repo",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 
 	view := cb.View(100, 40)
 	if strings.Contains(view, "echo") || strings.Contains(view, "pwd") {
@@ -49,9 +48,8 @@ func TestWorkspacePermissionConfirmShowsPath(t *testing.T) {
 			"requested_path":    "/repo/other/src/a.go",
 			"permission_reason": "add read-only workspace for read",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 
 	view := cb.View(100, 40)
 	for _, want := range []string{"/repo/other", "/repo/other/src/a.go"} {
@@ -69,8 +67,9 @@ func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 		ToolName:              "shell",
 		Args:                  map[string]any{"command": "go get example.com/pkg", "permission_scope": "once"},
 		Kind:                  controlruntime.ConfirmKindPermission,
-		Response:              ch,
 		CanEscalatePermission: true,
+	}, func(ok, remember bool) {
+		ch <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	})
 
 	view := cb.View(100, 40)
@@ -106,8 +105,9 @@ func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
 			"permission_scope": "project",
 		},
 		Kind:                  controlruntime.ConfirmKindPermission,
-		Response:              ch,
 		CanEscalatePermission: true,
+	}, func(ok, remember bool) {
+		ch <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	})
 
 	view := cb.View(100, 40)

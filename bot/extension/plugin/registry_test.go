@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"nekocode/util/text"
@@ -32,7 +35,7 @@ func TestInstallLocal(t *testing.T) {
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
 
 	r := newRegistry(defaultDirs())
-	p, err := r.Install(src)
+	p, err := r.Install(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -73,6 +76,166 @@ func TestInstallLocal(t *testing.T) {
 	}
 }
 
+func TestCancelledInstallPreservesExistingPlugin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	r := newRegistry(defaultDirs())
+	original := newTestPlugin(t, "test-plugin", "1.0.0")
+	installed, err := r.Install(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	update := newTestPlugin(t, "test-plugin", "2.0.0")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.Install(ctx, update); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Install error = %v, want context.Canceled", err)
+	}
+	current, ok := r.Get("test-plugin")
+	if !ok || current.Version != "1.0.0" {
+		t.Fatalf("current plugin = %#v, want original version", current)
+	}
+	manifest, err := parseManifest(installed.Dir)
+	if err != nil || manifest.Version != "1.0.0" {
+		t.Fatalf("installed manifest = %#v, err=%v", manifest, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(installed.Dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".install-") {
+			t.Fatalf("cancelled install left staging directory %q", entry.Name())
+		}
+	}
+}
+
+func TestPreparedInstallRollbackRestoresExistingPlugin(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	r := newRegistry(defaultDirs())
+	original := newTestPlugin(t, "test-plugin", "1.0.0")
+	installed, err := r.Install(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	update := newTestPlugin(t, "test-plugin", "2.0.0")
+	installation, err := r.PrepareInstall(context.Background(), update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := parseManifest(installation.Plugin().Dir)
+	if err != nil || prepared.Version != "2.0.0" {
+		t.Fatalf("prepared manifest = %#v, err=%v", prepared, err)
+	}
+	if err := installation.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+
+	current, ok := r.Get("test-plugin")
+	if !ok || current.Version != "1.0.0" {
+		t.Fatalf("registry after rollback = %#v", current)
+	}
+	restored, err := parseManifest(installed.Dir)
+	if err != nil || restored.Version != "1.0.0" {
+		t.Fatalf("restored manifest = %#v, err=%v", restored, err)
+	}
+}
+
+func TestInstallCommitFailureRestoresExistingPlugin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	r := newRegistry(defaultDirs())
+	original := newTestPlugin(t, "test-plugin", "1.0.0")
+	installed, err := r.Install(context.Background(), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	update := newTestPlugin(t, "test-plugin", "2.0.0")
+	installation, err := r.PrepareInstall(context.Background(), update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedHome := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(blockedHome, []byte("blocked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", blockedHome)
+	if err := installation.Commit(); err == nil {
+		t.Fatal("Commit succeeded when registry path was not writable")
+	}
+
+	current, ok := r.Get("test-plugin")
+	if !ok || current.Version != "1.0.0" {
+		t.Fatalf("registry after failed commit = %#v", current)
+	}
+	restored, err := parseManifest(installed.Dir)
+	if err != nil || restored.Version != "1.0.0" {
+		t.Fatalf("restored manifest = %#v, err=%v", restored, err)
+	}
+}
+
+func TestDisableFailureRestoresRuntimeState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	r := newRegistry(defaultDirs())
+	src := newTestPlugin(t, "test-plugin", "1.0.0")
+	if _, err := r.Install(context.Background(), src); err != nil {
+		t.Fatal(err)
+	}
+
+	blockedHome := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(blockedHome, []byte("blocked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", blockedHome)
+	if err := r.Disable("test-plugin"); err == nil {
+		t.Fatal("Disable succeeded when registry path was not writable")
+	}
+	current, _ := r.Get("test-plugin")
+	if !current.Enabled {
+		t.Fatal("failed Disable changed in-memory plugin state")
+	}
+}
+
+func TestRegistrySaveSanitizesLegacySource(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	r := newRegistry(defaultDirs())
+	src := newTestPlugin(t, "test-plugin", "1.0.0")
+	p, err := r.Install(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Source = "ssh://user:password@host/owner/repo"
+	r.mu.Lock()
+	err = r.saveRegistryFile()
+	r.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := r.registryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "password") || strings.Contains(string(data), "user@") {
+		t.Fatalf("registry retained source credentials: %s", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("registry mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
 func TestEnableDisable(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldHome := os.Getenv("HOME")
@@ -81,7 +244,7 @@ func TestEnableDisable(t *testing.T) {
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
 	r := newRegistry(defaultDirs())
-	_, err := r.Install(src)
+	_, err := r.Install(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -117,7 +280,7 @@ func TestRegistryPersistence(t *testing.T) {
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
 	r := newRegistry(defaultDirs())
-	_, err := r.Install(src)
+	_, err := r.Install(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -187,22 +350,6 @@ func TestLooksLikeGitRepo(t *testing.T) {
 	}
 }
 
-func TestRepoName(t *testing.T) {
-	tests := []struct {
-		url  string
-		want string
-	}{
-		{"https://github.com/user/repo", "user-repo"},
-		{"https://github.com/user/repo.git", "user-repo"},
-		{"https://gitlab.com/org/project/", "org-project"},
-	}
-	for _, tt := range tests {
-		if got := repoName(tt.url); got != tt.want {
-			t.Errorf("repoName(%q) = %q, want %q", tt.url, got, tt.want)
-		}
-	}
-}
-
 func TestPluginInfo_Disabled(t *testing.T) {
 	tmpDir := t.TempDir()
 	oldHome := os.Getenv("HOME")
@@ -211,7 +358,7 @@ func TestPluginInfo_Disabled(t *testing.T) {
 
 	src := newTestPlugin(t, "test-plugin", "1.0.0")
 	r := newRegistry(defaultDirs())
-	_, err := r.Install(src)
+	_, err := r.Install(context.Background(), src)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -235,7 +382,7 @@ func TestInstallInvalidSource(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	r := newRegistry(defaultDirs())
-	_, err := r.Install("/nonexistent/path/to/plugin")
+	_, err := r.Install(context.Background(), "/nonexistent/path/to/plugin")
 	if err == nil {
 		t.Error("should fail for nonexistent path")
 	}

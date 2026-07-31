@@ -8,7 +8,7 @@ import (
 
 func VerificationHook() policy.Hook {
 	return policy.Hook{
-		Name: "verification", Point: policy.PostTurn,
+		Name: "verification", Point: policy.Stop,
 		On: func(s policy.State) *policy.Result {
 			facts := s.Facts()
 			intent := facts.Response.Intent

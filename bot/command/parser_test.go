@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"testing"
 )
 
@@ -35,31 +36,50 @@ func TestParserParse(t *testing.T) {
 
 func TestParserExecute(t *testing.T) {
 	p := NewParser()
-	p.Register("test", func(cmd *Command) (string, bool) { return "ok", true })
-	p.RegisterDynamic("review", func(cmd *Command) (string, bool) { return "dynamic", true })
+	p.Register("test", func(_ context.Context, cmd *Command) (string, bool) { return "ok", true })
+	p.RegisterDynamic("review", func(_ context.Context, cmd *Command) (string, bool) { return "dynamic", true })
 
 	// Unknown command.
-	msg, handled := p.Execute(&Command{Name: "unknown"})
+	msg, handled := p.Execute(context.Background(), &Command{Name: "unknown"})
 	if !handled || msg != "Unknown command: /unknown. Type /help for available commands." {
 		t.Errorf("unexpected: %q, %v", msg, handled)
 	}
 
 	// Known command.
-	msg, handled = p.Execute(&Command{Name: "test"})
+	msg, handled = p.Execute(context.Background(), &Command{Name: "test"})
 	if !handled || msg != "ok" {
 		t.Errorf("unexpected: %q, %v", msg, handled)
 	}
 
 	// Dynamic command.
-	msg, handled = p.Execute(&Command{Prefix: "$", Name: "review"})
+	msg, handled = p.Execute(context.Background(), &Command{Prefix: "$", Name: "review"})
 	if !handled || msg != "dynamic" {
 		t.Errorf("unexpected: %q, %v", msg, handled)
 	}
 
 	// Empty command.
-	_, handled = p.Execute(&Command{Name: ""})
+	_, handled = p.Execute(context.Background(), &Command{Name: ""})
 	if handled {
 		t.Error("empty command should not be handled")
+	}
+}
+
+func TestParserExecuteHonorsCancellation(t *testing.T) {
+	p := NewParser()
+	called := false
+	p.Register("test", func(_ context.Context, _ *Command) (string, bool) {
+		called = true
+		return "ok", true
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	msg, handled := p.Execute(ctx, &Command{Name: "test"})
+	if !handled || msg != "Command cancelled: context canceled" {
+		t.Fatalf("unexpected cancellation result: %q, %v", msg, handled)
+	}
+	if called {
+		t.Fatal("handler ran after command context was cancelled")
 	}
 }
 

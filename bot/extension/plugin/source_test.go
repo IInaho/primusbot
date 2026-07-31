@@ -47,6 +47,25 @@ func TestIsLocalPath(t *testing.T) {
 	}
 }
 
+func TestPluginSourceRejectsURLCredentials(t *testing.T) {
+	for _, source := range []string{
+		"https://token:secret@github.com/owner/repo",
+		"ssh://user:password@host/owner/repo",
+		"token@github.com:owner/repo",
+	} {
+		if err := validateSource(source); err == nil {
+			t.Fatalf("validateSource accepted credentials in %q", source)
+		}
+	}
+	source := "https://token:secret@github.com/owner/repo"
+	if got := sanitizeSource(source); got != "https://github.com/owner/repo" {
+		t.Fatalf("sanitizeSource = %q", got)
+	}
+	if got := sanitizeSource("token@github.com:owner/repo"); got != "github.com:owner/repo" {
+		t.Fatalf("sanitizeSource SCP form = %q", got)
+	}
+}
+
 func TestExpandPluginEnv(t *testing.T) {
 	got := expandPluginEnv(map[string]string{"A": "${PLUGIN_ROOT}/bin", "B": "${CLAUDE_PLUGIN_ROOT}/lib"}, "/tmp/p")
 	if got["A"] != "/tmp/p/bin" || got["B"] != "/tmp/p/lib" {

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,12 +45,15 @@ func newClient(name string, cfg ServerConfig) *client {
 
 // Start launches the MCP server process and performs the initialize
 // handshake. It is idempotent: an already-running client is a no-op.
-func (c *client) Start() error {
+func (c *client) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.cmd != nil {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	cmd := exec.Command(c.config.Command, c.config.Args...)
@@ -75,7 +79,7 @@ func (c *client) Start() error {
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
 
-	if err := c.initialize(); err != nil {
+	if err := c.initialize(ctx); err != nil {
 		_ = c.stopLocked(2 * time.Second)
 		return fmt.Errorf("initialize: %w", err)
 	}
@@ -115,15 +119,15 @@ func (c *client) stopLocked(timeout time.Duration) error {
 }
 
 // ListTools discovers the server's tools, starting it if necessary.
-func (c *client) ListTools() ([]toolDef, error) {
-	if err := c.Start(); err != nil {
+func (c *client) ListTools(ctx context.Context) ([]toolDef, error) {
+	if err := c.Start(ctx); err != nil {
 		return nil, err
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	result, err := c.sendRequest("tools/list", nil)
+	result, err := c.sendRequest(ctx, "tools/list", nil)
 	if err != nil {
 		return nil, fmt.Errorf("tools/list: %w", err)
 	}
@@ -140,15 +144,15 @@ func (c *client) ListTools() ([]toolDef, error) {
 }
 
 // CallTool invokes a tool on the server, starting it if necessary.
-func (c *client) CallTool(name string, args map[string]any) (string, error) {
-	if err := c.Start(); err != nil {
+func (c *client) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	if err := c.Start(ctx); err != nil {
 		return "", err
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	result, err := c.sendRequest("tools/call", map[string]any{
+	result, err := c.sendRequest(ctx, "tools/call", map[string]any{
 		"name":      name,
 		"arguments": args,
 	})
@@ -185,7 +189,7 @@ func parseToolCallResult(result []byte) (string, error) {
 	return text, nil
 }
 
-func (c *client) initialize() error {
+func (c *client) initialize(ctx context.Context) error {
 	params := map[string]any{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
@@ -195,7 +199,7 @@ func (c *client) initialize() error {
 		},
 	}
 
-	result, err := c.sendRequest("initialize", params)
+	result, err := c.sendRequest(ctx, "initialize", params)
 	if err != nil {
 		return err
 	}
@@ -212,13 +216,16 @@ func (c *client) initialize() error {
 		return fmt.Errorf("parse initialize: %w", err)
 	}
 
-	if err := c.sendNotification("notifications/initialized", nil); err != nil {
+	if err := c.sendNotification(ctx, "notifications/initialized", nil); err != nil {
 		return fmt.Errorf("send initialized: %w", err)
 	}
 	return nil
 }
 
-func (c *client) sendRequest(method string, params any) (json.RawMessage, error) {
+func (c *client) sendRequest(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id := c.reqID.Add(1)
 	req := jsonrpcRequest{
 		JSONRPC: "2.0",
@@ -232,24 +239,26 @@ func (c *client) sendRequest(method string, params any) (json.RawMessage, error)
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	if _, err := fmt.Fprintf(c.stdin, "%s\n", body); err != nil {
-		return nil, fmt.Errorf("write: %w", err)
+	timeout := c.timeout()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	if err := c.writeMessage(ctx, timer.C, method, timeout, body); err != nil {
+		return nil, err
 	}
 
 	type readResult struct {
 		line []byte
 		err  error
 	}
+	reader := c.stdout
+	if reader == nil {
+		return nil, fmt.Errorf("read: MCP server stdout unavailable")
+	}
 	readCh := make(chan readResult, 1)
 	go func() {
-		line, err := c.stdout.ReadBytes('\n')
+		line, err := reader.ReadBytes('\n')
 		readCh <- readResult{line: line, err: err}
 	}()
-
-	timeout := c.requestTimeout
-	if timeout <= 0 {
-		timeout = defaultRequestTimeout
-	}
 
 	var line []byte
 	select {
@@ -258,8 +267,11 @@ func (c *client) sendRequest(method string, params any) (json.RawMessage, error)
 			return nil, fmt.Errorf("read: %w", result.err)
 		}
 		line = result.line
-	case <-time.After(timeout):
-		c.stopLocked(100 * time.Millisecond)
+	case <-ctx.Done():
+		_ = c.stopLocked(100 * time.Millisecond)
+		return nil, ctx.Err()
+	case <-timer.C:
+		_ = c.stopLocked(100 * time.Millisecond)
 		return nil, fmt.Errorf("%s timed out after %s", method, timeout)
 	}
 
@@ -277,7 +289,10 @@ func (c *client) sendRequest(method string, params any) (json.RawMessage, error)
 	return resp.Result, nil
 }
 
-func (c *client) sendNotification(method string, params any) error {
+func (c *client) sendNotification(ctx context.Context, method string, params any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	notif := jsonrpcNotification{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -287,6 +302,47 @@ func (c *client) sendNotification(method string, params any) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(c.stdin, "%s\n", body)
-	return err
+	timeout := c.timeout()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	return c.writeMessage(ctx, timer.C, method, timeout, body)
+}
+
+func (c *client) timeout() time.Duration {
+	if c.requestTimeout > 0 {
+		return c.requestTimeout
+	}
+	return defaultRequestTimeout
+}
+
+func (c *client) writeMessage(
+	ctx context.Context,
+	timeout <-chan time.Time,
+	method string,
+	timeoutDuration time.Duration,
+	body []byte,
+) error {
+	writer := c.stdin
+	if writer == nil {
+		return fmt.Errorf("write: MCP server stdin unavailable")
+	}
+	writeCh := make(chan error, 1)
+	go func() {
+		_, err := writer.Write(append(body, '\n'))
+		writeCh <- err
+	}()
+
+	select {
+	case err := <-writeCh:
+		if err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		_ = c.stopLocked(100 * time.Millisecond)
+		return ctx.Err()
+	case <-timeout:
+		_ = c.stopLocked(100 * time.Millisecond)
+		return fmt.Errorf("%s timed out after %s", method, timeoutDuration)
+	}
 }

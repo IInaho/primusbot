@@ -22,12 +22,13 @@ func html2md(rawHTML string) string {
 		}
 
 		if skipStack > 0 {
-			if tt == html.EndTagToken {
+			switch tt {
+			case html.EndTagToken:
 				name, _ := z.TagName()
 				if isSkipAtom(atom.Lookup(name)) {
 					skipStack--
 				}
-			} else if tt == html.StartTagToken {
+			case html.StartTagToken:
 				name, _ := z.TagName()
 				if isSkipAtom(atom.Lookup(name)) {
 					skipStack++

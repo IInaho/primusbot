@@ -4,22 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"nekocode/bot/tools/runtime/core"
-	commonview "nekocode/common/view"
 	"strings"
 	"sync"
 
-	"nekocode/bot/tools/runtime/toolhelpers"
+	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/toolutil"
+	"nekocode/protocol"
 )
 
 type TodoWriteTool struct {
-	toolhelpers.SequentialSafeTool
+	toolutil.SequentialSafeTool
 	mu       sync.Mutex
-	onUpdate commonview.TodoFunc
-	items    []commonview.TodoItem
+	onUpdate protocol.TodoFunc
+	items    []protocol.TodoItem
 }
 
-func (t *TodoWriteTool) SetUpdateFn(fn commonview.TodoFunc) {
+func (t *TodoWriteTool) SetUpdateFn(fn protocol.TodoFunc) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onUpdate = fn
@@ -37,7 +37,7 @@ func (t *TodoWriteTool) Parameters() []core.Parameter {
 }
 
 func (t *TodoWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	var items []commonview.TodoItem
+	var items []protocol.TodoItem
 	switch v := args["todos"].(type) {
 	case string:
 		if v == "" {
@@ -66,12 +66,23 @@ func (t *TodoWriteTool) Execute(ctx context.Context, args map[string]any) (strin
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Task list updated (%d items):\n", len(items))
-	done := commonview.CountCompleted(items)
+	done := protocol.CountCompleted(items)
 	for i, it := range items {
-		fmt.Fprintf(&b, "%d. %s %s\n", i+1, commonview.TodoStatusIcon(it.Status), it.Content)
+		fmt.Fprintf(&b, "%d. %s %s\n", i+1, todoStatusIcon(it.Status), it.Content)
 	}
 	if done == len(items) {
 		fmt.Fprintf(&b, "All %d tasks complete.", done)
 	}
 	return b.String(), nil
+}
+
+func todoStatusIcon(status string) string {
+	switch status {
+	case "in_progress":
+		return "▸"
+	case "completed":
+		return "✓"
+	default:
+		return "·"
+	}
 }

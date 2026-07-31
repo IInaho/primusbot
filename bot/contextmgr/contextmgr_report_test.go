@@ -1,0 +1,23 @@
+package contextmgr
+
+import (
+	"testing"
+
+	"nekocode/bot/provider/types"
+)
+
+func TestManagerReport(t *testing.T) {
+	m := New(Config{SystemPrompt: "system", ContextWindow: 10_000})
+	m.Add("user", "hello")
+	m.AddAssistantResponse("world", "")
+	m.AddToolResultsBatch([]ToolResultMsg{{
+		Message: types.Message{Content: "result", ToolCallID: "call_1"}, ToolName: "read",
+	}})
+	report := m.Report()
+	if report.Budget != 10_000 || report.SystemPrompt == 0 {
+		t.Fatalf("report budget/system = %+v", report)
+	}
+	if report.UserMessages != 1 || report.AssistantMsgs != 1 || report.ToolResults != 1 {
+		t.Fatalf("report message counts = %+v", report)
+	}
+}

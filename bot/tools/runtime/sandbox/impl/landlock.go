@@ -76,26 +76,9 @@ func landlockAvailable() bool {
 	return landlockProbeOK
 }
 
-// landlockReasonUnavailable returns why Landlock is unavailable, or "".
-func landlockReasonUnavailable() string {
-	if reason := tbsb.ReasonUnavailable(); reason != "" {
-		return reason
-	}
-	// Kernel reports Landlock as present, but enforcement failed at runtime
-	// (e.g. landlock_restrict_self EPERM under a restricted container).
-	if tbsb.Available() && !landlockAvailable() {
-		if landlockProbeErr != nil {
-			return fmt.Sprintf("Landlock enforcement blocked at runtime: %v", landlockProbeErr)
-		}
-		return "Landlock enforcement blocked at runtime (landlock_restrict_self EPERM)"
-	}
-	return ""
-}
-
 var (
 	landlockProbeOnce sync.Once
 	landlockProbeOK   bool
-	landlockProbeErr  error
 )
 
 // landlockSelfTest runs a trivial command through the Landlock backend to
@@ -108,12 +91,10 @@ func landlockSelfTest() bool {
 	defer cancel()
 	ws, err := os.MkdirTemp("", "landlock-probe-")
 	if err != nil {
-		landlockProbeErr = err
 		return false
 	}
-	defer os.RemoveAll(ws)
+	defer func() { _ = os.RemoveAll(ws) }()
 	_, err = runLandlockBash(ctx, "echo ok", Profile{Workspace: ws}, 10*time.Second)
-	landlockProbeErr = err
 	return err == nil
 }
 

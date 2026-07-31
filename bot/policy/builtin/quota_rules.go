@@ -8,7 +8,7 @@ import (
 
 func QuotaHook() policy.Hook {
 	return policy.Hook{
-		Name: "quota", Point: policy.PreTurn,
+		Name: "quota", Point: policy.PreModel,
 		On: func(s policy.State) *policy.Result {
 			left := int64(s.Facts().Turn.ReadsLeft)
 			if left > 2 {

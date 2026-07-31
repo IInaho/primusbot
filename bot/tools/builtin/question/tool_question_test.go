@@ -5,19 +5,19 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/bot/view"
+	"nekocode/protocol"
 )
 
 func TestQuestionToolExecutesWithAnswers(t *testing.T) {
 	tool := NewTool()
-	tool.SetQuestionFunc(func(req view.QuestionRequest) view.QuestionReply {
+	tool.SetQuestionFunc(func(req protocol.QuestionRequest) protocol.QuestionReply {
 		if len(req.Questions) != 1 {
 			t.Fatalf("expected one question, got %d", len(req.Questions))
 		}
 		if req.Questions[0].Question != "Pick a mode" {
 			t.Fatalf("unexpected question: %q", req.Questions[0].Question)
 		}
-		return view.QuestionReply{Answers: [][]string{{"Fast"}}}
+		return protocol.QuestionReply{Answers: [][]string{{"Fast"}}}
 	})
 
 	out, err := tool.Execute(context.Background(), map[string]any{
@@ -42,8 +42,8 @@ func TestQuestionToolExecutesWithAnswers(t *testing.T) {
 
 func TestQuestionToolReject(t *testing.T) {
 	tool := NewTool()
-	tool.SetQuestionFunc(func(view.QuestionRequest) view.QuestionReply {
-		return view.QuestionReply{Rejected: true}
+	tool.SetQuestionFunc(func(protocol.QuestionRequest) protocol.QuestionReply {
+		return protocol.QuestionReply{Rejected: true}
 	})
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"questions": []any{map[string]any{"question": "Continue?"}},

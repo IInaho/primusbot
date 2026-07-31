@@ -234,7 +234,7 @@ func requestJSON[T any](ctx context.Context, c *apiClient, method, endpoint stri
 	if err != nil {
 		return zero, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return zero, sharedhttp.NewHTTPError(resp.StatusCode, string(data))

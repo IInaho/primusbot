@@ -5,6 +5,7 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sync"
@@ -57,7 +58,7 @@ func New(registry *tools.Registry) *Manager {
 
 // Add starts or replaces a server owned by id. Name remains the MCP tool
 // prefix visible to the model.
-func (m *Manager) Add(id, name string, cfg ServerConfig) error {
+func (m *Manager) Add(ctx context.Context, id, name string, cfg ServerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -71,12 +72,12 @@ func (m *Manager) Add(id, name string, cfg ServerConfig) error {
 	m.owners[name] = id
 	m.health[name] = Health{Status: StatusStarting}
 
-	if err := client.Start(); err != nil {
+	if err := client.Start(ctx); err != nil {
 		m.health[name] = Health{Status: StatusError, Error: err.Error()}
 		return fmt.Errorf("start: %w", err)
 	}
 
-	defs, err := client.ListTools()
+	defs, err := client.ListTools(ctx)
 	if err != nil {
 		_ = client.Close()
 		m.health[name] = Health{Status: StatusError, Error: err.Error()}

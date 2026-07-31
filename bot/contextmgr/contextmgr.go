@@ -1,27 +1,11 @@
 // Package contextmgr provides a layered context management system for LLM conversations.
-//
-// Design rationale: the sub-packages (compact, context, memory, token) are
-// organized by domain responsibility rather than as a monolithic module.
-// Each sub-package has its own test suite and can be evolved independently.
-// This is intentional — aggressive merging would destroy test isolation
-// without measurable benefit.
 package contextmgr
 
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	"nekocode/bot/contextmgr/compression"
-	"nekocode/bot/contextmgr/compression/replacement"
-	"nekocode/bot/contextmgr/context"
-	"nekocode/bot/contextmgr/internal/builder"
-	compactctl "nekocode/bot/contextmgr/internal/compaction"
-	"nekocode/bot/contextmgr/internal/history"
-	"nekocode/bot/contextmgr/internal/report"
-	"nekocode/bot/contextmgr/internal/settings"
-	"nekocode/bot/contextmgr/internal/snapshot"
-	"nekocode/bot/contextmgr/internal/state"
-	"nekocode/bot/contextmgr/internal/usage"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider"
@@ -29,45 +13,39 @@ import (
 )
 
 type Manager struct {
-	state      *state.State
-	history    *history.Store
-	builder    *builder.Builder
-	usage      *usage.Meter
-	settings   *settings.Store
-	snapshots  *snapshot.Store
-	reports    *report.Builder
-	compaction *compactctl.Controller
+	state *managerState
+}
+
+type compactor interface {
+	AutoCompactIfNeeded() error
+	NeedsSummarization() bool
+	Summarize() error
+	SetSummarizer(Summarizer)
+}
+
+type managerState struct {
+	mu sync.RWMutex
+
+	ctx             contextContent
+	contextWindow   int
+	tracker         *token.Tracker
+	compactCount    int
+	trimCount       int
+	compressor      compactor
+	compactionModel provider.LLM
 }
 
 type Config struct {
-	SystemPrompt string
-	Memory       *memory.File
-	Summarizer   compression.Summarizer
-	MergeClient  provider.LLM
+	SystemPrompt    string
+	ContextWindow   int
+	Memory          *memory.File
+	Summarizer      Summarizer
+	CompactionModel provider.LLM
 }
 
-// NewSub creates a lightweight Manager for subagents.
-// Compression is only enabled when mergeClient is non-nil.
-func NewSub(systemPrompt string, contextWindow int, mergeClient provider.LLM) *Manager {
-	ctx := content.New(systemPrompt)
-	m := assembleManager(&state.State{
-		Ctx:           ctx,
-		Tracker:       &token.Tracker{},
-		ContextWindow: contextWindow,
-		MergeClient:   mergeClient,
-	})
-	if mergeClient != nil {
-		mergeCtx := context.Background()
-		m.initCompressor(MakeSummarizer(mergeCtx, mergeClient))
-	}
-	return m
-}
-
-// MakeSummarizer creates a Summarizer func from an LLM client.
-// The provided context is used for LLM calls, enabling cancellation.
-func MakeSummarizer(ctx context.Context, client provider.LLM) compression.Summarizer {
+func makeSummarizer(ctx context.Context, client provider.LLM) Summarizer {
 	return func(msgs []types.Message, prevSummary string) (string, error) {
-		prompt := compression.BuildPrompt(msgs, prevSummary)
+		prompt := buildSummaryPrompt(msgs, prevSummary)
 		resp, err := client.Chat(ctx, []types.Message{{Role: "user", Content: prompt}}, nil)
 		if err != nil {
 			return "", err
@@ -80,38 +58,24 @@ func MakeSummarizer(ctx context.Context, client provider.LLM) compression.Summar
 }
 
 func New(cfg Config) *Manager {
-	ctx := content.New(cfg.SystemPrompt)
+	ctx := newContextContent(cfg.SystemPrompt)
 	if cfg.Memory != nil {
 		ctx.Memory = cfg.Memory.Build()
 	}
-	m := assembleManager(&state.State{
-		Ctx:         ctx,
-		Tracker:     &token.Tracker{},
-		MergeClient: cfg.MergeClient,
-	})
-	m.initCompressor(cfg.Summarizer)
+	m := &Manager{state: &managerState{
+		ctx:             ctx,
+		tracker:         &token.Tracker{},
+		contextWindow:   cfg.ContextWindow,
+		compactionModel: cfg.CompactionModel,
+	}}
+	summarizer := cfg.Summarizer
+	if summarizer == nil && cfg.CompactionModel != nil {
+		summarizer = makeSummarizer(context.Background(), cfg.CompactionModel)
+	}
+	m.initCompressor(summarizer)
 	return m
 }
 
-func assembleManager(state *state.State) *Manager {
-	m := &Manager{state: state}
-	m.history = &history.Store{State: state}
-	m.builder = &builder.Builder{State: state}
-	m.usage = &usage.Meter{State: state}
-	m.settings = &settings.Store{State: state}
-	m.snapshots = &snapshot.Store{State: state}
-	m.reports = &report.Builder{State: state}
-	m.compaction = &compactctl.Controller{State: state}
-	return m
-}
-
-func (m *Manager) initCompressor(summarizer compression.Summarizer) {
-	m.state.Compressor = replacement.New(replacement.Options{
-		Ctx:           &m.state.Ctx,
-		ContextWindow: &m.state.ContextWindow,
-		Tracker:       m.state.Tracker,
-		TrimCount:     &m.state.TrimCount,
-		Summarizer:    summarizer,
-		Cfg:           compression.DefaultConfig,
-	})
+func (m *Manager) initCompressor(summarizer Summarizer) {
+	m.state.compressor = newReplacementCompactor(m.state, summarizer)
 }

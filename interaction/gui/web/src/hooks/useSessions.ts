@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   safeDeleteSession,
+  safeEventsOn,
   safeListSessions,
   safeLoadSession,
   safeNewSession,
 } from '../lib/wails'
 import { genId } from '../lib/id'
 import type { Msg, ToolStep } from '../types/events'
-import type { view } from '../../wailsjs/go/models'
-type SessionMeta = view.SessionMeta
-type DisplayMessage = view.DisplayMessage
+import type { runtime } from '../../wailsjs/go/models'
+type SessionMeta = runtime.SessionMeta
+type DisplayMessage = runtime.DisplayMessage
 
 export interface UseSessionsReturn {
   sessions: SessionMeta[]
@@ -28,26 +29,29 @@ export function useSessions(): UseSessionsReturn {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const initializedRef = useRef(false)
+  const syncGenerationRef = useRef(0)
 
   const refresh = useCallback(async () => {
+    const generation = ++syncGenerationRef.current
     setLoading(true)
     setError(null)
     try {
       const list = normalizeSessions(await safeListSessions())
+      if (generation !== syncGenerationRef.current) return
       setSessions(list)
       if (list.length === 0) {
         setCurrentId(null)
       } else {
         setCurrentId((prev) => {
-          if (initializedRef.current && prev) return prev
+          if (initializedRef.current) return prev
           initializedRef.current = true
           return list[0].id
         })
       }
     } catch (err) {
-      setError(String(err))
+      if (generation === syncGenerationRef.current) setError(String(err))
     } finally {
-      setLoading(false)
+      if (generation === syncGenerationRef.current) setLoading(false)
     }
   }, [])
 
@@ -55,12 +59,30 @@ export function useSessions(): UseSessionsReturn {
     refresh()
   }, [refresh])
 
+  useEffect(() => {
+    return safeEventsOn('session:changed', (event: unknown) => {
+      const id = typeof (event as { id?: unknown })?.id === 'string'
+        ? (event as { id: string }).id
+        : ''
+      const generation = ++syncGenerationRef.current
+      initializedRef.current = true
+      setCurrentId(id || null)
+      void safeListSessions().then((list) => {
+        if (generation !== syncGenerationRef.current) return
+        setSessions(normalizeSessions(list))
+        setLoading(false)
+      }).catch((err) => {
+        if (generation === syncGenerationRef.current) setError(String(err))
+      })
+    })
+  }, [])
+
   const createSession = useCallback(async () => {
     setError(null)
     try {
       const meta = await safeNewSession()
       if (!meta) return null
-      setCurrentId(null)
+      setCurrentId(meta.id)
       return meta
     } catch (err) {
       setError(String(err))
@@ -89,7 +111,7 @@ export function useSessions(): UseSessionsReturn {
       const list = normalizeSessions(await safeListSessions())
       setSessions(list)
       if (currentId === id) {
-        setCurrentId(list.length > 0 ? list[0].id : null)
+        setCurrentId(null)
       }
       return list
     } catch (err) {
@@ -117,7 +139,7 @@ function normalizeSessions(list: SessionMeta[] | null | undefined): SessionMeta[
 // mapDisplayMessage 将服务端 DisplayMessage 转换为前端 Msg。
 // blocks 映射为 msg.steps，由 RunCard/ActivityRow/UnifiedDiff 渲染。
 // images 映射为 msg.images，由 ImageGrid 渲染。
-function mapDisplayMessage(m: DisplayMessage): Msg {
+export function mapDisplayMessage(m: DisplayMessage): Msg {
   const role = m.role as Msg['role']
   const text = m.content ?? ''
   const steps = buildStepsFromBlocks(m.blocks)

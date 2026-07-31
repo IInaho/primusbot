@@ -2,11 +2,14 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,11 +132,11 @@ func TestClientInitialize(t *testing.T) {
 		stdout: bufio.NewReader(stdout),
 	}
 
-	if err := c.initialize(); err != nil {
+	if err := c.initialize(context.Background()); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
 
-	tools, err := c.ListTools()
+	tools, err := c.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
@@ -144,7 +147,7 @@ func TestClientInitialize(t *testing.T) {
 		t.Errorf("tool name = %q, want mock-tool", tools[0].Name)
 	}
 
-	result, err := c.CallTool("mock-tool", map[string]any{"input": "hello"})
+	result, err := c.CallTool(context.Background(), "mock-tool", map[string]any{"input": "hello"})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
@@ -163,14 +166,14 @@ func TestClientStartStop(t *testing.T) {
 	defer cleanup()
 
 	c := newClient("test", ServerConfig{Command: cmd.Path})
-	if err := c.Start(); err != nil {
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	if c.cmd == nil || c.cmd.Process == nil {
 		t.Error("should be alive after start")
 	}
 
-	tools, err := c.ListTools()
+	tools, err := c.ListTools(context.Background())
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
@@ -194,10 +197,10 @@ func TestClientDoubleStart(t *testing.T) {
 	defer cleanup()
 
 	c := newClient("test", ServerConfig{Command: cmd.Path})
-	if err := c.Start(); err != nil {
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
-	if err := c.Start(); err != nil {
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
 	if c.cmd == nil || c.cmd.Process == nil {
@@ -208,13 +211,13 @@ func TestClientDoubleStart(t *testing.T) {
 
 func TestClientCallToolNotStarted(t *testing.T) {
 	c := newClient("offline", ServerConfig{Command: "/nonexistent"})
-	_, err := c.CallTool("test", nil)
+	_, err := c.CallTool(context.Background(), "test", nil)
 	if err == nil {
 		t.Error("should fail when server cannot start")
 	}
 }
 
-func TestClientListToolsTimeout(t *testing.T) {
+func TestClientListToolsCancellation(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "hang-list.go")
 	code := `package main
@@ -266,20 +269,94 @@ func main() {
 	}
 
 	c := newClient("hang-list", ServerConfig{Command: outPath})
-	c.requestTimeout = 50 * time.Millisecond
-	if err := c.Start(); err != nil {
+	c.requestTimeout = 10 * time.Second
+	if err := c.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 	start := time.Now()
-	_, err := c.ListTools()
-	if err == nil {
-		t.Fatal("ListTools should time out")
+	_, err := c.ListTools(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ListTools error = %v, want context deadline exceeded", err)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("ListTools took too long: %s", elapsed)
 	}
 	if c.cmd != nil {
-		t.Fatal("timed out MCP process should be cleared")
+		t.Fatal("cancelled MCP process should be cleared")
+	}
+}
+
+func TestClientCallToolCancellationWhileServerDoesNotRead(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "blocked-stdin.go")
+	code := `package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+)
+
+func main() {
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return
+	}
+	var req map[string]any
+	if json.Unmarshal(scanner.Bytes(), &req) != nil {
+		return
+	}
+	id, _ := req["id"].(float64)
+	resp := map[string]any{
+		"jsonrpc": "2.0",
+		"id": id,
+		"result": map[string]any{
+			"protocolVersion": "2024-11-05",
+			"serverInfo": map[string]string{"name": "blocked-stdin", "version": "1.0"},
+		},
+	}
+	out, _ := json.Marshal(resp)
+	fmt.Println(string(out))
+
+	// Consume the initialized notification, then stop reading stdin.
+	if scanner.Scan() {
+		time.Sleep(10 * time.Minute)
+	}
+}
+`
+	if err := os.WriteFile(script, []byte(code), 0o644); err != nil {
+		t.Fatalf("write mock server: %v", err)
+	}
+	outPath := filepath.Join(dir, "blocked-stdin")
+	build := exec.Command("go", "build", "-o", outPath, script)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build mock server: %v\n%s", err, out)
+	}
+
+	c := newClient("blocked-stdin", ServerConfig{Command: outPath})
+	c.requestTimeout = 10 * time.Second
+	if err := c.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := c.CallTool(ctx, "blocked", map[string]any{
+		"input": strings.Repeat("x", 1<<20),
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CallTool error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("CallTool took too long: %s", elapsed)
+	}
+	if c.cmd != nil {
+		t.Fatal("cancelled MCP process should be cleared")
 	}
 }

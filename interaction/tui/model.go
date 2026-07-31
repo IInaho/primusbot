@@ -9,6 +9,7 @@ import (
 
 	"nekocode/interaction/tui/components"
 	"nekocode/interaction/tui/styles"
+	"nekocode/internal/version"
 	controlruntime "nekocode/runtime"
 
 	"charm.land/bubbles/v2/spinner"
@@ -16,9 +17,12 @@ import (
 )
 
 type RuntimeClient interface {
-	controlruntime.Control
-	controlruntime.Query
-	Close()
+	controlruntime.Interaction
+	SteerRun(context.Context, controlruntime.RunID, controlruntime.Input) error
+	CurrentModel() controlruntime.ModelSelection
+	SessionMessages() []controlruntime.DisplayMessage
+	CommandCatalog() []string
+	Close() error
 }
 
 type Model struct {
@@ -36,29 +40,34 @@ type Model struct {
 	preConfirmState chatState
 	processingStart time.Time
 	processingPhase string
-	activeSkill     string // skill activated this turn, shown in status bar
 	Suggestions     *components.Suggestions
 	ConfirmBar      *components.ConfirmBar
 	QuestionBar     *components.QuestionBar
 	Scrollbar       *components.Scrollbar
 	runtimeEvents   <-chan controlruntime.Event
+	metrics         controlruntime.MetricsSnapshot
 }
 
-const version = "0.3.3"
+var displayVersion = version.Version
 
-func NewModel(rt RuntimeClient) *Model {
+func NewModel(rt RuntimeClient) (*Model, error) {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sty := styles.DefaultStyles()
 
-	prov, mod := rt.ProviderModel()
-	events, _ := rt.Subscribe(context.Background(), controlruntime.EventFilter{})
+	var prov, mod string
+	selection := rt.CurrentModel()
+	prov, mod = selection.Provider, selection.Model
+	events, err := rt.Events(context.Background(), controlruntime.EventFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("subscribe runtime events: %w", err)
+	}
 	m := &Model{
 		Runtime:       rt,
-		Header:        components.NewHeader(80, prov, mod, version),
+		Header:        components.NewHeader(80, prov, mod, displayVersion),
 		Messages:      components.NewMessages(80, 14, &sty),
 		Input:         components.NewInput(80),
-		Splash:        components.NewSplash(80, 24, version),
+		Splash:        components.NewSplash(80, 24, displayVersion),
 		Spinner:       sp,
 		Suggestions:   components.NewSuggestions(&sty),
 		ConfirmBar:    components.NewConfirmBar(&sty),
@@ -71,7 +80,7 @@ func NewModel(rt RuntimeClient) *Model {
 	}
 	m.Input.SetHistory(loadInputHistory())
 
-	return m
+	return m, nil
 }
 
 func (m *Model) Init() tea.Cmd { return tea.Batch(m.Input.Init(), listenRuntimeEvent(m.runtimeEvents)) }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"nekocode/interaction/connect/core"
+	"nekocode/interaction/connect"
 )
 
 const section = "qqbot"
@@ -20,11 +20,11 @@ func (c Config) configured() bool {
 	return strings.TrimSpace(c.AppID) != "" && strings.TrimSpace(c.AppSecret) != ""
 }
 
-func configPath() string { return core.DefaultFileStore().Path() }
+func configPath() string { return connect.DefaultFileStore().Path() }
 
 func loadConfig() (Config, error) {
 	var cfg Config
-	if err := core.DefaultFileStore().Load(section, &cfg); err != nil {
+	if err := connect.DefaultFileStore().Load(section, &cfg); err != nil {
 		return Config{}, err
 	}
 	cfg.AppID = strings.TrimSpace(cfg.AppID)
@@ -33,7 +33,7 @@ func loadConfig() (Config, error) {
 }
 
 func saveConfig(cfg Config) error {
-	return core.DefaultFileStore().Save(section, cfg)
+	return connect.DefaultFileStore().Save(section, cfg)
 }
 
 func setupInstructions() string {

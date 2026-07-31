@@ -15,9 +15,17 @@ func SetupTemp(t *testing.T) string {
 	// temp dir so file tools accept paths inside the test fixture.
 	t.Setenv("NEKOCODE_WORKSPACE", d)
 	workspace.Configure(d, nil)
-	os.WriteFile(filepath.Join(d, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0644)
-	os.WriteFile(filepath.Join(d, "b.go"), []byte("package main\n\nfunc helper() {}\n"), 0644)
-	os.MkdirAll(filepath.Join(d, "sub"), 0755)
-	os.WriteFile(filepath.Join(d, "sub", "c.txt"), []byte("hello\nworld\n"), 0644)
+	if err := os.WriteFile(filepath.Join(d, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "b.go"), []byte("package main\n\nfunc helper() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(d, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "sub", "c.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	return d
 }

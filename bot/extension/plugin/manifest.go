@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"nekocode/bot/extension/mcp"
 )
@@ -66,6 +67,10 @@ func parseManifestData(data []byte) (*Manifest, error) {
 	}
 	if m.Name == "" {
 		return nil, fmt.Errorf("missing required field: name")
+	}
+	if m.Name == "." || m.Name == ".." || filepath.Base(m.Name) != m.Name ||
+		strings.ContainsAny(m.Name, `/\`) {
+		return nil, fmt.Errorf("invalid plugin name: %q", m.Name)
 	}
 	return &m, nil
 }

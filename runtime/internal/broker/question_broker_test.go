@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"nekocode/protocol"
 	"nekocode/runtime/internal/core"
 	"nekocode/runtime/internal/eventbus"
 )
@@ -19,32 +20,31 @@ func TestQuestionBrokerAnswerUnblocksRequest(t *testing.T) {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	broker := NewQuestionBroker(bus, core.SourceRef{Kind: "test"}, func() RunID { return "run_1" })
-	result := make(chan QuestionReply, 1)
+	broker := NewQuestionBroker(bus, core.SourceRef{Kind: "test"}, func() core.RunID { return "run_1" })
+	result := make(chan protocol.QuestionReply, 1)
 	go func() {
-		req := QuestionRequest{
-			Questions: []core.QuestionItem{{Question: "Continue?"}},
-			Response:  make(chan QuestionReply, 1),
+		req := protocol.QuestionRequest{
+			Questions: []protocol.QuestionItem{{Question: "Continue?"}},
 		}
 		result <- broker.Request(req)
 	}()
 
-	var question QuestionView
+	var question core.QuestionView
 	select {
 	case ev := <-events:
 		if ev.RunID != "run_1" {
 			t.Fatalf("question event run id = %q, want run_1", ev.RunID)
 		}
 		var ok bool
-		question, ok = ev.Payload.(QuestionView)
+		question, ok = ev.Payload.(core.QuestionView)
 		if !ok {
-			t.Fatalf("payload type = %T, want QuestionView", ev.Payload)
+			t.Fatalf("payload type = %T, want core.QuestionView", ev.Payload)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for question request")
 	}
 
-	reply := QuestionReply{Answers: [][]string{{"yes"}}}
+	reply := protocol.QuestionReply{Answers: [][]string{{"yes"}}}
 	if err := broker.Answer(question.ID, reply); err != nil {
 		t.Fatalf("answer: %v", err)
 	}
@@ -63,8 +63,8 @@ func TestQuestionBrokerRequestAfterCloseIsRejected(t *testing.T) {
 	broker := NewQuestionBroker(nil, core.SourceRef{Kind: "test"}, nil)
 	broker.Close()
 
-	reply := broker.Request(QuestionRequest{
-		Questions: []core.QuestionItem{{Question: "Continue?"}},
+	reply := broker.Request(protocol.QuestionRequest{
+		Questions: []protocol.QuestionItem{{Question: "Continue?"}},
 	})
 	if !reply.Rejected {
 		t.Fatal("question request was not rejected after broker close")

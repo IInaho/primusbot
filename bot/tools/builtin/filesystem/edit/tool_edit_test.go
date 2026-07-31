@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"nekocode/bot/tools/runtime/execution"
 )
@@ -174,6 +175,35 @@ func TestEditV2Revert(t *testing.T) {
 	}
 	if strings.Contains(result, "Reverted to pre-edit state") || strings.Contains(result, "latest snapshot") {
 		t.Fatalf("expected diff-only revert output, got %q", result)
+	}
+}
+
+func TestPruneUndoSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	for i, name := range []string{"old.pre-edit", "middle.pre-edit", "new.pre-edit"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stamp := time.Unix(int64(i+1), 0)
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pruneUndoSnapshots(dir, 2)
+
+	if _, err := os.Stat(filepath.Join(dir, "old.pre-edit")); !os.IsNotExist(err) {
+		t.Fatalf("oldest snapshot was not removed: %v", err)
+	}
+	for _, name := range []string{"middle.pre-edit", "new.pre-edit"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", name, info.Mode().Perm())
+		}
 	}
 }
 

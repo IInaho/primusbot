@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"nekocode/protocol"
+	"nekocode/runtime/internal/core"
 	"nekocode/runtime/internal/eventbus"
 )
 
@@ -17,23 +19,24 @@ type ApprovalBroker struct {
 	nextID   uint64
 	pending  map[string]*approvalRecord
 	eventBus *eventbus.EventBus
-	source   SourceRef
-	runID    func() RunID
+	source   core.SourceRef
+	runID    func() core.RunID
 	closed   bool
 }
 
 type approvalRecord struct {
-	view ApprovalView
-	req  ConfirmRequest
+	view  core.ApprovalView
+	reply chan protocol.ConfirmReply
+	runID core.RunID
 }
 
 type approvalHashInput struct {
-	ToolName string      `json:"tool_name"`
-	Kind     ConfirmKind `json:"kind"`
-	ArgsHash string      `json:"args_hash"`
+	ToolName string               `json:"tool_name"`
+	Kind     protocol.ConfirmKind `json:"kind"`
+	ArgsHash string               `json:"args_hash"`
 }
 
-func NewApprovalBroker(eventBus *eventbus.EventBus, source SourceRef, runID func() RunID) *ApprovalBroker {
+func NewApprovalBroker(eventBus *eventbus.EventBus, source core.SourceRef, runID func() core.RunID) *ApprovalBroker {
 	return &ApprovalBroker{
 		pending:  make(map[string]*approvalRecord),
 		eventBus: eventBus,
@@ -42,24 +45,31 @@ func NewApprovalBroker(eventBus *eventbus.EventBus, source SourceRef, runID func
 	}
 }
 
-func (b *ApprovalBroker) Request(req ConfirmRequest) ConfirmReply {
-	if req.Response == nil {
-		req.Response = make(chan ConfirmReply, 1)
+func (b *ApprovalBroker) Request(req protocol.ConfirmRequest) protocol.ConfirmReply {
+	wait := b.Register(req)
+	if wait == nil {
+		return protocol.ConfirmReply{Allowed: false}
 	}
+	return wait()
+}
+
+// Register publishes an approval and returns its blocking wait function.
+func (b *ApprovalBroker) Register(req protocol.ConfirmRequest) func() protocol.ConfirmReply {
 	id := fmt.Sprintf("apr_%d", atomic.AddUint64(&b.nextID, 1))
 	now := time.Now()
 	argsHash := stableHash(req.Args)
 	rec := &approvalRecord{
-		req: req,
-		view: ApprovalView{
+		reply: make(chan protocol.ConfirmReply, 1),
+		runID: b.currentRunID(),
+		view: core.ApprovalView{
 			ID:                    id,
 			ToolName:              req.ToolName,
-			Args:                  req.Args,
+			Args:                  cloneMap(req.Args),
 			ArgsHash:              argsHash,
 			ToolCallHash:          stableHash(approvalHashInput{ToolName: req.ToolName, Kind: req.Kind, ArgsHash: argsHash}),
 			Kind:                  string(req.Kind),
 			CanEscalatePermission: req.CanEscalatePermission,
-			Status:                ApprovalPending,
+			Status:                core.ApprovalPending,
 			CreatedAt:             now,
 			Source:                b.source,
 		},
@@ -68,70 +78,71 @@ func (b *ApprovalBroker) Request(req ConfirmRequest) ConfirmReply {
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
-		return ConfirmReply{Allowed: false}
+		return nil
 	}
 	b.pending[id] = rec
 	viewCopy := rec.view
 	b.mu.Unlock()
 
-	b.publish(EventApprovalRequested, viewCopy)
-	reply := <-req.Response
-	if !req.CanEscalatePermission {
-		reply.AllowWithPermission = false
-	}
-
-	b.mu.Lock()
-	if current, ok := b.pending[id]; ok && current.view.Status == ApprovalPending {
-		resolvedAt := time.Now()
-		current.view.ResolvedAt = &resolvedAt
-		if reply.Allowed {
-			current.view.Status = ApprovalApproved
-		} else {
-			current.view.Status = ApprovalRejected
+	b.publish(rec.runID, core.EventApprovalRequested, viewCopy)
+	return func() protocol.ConfirmReply {
+		reply := <-rec.reply
+		if !req.CanEscalatePermission {
+			reply.AllowWithPermission = false
 		}
-		delete(b.pending, id)
-		b.publish(EventApprovalResolved, current.view)
-	}
-	b.mu.Unlock()
 
-	return reply
+		b.mu.Lock()
+		if current, ok := b.pending[id]; ok && current.view.Status == core.ApprovalPending {
+			resolvedAt := time.Now()
+			current.view.ResolvedAt = &resolvedAt
+			if reply.Allowed {
+				current.view.Status = core.ApprovalApproved
+			} else {
+				current.view.Status = core.ApprovalRejected
+			}
+			delete(b.pending, id)
+			b.publish(current.runID, core.EventApprovalResolved, current.view)
+		}
+		b.mu.Unlock()
+		return reply
+	}
 }
 
-func (b *ApprovalBroker) Decide(id string, decision ApprovalDecision) error {
+func (b *ApprovalBroker) Decide(id string, decision core.ApprovalDecision) error {
 	b.mu.Lock()
 	rec, ok := b.pending[id]
 	if !ok {
 		b.mu.Unlock()
 		return fmt.Errorf("runtime: approval %s not pending", id)
 	}
-	if rec.view.Status != ApprovalPending {
+	if rec.view.Status != core.ApprovalPending {
 		b.mu.Unlock()
 		return fmt.Errorf("runtime: approval %s already resolved", id)
 	}
 	resolvedAt := time.Now()
 	rec.view.ResolvedAt = &resolvedAt
 	if decision.Allowed {
-		rec.view.Status = ApprovalApproved
+		rec.view.Status = core.ApprovalApproved
 	} else {
-		rec.view.Status = ApprovalRejected
+		rec.view.Status = core.ApprovalRejected
 	}
 	delete(b.pending, id)
 	viewCopy := rec.view
+	b.publish(rec.runID, core.EventApprovalResolved, viewCopy)
 	b.mu.Unlock()
 
 	reply := decision.ConfirmReply()
 	if !viewCopy.CanEscalatePermission {
 		reply.AllowWithPermission = false
 	}
-	rec.req.Response <- reply
-	b.publish(EventApprovalResolved, viewCopy)
+	rec.reply <- reply
 	return nil
 }
 
-func (b *ApprovalBroker) Pending() []ApprovalView {
+func (b *ApprovalBroker) Pending() []core.ApprovalView {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]ApprovalView, 0, len(b.pending))
+	out := make([]core.ApprovalView, 0, len(b.pending))
 	for _, rec := range b.pending {
 		out = append(out, rec.view)
 	}
@@ -155,31 +166,31 @@ func (b *ApprovalBroker) rejectAll(closeBroker bool) {
 	for id, rec := range b.pending {
 		resolvedAt := time.Now()
 		rec.view.ResolvedAt = &resolvedAt
-		rec.view.Status = ApprovalRejected
+		rec.view.Status = core.ApprovalRejected
 		records = append(records, rec)
 		delete(b.pending, id)
 	}
 	b.mu.Unlock()
 
 	for _, rec := range records {
-		rec.req.Response <- ConfirmReply{Allowed: false}
-		b.publish(EventApprovalResolved, rec.view)
+		rec.reply <- protocol.ConfirmReply{Allowed: false}
+		b.publish(rec.runID, core.EventApprovalResolved, rec.view)
 	}
 }
 
-func (b *ApprovalBroker) publish(typ EventType, payload any) {
+func (b *ApprovalBroker) publish(runID core.RunID, typ core.EventType, payload any) {
 	if b.eventBus == nil {
 		return
 	}
-	b.eventBus.Publish(Event{
-		RunID:   b.currentRunID(),
+	b.eventBus.Publish(core.Event{
+		RunID:   runID,
 		Type:    typ,
 		Source:  b.source,
 		Payload: payload,
 	})
 }
 
-func (b *ApprovalBroker) currentRunID() RunID {
+func (b *ApprovalBroker) currentRunID() core.RunID {
 	if b.runID == nil {
 		return ""
 	}

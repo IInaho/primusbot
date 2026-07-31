@@ -27,8 +27,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize runtime: %v", err)
 	}
-	defer rt.Close()
-
 	handler := httpapi.New(rt).Handler()
 	handler = httpapi.WithBearerAuth(handler, *token)
 	srv := &http.Server{
@@ -52,6 +50,9 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("daemon shutdown error: %v", err)
+	}
+	if err := rt.Close(); err != nil {
+		log.Printf("runtime shutdown error: %v", err)
 	}
 }
 

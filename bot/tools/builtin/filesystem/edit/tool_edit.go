@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type EditTool struct {
-	toolhelpers.WriteModeTool
+	toolutil.WriteModeTool
 }
 
 func (t *EditTool) Name() string { return "edit" }

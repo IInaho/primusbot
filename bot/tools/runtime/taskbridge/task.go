@@ -3,7 +3,7 @@ package taskbridge
 import (
 	"context"
 
-	commonview "nekocode/common/view"
+	"nekocode/protocol"
 )
 
 // TaskStatus is the tool-layer view of delegated task completion.
@@ -31,7 +31,7 @@ type TaskRunnerTool interface {
 }
 
 // TaskCallbackFn forwards delegated task tool events to the caller.
-type TaskCallbackFn func(ev commonview.StepEvent)
+type TaskCallbackFn func(ev protocol.StepEvent)
 
 type taskCallbackCtxKey struct{}
 

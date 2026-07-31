@@ -8,7 +8,7 @@ import (
 
 func ExplorationExhaustedHook() policy.Hook {
 	return policy.Hook{
-		Name: "exploration_exhausted", Point: policy.PreTurn,
+		Name: "exploration_exhausted", Point: policy.PreModel,
 		On: func(s policy.State) *policy.Result {
 			facts := s.Facts()
 			if facts.Activity.ExploreCalls < 10 {
@@ -38,7 +38,7 @@ func ExplorationExhaustedHook() policy.Hook {
 
 func ExploreCascadeHook() policy.Hook {
 	return policy.Hook{
-		Name: "explore_cascade", Point: policy.PostTool,
+		Name: "explore_cascade", Point: policy.PostToolBatch,
 		On: func(s policy.State) *policy.Result {
 			facts := s.Facts()
 			n := facts.Activity.ResearcherCalls

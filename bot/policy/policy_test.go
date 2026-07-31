@@ -6,7 +6,7 @@ func TestBeginTurnPublishesFacts(t *testing.T) {
 	p := New()
 	p.Register(Hook{
 		Name:  "capture",
-		Point: PreTurn,
+		Point: PreModel,
 		On: func(state State) *Result {
 			facts := state.Facts()
 			if facts.Turn.Input != "hello" || !facts.Turn.HasTasks || facts.Turn.TasksDone {
@@ -20,6 +20,7 @@ func TestBeginTurnPublishesFacts(t *testing.T) {
 	})
 
 	p.BeginTurn(Turn{Input: "hello", HasTasks: true}, 100, 10_000)
+	p.BeforeModel(0)
 }
 
 func TestRecordToolsPublishesActivity(t *testing.T) {
@@ -27,7 +28,7 @@ func TestRecordToolsPublishesActivity(t *testing.T) {
 	var got ActivityFacts
 	p.Register(Hook{
 		Name:  "capture",
-		Point: PostTool,
+		Point: PostToolBatch,
 		On: func(state State) *Result {
 			got = state.Facts().Activity
 			return nil
@@ -81,5 +82,25 @@ func TestBeforeToolEnforcesQuota(t *testing.T) {
 	results := p.BeforeTool(ToolRequest{Name: "read"})
 	if len(results) != 1 || results[0].BlockTool == nil {
 		t.Fatalf("third read results = %+v, want quota block", results)
+	}
+}
+
+func TestToolQuotaCountsExploratoryShell(t *testing.T) {
+	q := toolQuota{maxSlots: 1}
+	if err := q.consumeCall("shell", map[string]any{"command": "cat README.md"}); err != nil {
+		t.Fatalf("first exploratory shell command should fit quota: %v", err)
+	}
+	if err := q.consumeCall("shell", map[string]any{"command": "ls -la"}); err == nil {
+		t.Fatal("second exploratory shell command should exceed quota")
+	}
+}
+
+func TestToolQuotaDoesNotCountVerificationShell(t *testing.T) {
+	q := toolQuota{maxSlots: 1}
+	if err := q.consumeCall("shell", map[string]any{"command": "go test ./..."}); err != nil {
+		t.Fatalf("verification shell command should not consume read quota: %v", err)
+	}
+	if q.used != 0 {
+		t.Fatalf("verification shell command consumed quota: %d", q.used)
 	}
 }

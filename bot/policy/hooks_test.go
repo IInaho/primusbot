@@ -10,7 +10,7 @@ func TestHookStatePersistsAndIsPrivate(t *testing.T) {
 	var firstSeen, secondSeen int64
 	engine.register(Hook{
 		Name:  "first",
-		Point: PreTurn,
+		Point: PreModel,
 		On: func(state State) *Result {
 			firstSeen = state.Int("count")
 			state.SetInt("count", firstSeen+1)
@@ -19,15 +19,15 @@ func TestHookStatePersistsAndIsPrivate(t *testing.T) {
 	})
 	engine.register(Hook{
 		Name:  "second",
-		Point: PreTurn,
+		Point: PreModel,
 		On: func(state State) *Result {
 			secondSeen = state.Int("count")
 			return nil
 		},
 	})
 
-	engine.evaluate(PreTurn, Facts{})
-	engine.evaluate(PreTurn, Facts{})
+	engine.evaluate(PreModel, Facts{})
+	engine.evaluate(PreModel, Facts{})
 	if firstSeen != 1 {
 		t.Fatalf("first hook count = %d, want 1 on second evaluation", firstSeen)
 	}
@@ -44,7 +44,7 @@ func TestHookReceivesImmutableFactsValue(t *testing.T) {
 	}
 	engine.register(Hook{
 		Name:  "capture",
-		Point: PreTurn,
+		Point: PreModel,
 		On: func(state State) *Result {
 			got := state.Facts()
 			got.Turn.Input = "changed"
@@ -53,7 +53,7 @@ func TestHookReceivesImmutableFactsValue(t *testing.T) {
 		},
 	})
 
-	engine.evaluate(PreTurn, facts)
+	engine.evaluate(PreModel, facts)
 	if facts.Turn.Input != "task" {
 		t.Fatalf("source facts mutated: %+v", facts)
 	}
@@ -87,17 +87,17 @@ func TestUnregisterWhereRemovesHookAndState(t *testing.T) {
 	engine := newHookEngine()
 	engine.register(Hook{
 		Name:  "drop",
-		Point: PreTurn,
+		Point: PreModel,
 		On: func(state State) *Result {
 			state.SetInt("count", 1)
 			return nil
 		},
 	})
-	engine.evaluate(PreTurn, Facts{})
+	engine.evaluate(PreModel, Facts{})
 	engine.unregisterPrefix("drop")
 
-	if len(engine.list()) != 0 {
-		t.Fatalf("hooks = %+v, want empty", engine.list())
+	if len(engine.hooks) != 0 {
+		t.Fatalf("hooks = %+v, want empty", engine.hooks)
 	}
 	if _, ok := engine.state["drop"]; ok {
 		t.Fatal("unregistered hook state was retained")
@@ -106,11 +106,11 @@ func TestUnregisterWhereRemovesHookAndState(t *testing.T) {
 
 func TestRegisterReplacesHookWithSameName(t *testing.T) {
 	engine := newHookEngine()
-	engine.register(Hook{Name: "guard", Point: PreTurn, On: func(State) *Result { return nil }})
-	engine.register(Hook{Name: "guard", Point: PostTurn, On: func(State) *Result { return nil }})
+	engine.register(Hook{Name: "guard", Point: PreModel, On: func(State) *Result { return nil }})
+	engine.register(Hook{Name: "guard", Point: Stop, On: func(State) *Result { return nil }})
 
-	hooks := engine.list()
-	if len(hooks) != 1 || hooks[0].Point != PostTurn {
+	hooks := engine.hooks
+	if len(hooks) != 1 || hooks[0].Point != Stop {
 		t.Fatalf("hooks = %+v, want replacement", hooks)
 	}
 }

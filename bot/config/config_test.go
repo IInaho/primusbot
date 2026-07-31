@@ -84,6 +84,9 @@ func TestLoad_ValidConfigFile(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("Load() returned nil config")
 	}
+	if info, err := os.Stat(configPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("config mode after load = %v, %v; want 600", info, err)
+	}
 
 	if cfg.Active != customCfg.Active {
 		t.Errorf("expected Active '%s', got '%s'", customCfg.Active, cfg.Active)
@@ -184,6 +187,40 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 	}
 	if len(restored.Models) != 1 || restored.Models[0].Name != "default" {
 		t.Errorf("models round-trip failed")
+	}
+}
+
+func TestConfigCloneDoesNotShareMutableState(t *testing.T) {
+	original := Config{
+		Models: []ModelConfig{{Name: "model"}},
+		MCPServers: map[string]MCPServerConfig{
+			"server": {Args: []string{"first"}, Env: map[string]string{"KEY": "value"}},
+		},
+		Permissions: &PermissionsConfig{
+			Allow: []string{"read"},
+			Sandbox: map[string]SandboxConfig{
+				"shell": {WritableRoots: []string{"/work"}},
+			},
+		},
+	}
+
+	clone := original.Clone()
+	clone.Models[0].Name = "changed"
+	server := clone.MCPServers["server"]
+	server.Args[0] = "changed"
+	server.Env["KEY"] = "changed"
+	clone.MCPServers["server"] = server
+	clone.Permissions.Allow[0] = "changed"
+	sandbox := clone.Permissions.Sandbox["shell"]
+	sandbox.WritableRoots[0] = "/changed"
+	clone.Permissions.Sandbox["shell"] = sandbox
+
+	if original.Models[0].Name != "model" ||
+		original.MCPServers["server"].Args[0] != "first" ||
+		original.MCPServers["server"].Env["KEY"] != "value" ||
+		original.Permissions.Allow[0] != "read" ||
+		original.Permissions.Sandbox["shell"].WritableRoots[0] != "/work" {
+		t.Fatalf("clone mutated original: %+v", original)
 	}
 }
 

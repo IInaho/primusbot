@@ -3,7 +3,7 @@ import {
   isWailsEnvironment,
   safeAbort,
   safeEventsOn,
-  safeProviderModel,
+  safeCurrentModel,
   safeSendMessage,
 } from '../wails'
 
@@ -17,7 +17,7 @@ describe('safe wrappers', () => {
   it('return no-ops when Wails is unavailable', async () => {
     expect(safeEventsOn('test', () => {})).toBeInstanceOf(Function)
     expect(safeAbort()).toBeUndefined()
-    await expect(safeProviderModel()).resolves.toBe('')
+    await expect(safeCurrentModel()).resolves.toBe('')
     await expect(safeSendMessage('hello')).resolves.toBeUndefined()
   })
 })

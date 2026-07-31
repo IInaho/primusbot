@@ -3,146 +3,118 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
-	"strings"
-	"time"
+	"sync"
 
-	"nekocode/bot/policy/ledger"
 	"nekocode/bot/provider/types"
 	"nekocode/util/fs"
 )
 
-type Snapshot struct {
-	ID        string `json:"id"`
-	CWD       string `json:"cwd"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
-
-	SystemPrompt    string          `json:"system_prompt"`
-	Skills          string          `json:"skills"`
-	Memory          string          `json:"memory"`
-	Archive         string          `json:"archive"`
-	Messages        []types.Message `json:"messages"`
-	CompactBoundary int             `json:"compact_boundary"`
-
-	ContextWindow     int `json:"context_window"`
-	PromptTokens      int `json:"prompt_tokens"`
-	CompletionTokens  int `json:"completion_tokens"`
-	TrackerPrompt     int `json:"tracker_prompt_tokens,omitempty"`
-	TrackerCompletion int `json:"tracker_completion_tokens,omitempty"`
-	TrackerNewTokens  int `json:"tracker_new_tokens,omitempty"`
-	CacheHitTokens    int `json:"cache_hit_tokens,omitempty"`
-	CacheMissTokens   int `json:"cache_miss_tokens,omitempty"`
-	SubCount          int `json:"sub_count,omitempty"`
-	SubTokens         int `json:"sub_tokens,omitempty"`
-	SubCacheHit       int `json:"sub_cache_hit,omitempty"`
-	SubCacheMiss      int `json:"sub_cache_miss,omitempty"`
-
-	LoadedSkills []string        `json:"loaded_skills"`
-	Ledger       ledger.Snapshot `json:"ledger"`
+// Manager owns only the current session identity and persistence lifecycle.
+// Cross-module state capture and restore belongs to the bot assembly layer.
+type Manager struct {
+	mu   sync.Mutex
+	cwd  string
+	sess *Snapshot
 }
 
-type Meta struct {
-	ID        string `json:"id"`
-	CWD       string `json:"cwd"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
-	MsgCount  int    `json:"msg_count"`
+// DefaultExportPath is the default context-export destination under ~/.nekocode/exports.
+var DefaultExportPath = filepath.Join(fs.NekocodeDataDir("exports"), "nekocode-context.json")
+
+// New creates a manager with a fresh current session.
+func New(cwd string) *Manager {
+	return &Manager{cwd: cwd, sess: newSnapshot(cwd)}
 }
 
-func dir() string {
-	return filepath.Join(fs.NekocodeHome(), "sessions")
+func (m *Manager) Current() *Snapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sess
 }
 
-func New(cwd string) (*Snapshot, error) {
-	now := time.Now()
-	return &Snapshot{
-		// 秒级时间戳 + 毫秒后缀：避免同秒内多次创建互相覆盖目录。
-		ID:        fmt.Sprintf("%s-%03d", now.UTC().Format("20060102T150405"), now.Nanosecond()/1e6),
-		CWD:       cwd,
-		CreatedAt: now.Unix(),
-		UpdatedAt: now.Unix(),
-	}, nil
-}
-
-func Load(id string) (*Snapshot, error) {
-	return fs.ReadJSONFile[*Snapshot](filepath.Join(dir(), id, "session.json"))
-}
-
-// Delete removes a session directory and all its contents.
-func Delete(id string) error {
-	return os.RemoveAll(filepath.Join(dir(), id))
-}
-
-func (s *Snapshot) Save() error {
-	s.UpdatedAt = time.Now().Unix()
-	d := filepath.Join(dir(), s.ID)
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal session: %w", err)
+func (m *Manager) CurrentID() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sess == nil {
+		return ""
 	}
-	return fs.WriteFileWithDir(filepath.Join(d, "session.json"), data, 0o644)
+	return m.sess.ID
 }
 
-// sessionMeta is a lightweight struct for deserializing only metadata from
-// session.json, avoiding the cost of unmarshaling the full Messages array.
-type sessionMeta struct {
-	ID        string     `json:"id"`
-	CWD       string     `json:"cwd"`
-	CreatedAt int64      `json:"created_at"`
-	UpdatedAt int64      `json:"updated_at"`
-	Messages  []struct{} `json:"messages"` // only need len, not content
+func (m *Manager) set(sess *Snapshot) {
+	m.mu.Lock()
+	m.sess = sess
+	m.mu.Unlock()
 }
 
-func loadMeta(id string) (Meta, error) {
-	var sm sessionMeta
-	path := filepath.Join(dir(), id, "session.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Meta{}, err
+// StartNew replaces the current session identity.
+func (m *Manager) StartNew() *Snapshot {
+	sess := newSnapshot(m.cwd)
+	m.set(sess)
+	return sess
+}
+
+// ClearCurrent drops the current session identity.
+func (m *Manager) ClearCurrent() {
+	m.set(nil)
+}
+
+// Save persists snapshot as the current session. A session with no conversation
+// history is removed from disk instead of being written, so empty sessions
+// never show up as invalid records in session lists.
+func (m *Manager) Save(sess *Snapshot) error {
+	if sess == nil {
+		return fmt.Errorf("session: cannot save nil snapshot")
 	}
-	if err := json.Unmarshal(data, &sm); err != nil {
-		return Meta{}, err
-	}
-	return Meta{
-		ID: sm.ID, CWD: sm.CWD,
-		CreatedAt: sm.CreatedAt, UpdatedAt: sm.UpdatedAt,
-		MsgCount: len(sm.Messages),
-	}, nil
-}
-
-func List() []Meta {
-	entries, err := os.ReadDir(dir())
-	if err != nil {
+	if len(sess.Messages) == 0 {
+		if err := deleteSnapshot(sess.ID); err != nil {
+			return err
+		}
+		m.clearCurrentIfID(sess.ID)
 		return nil
 	}
-	var out []Meta
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		m, err := loadMeta(e.Name())
-		if err != nil {
-			continue
-		}
-		out = append(out, m)
+	if err := sess.save(); err != nil {
+		return err
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
-	return out
+	m.set(sess)
+	return nil
 }
 
-func (m Meta) Age() string {
-	d := time.Since(time.Unix(m.UpdatedAt, 0))
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+func (m *Manager) clearCurrentIfID(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sess != nil && m.sess.ID == id {
+		m.sess = nil
 	}
+}
+
+func (m *Manager) Resume(id string) (*Snapshot, error) {
+	sess, err := load(id)
+	if err != nil {
+		return nil, fmt.Errorf("session: load: %w", err)
+	}
+	m.set(sess)
+	return sess, nil
+}
+
+func (m *Manager) List() []Meta {
+	return list()
+}
+
+func (m *Manager) Delete(id string) error {
+	return deleteSnapshot(id)
+}
+
+func ExportMessages(msgs []types.Message, path string) (string, error) {
+	if path == "" {
+		path = DefaultExportPath
+	}
+	data, err := json.MarshalIndent(msgs, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal context: %w", err)
+	}
+	if err := fs.WriteFileWithDir(path, data, 0o644); err != nil {
+		return "", fmt.Errorf("write file: %w", err)
+	}
+	return path, nil
 }

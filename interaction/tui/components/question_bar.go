@@ -24,17 +24,12 @@ func NewQuestionBar(sty *styles.Styles) *QuestionBar {
 	return &QuestionBar{sty: sty, selected: make(map[int]map[int]bool)}
 }
 
-func (q *QuestionBar) SetRequest(req *controlruntime.QuestionRequest) {
+func (q *QuestionBar) SetRequest(req *controlruntime.QuestionRequest, respond func(controlruntime.QuestionReply)) {
 	q.req = req
 	q.activeQ = 0
 	q.activeOpt = 0
 	q.selected = make(map[int]map[int]bool)
 	q.custom = make([]string, len(req.Questions))
-	q.respond = nil
-}
-
-func (q *QuestionBar) SetRequestWithResponder(req *controlruntime.QuestionRequest, respond func(controlruntime.QuestionReply)) {
-	q.SetRequest(req)
 	q.respond = respond
 }
 
@@ -140,8 +135,6 @@ func (q *QuestionBar) Submit() {
 	reply := controlruntime.QuestionReply{Answers: answers}
 	if q.respond != nil {
 		q.respond(reply)
-	} else if q.req.Response != nil {
-		q.req.Response <- reply
 	}
 	q.req = nil
 	q.respond = nil
@@ -154,8 +147,6 @@ func (q *QuestionBar) Reject() {
 	reply := controlruntime.QuestionReply{Rejected: true}
 	if q.respond != nil {
 		q.respond(reply)
-	} else if q.req.Response != nil {
-		q.req.Response <- reply
 	}
 	q.req = nil
 	q.respond = nil

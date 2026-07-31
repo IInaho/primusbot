@@ -48,6 +48,5 @@ func (t *mcpTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 }
 
 func (t *mcpTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	_ = ctx
-	return t.client.CallTool(t.def.Name, args)
+	return t.client.CallTool(ctx, t.def.Name, args)
 }

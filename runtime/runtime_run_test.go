@@ -1,0 +1,335 @@
+package runtime
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"nekocode/runtime/internal/core"
+)
+
+func TestManagerCommandFinishesWithoutRunningAgent(t *testing.T) {
+	bot := &testBot{}
+	bot.command = func(string, RunHost) CommandResult {
+		return CommandResult{Action: CommandHandled, Output: "handled"}
+	}
+	bot.run = func(string, RunHost) (string, error) {
+		t.Fatal("agent should not run for handled command without skill continuation")
+		return "", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "/help"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+	run, ok := rt.LookupRun(runID)
+	if !ok {
+		t.Fatal("run snapshot missing")
+	}
+	if run.Status != RunDone || run.Output != "handled" {
+		t.Fatalf("run = %#v, want recoverable command output", run)
+	}
+	var sawCommandResponse bool
+	for _, ev := range rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventSystemMessage}}) {
+		p, ok := ev.Payload.(MessagePayload)
+		if ok && p.Content == "handled" {
+			sawCommandResponse = true
+		}
+	}
+	if !sawCommandResponse {
+		t.Fatal("command response event not found")
+	}
+}
+
+func TestManagerCommandCanContinueToAgent(t *testing.T) {
+	bot := &testBot{}
+	bot.command = func(string, RunHost) CommandResult {
+		return CommandResult{Action: CommandContinue, Output: "context selected"}
+	}
+	bot.run = func(string, RunHost) (string, error) {
+		return "agent ran", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "/skill review"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+	run, ok := rt.LookupRun(runID)
+	if !ok {
+		t.Fatal("run snapshot missing")
+	}
+	if run.Output != "agent ran" {
+		t.Fatalf("run output = %q, want agent ran", run.Output)
+	}
+}
+
+func TestManagerCommandCompletesInOneLifecycle(t *testing.T) {
+	bot := &testBot{}
+	bot.command = func(string, RunHost) CommandResult {
+		return CommandResult{Action: CommandHandled, Output: "installed"}
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "/plugin install demo"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+	if run, _ := rt.LookupRun(runID); run.Status != RunDone {
+		t.Fatalf("async command run = %#v, want done", run)
+	}
+	doneEvents := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventRunDone}})
+	if len(doneEvents) != 1 {
+		t.Fatalf("run_done events = %d, want 1", len(doneEvents))
+	}
+}
+
+func TestManagerDoesNotDuplicateStreamedFinalText(t *testing.T) {
+	bot := &testBot{}
+	bot.run = func(_ string, host RunHost) (string, error) {
+		host.Text("hello")
+		host.Text(" world")
+		return "hello world", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "feishu"}, Text: "hi"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+
+	var streamed strings.Builder
+	for _, ev := range rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventAssistantDelta}}) {
+		p, ok := ev.Payload.(DeltaPayload)
+		if ok {
+			streamed.WriteString(p.Delta)
+		}
+	}
+	if got := streamed.String(); got != "hello world" {
+		t.Fatalf("streamed assistant text = %q, want one copy of final text", got)
+	}
+}
+
+func TestManagerIgnoresUnknownToolEvent(t *testing.T) {
+	bot := &testBot{}
+	bot.run = func(_ string, host RunHost) (string, error) {
+		host.Tool(ToolEvent{Kind: ToolEventKind("unknown"), Name: "mystery", Output: "ignored"})
+		host.Tool(ToolEvent{Kind: ToolEventCompleted, Name: "read", Args: "path=a.go", Output: "ok"})
+		return "done", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+	run, ok := rt.LookupRun(runID)
+	if !ok {
+		t.Fatal("run snapshot missing")
+	}
+	if len(run.Tools) != 1 {
+		t.Fatalf("tools = %+v, want only known step action recorded", run.Tools)
+	}
+	if run.Tools[0].Name != "read" || run.Tools[0].Status != core.ToolDone {
+		t.Fatalf("tool = %+v, want completed read tool", run.Tools[0])
+	}
+}
+
+func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
+	bot := &testBot{}
+	bot.run = func(_ string, host RunHost) (string, error) {
+		host.SubAgent(SubAgentEvent{
+			Kind: SubAgentEventStarted, ID: "sub_1", Type: "research", Color: 3,
+		})
+		host.Tool(ToolEvent{
+			Kind: ToolEventStarted, Name: "web_search",
+			SubAgentID: "sub_1", SubAgentColor: 3,
+		})
+		host.SubAgent(SubAgentEvent{Kind: SubAgentEventEnded, ID: "sub_1"})
+		return "done", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"}, Text: "research",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+	events := rt.events.History(EventFilter{RunID: runID})
+
+	var sub SubAgentPayload
+	var tool ToolPayload
+	for _, event := range events {
+		switch event.Type {
+		case EventSubAgentStarted:
+			sub, _ = event.Payload.(SubAgentPayload)
+		case EventToolStarted:
+			tool, _ = event.Payload.(ToolPayload)
+		}
+	}
+	if sub.ID != "sub_1" || sub.Type != "research" || sub.Color != 3 {
+		t.Fatalf("subagent payload = %#v", sub)
+	}
+	if tool.SubAgentID != "sub_1" || tool.SubAgentColor != 3 {
+		t.Fatalf("tool payload = %#v", tool)
+	}
+}
+
+func TestManagerCustomRuntimeCommand(t *testing.T) {
+	rt := newTestRuntime(&testBot{})
+	rt.registerCommand("hello", func(_ context.Context, args []string) (string, error) {
+		return "hello " + strings.Join(args, " "), nil
+	})
+
+	_, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"},
+		Text:   "/hello world",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	var found bool
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if run, ok := rt.LookupRun(rt.currentRunID()); ok && run.Status == RunDone {
+			found = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !found {
+		t.Fatal("custom runtime command did not finish")
+	}
+
+	events := rt.events.History(EventFilter{})
+	var sawMessage bool
+	for _, ev := range events {
+		if ev.Type == EventSystemMessage {
+			if payload, ok := ev.Payload.(MessagePayload); ok && payload.Content == "hello world" {
+				sawMessage = true
+				break
+			}
+		}
+	}
+	if !sawMessage {
+		t.Fatalf("did not see expected system message in events: %#v", events)
+	}
+}
+
+func TestManagerCommandNamesIncludePrefixes(t *testing.T) {
+	rt := newTestRuntime(&testBot{
+		commands: []string{"/help", "$review", "model"},
+	})
+
+	got := rt.CommandCatalog()
+	for _, want := range []string{"/help", "/model", "$review"} {
+		if !hasString(got, want) {
+			t.Fatalf("CommandNames() missing %q in %v", want, got)
+		}
+	}
+}
+
+func TestManagerRuntimeCommandsRequireSlash(t *testing.T) {
+	agentInput := make(chan string, 1)
+	bot := &testBot{
+		run: func(input string, _ RunHost) (string, error) {
+			agentInput <- input
+			return "agent ran", nil
+		},
+	}
+	rt := newTestRuntime(bot)
+	rt.registerCommand("hello", func(_ context.Context, _ []string) (string, error) {
+		return "runtime command ran", nil
+	})
+
+	runID, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"},
+		Text:   "hello world",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForRun(t, rt, runID)
+
+	select {
+	case got := <-agentInput:
+		if got != "hello world" {
+			t.Fatalf("agent input = %q, want hello world", got)
+		}
+	default:
+		t.Fatal("bare runtime command text should run the agent")
+	}
+}
+
+func TestRunHostRejectsEventsAfterRunFinishes(t *testing.T) {
+	var retained RunHost
+	bot := &testBot{run: func(_ string, host RunHost) (string, error) {
+		retained = host
+		host.Text("before")
+		return "done", nil
+	}}
+	rt := newTestRuntime(bot)
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+
+	retained.Text("after")
+	retained.Tool(ToolEvent{Kind: ToolEventStarted, CallID: "late", Name: "read"})
+	if reply := retained.Confirm(ConfirmRequest{ToolName: "late"}); reply.Allowed {
+		t.Fatalf("stale host confirmation = %+v", reply)
+	}
+
+	deltas := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventAssistantDelta}})
+	if len(deltas) != 1 {
+		t.Fatalf("assistant deltas = %d, want only the in-run event", len(deltas))
+	}
+	tools := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventToolStarted}})
+	if len(tools) != 0 {
+		t.Fatalf("stale host published tool events: %#v", tools)
+	}
+}
+
+func TestManagerRecoversFromRunPanic(t *testing.T) {
+	bot := &testBot{
+		run: func(string, RunHost) (string, error) {
+			panic("intentional runner panic")
+		},
+	}
+	rt := newTestRuntime(bot)
+
+	_, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"},
+		Text:   "trigger panic",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	var failedRun RunSnapshot
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if run, ok := rt.LookupRun(rt.currentRunID()); ok && run.Status == RunFailed {
+			failedRun = run
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if failedRun.Status != RunFailed {
+		t.Fatalf("expected run to fail after panic, got status %q", failedRun.Status)
+	}
+	if !strings.Contains(failedRun.Error, "panicked") {
+		t.Fatalf("expected error to mention panic, got %q", failedRun.Error)
+	}
+}

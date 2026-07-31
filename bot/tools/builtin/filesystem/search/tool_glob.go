@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/toolhelpers"
 	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type GlobTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 }
 
 func (t *GlobTool) Name() string { return "glob" }
@@ -30,12 +29,12 @@ func (t *GlobTool) Parameters() []core.Parameter {
 }
 
 func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	pattern, err := toolhelpers.RequireStringArg(args, "pattern")
+	pattern, err := toolutil.RequireStringArg(args, "pattern")
 	if err != nil {
 		return "", err
 	}
 
-	basePath := toolhelpers.OptStringArg(args, "path", ".")
+	basePath := toolutil.OptStringArg(args, "path", ".")
 	safeBasePath, err := toolutil.ValidatePathReadable(basePath)
 	if err != nil {
 		return "", err

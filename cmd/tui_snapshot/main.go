@@ -4,7 +4,6 @@ package main
 
 import (
 	"log"
-	controlruntime "nekocode/runtime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"nekocode/interaction/tui/components/message"
 	"nekocode/interaction/tui/components/processing"
 	"nekocode/interaction/tui/styles"
+	controlruntime "nekocode/runtime"
 )
 
 var sty = styles.DefaultStyles()
@@ -22,8 +22,12 @@ const width = 80
 
 func main() {
 	outDir := "/tmp/tui_snapshots"
-	os.RemoveAll(outDir)
-	os.MkdirAll(outDir, 0755)
+	if err := os.RemoveAll(outDir); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		log.Fatal(err)
+	}
 
 	write(outDir, "confirmations.txt", renderConfirmations())
 	write(outDir, "tool_blocks.txt", renderToolBlocks())
@@ -65,9 +69,8 @@ func renderConfirmEdit() string {
 		Args: map[string]any{
 			"path": "bot/tools/builtin/tool_edit.go",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 	return cb.View(width, 40)
 }
 
@@ -103,9 +106,8 @@ if __name__ == "__main__":
     process_data("/tmp/input.json", "/tmp/output.json")
 PYEOF`,
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 	return cb.View(width, 80)
 }
 
@@ -121,9 +123,8 @@ func renderConfirmPermission() string {
 			"workspace":               "/home/user/project",
 			"sandbox":                 "native",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 	return cb.View(width, 40)
 }
 
@@ -139,9 +140,8 @@ func renderConfirmProcessHost() string {
 			"workspace":               "/home/lznauy/precode/NekoCode",
 			"sandbox":                 "native",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 	return cb.View(width, 40)
 }
 
@@ -152,9 +152,8 @@ func renderConfirmWrite() string {
 		Args: map[string]any{
 			"path": "/tmp/nekocode/generated_report.md",
 		},
-		Kind:     controlruntime.ConfirmKindPermission,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindPermission,
+	}, nil)
 	return cb.View(width, 40)
 }
 
@@ -166,9 +165,8 @@ func renderConfirmPlugin() string {
 			"source":  "github.com/example/some-skill",
 			"summary": "Install github.com/example/some-skill (v1.2.3) — adds markdown linting support",
 		},
-		Kind:     controlruntime.ConfirmKindInstall,
-		Response: make(chan controlruntime.ConfirmReply, 1),
-	})
+		Kind: controlruntime.ConfirmKindInstall,
+	}, nil)
 	return cb.View(width, 40)
 }
 

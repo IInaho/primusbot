@@ -10,7 +10,7 @@ func TestValidatePluginOutputRejectsSchemaFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing required field should fail")
 	}
-	if !strings.Contains(err.Error(), "Schema validation failed") {
+	if !strings.Contains(err.Error(), "schema validation failed") {
 		t.Fatalf("error = %q, want schema validation failure", err.Error())
 	}
 }

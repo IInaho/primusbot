@@ -2,12 +2,48 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	controlruntime "nekocode/runtime"
 )
+
+type imageSessionRunner struct {
+	cwd string
+}
+
+func (*imageSessionRunner) Run(context.Context, string, controlruntime.RunHost) (string, error) {
+	return "", nil
+}
+
+func (*imageSessionRunner) CurrentSessionID() string { return "session_1" }
+
+func (r *imageSessionRunner) ListSessions() []controlruntime.SessionMeta {
+	return []controlruntime.SessionMeta{{ID: "session_1", CWD: r.cwd}}
+}
+
+func (*imageSessionRunner) SessionMessages() []controlruntime.DisplayMessage { return nil }
+
+func TestReadImageBase64RejectsSymlinkOutsideSession(t *testing.T) {
+	cwd := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outside, []byte("not really an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(cwd, "linked.png")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+
+	rt := controlruntime.New(&imageSessionRunner{cwd: cwd})
+	app := &App{ctx: context.Background(), rt: rt}
+	if _, err := app.ReadImageBase64(link); err == nil || !strings.Contains(err.Error(), "outside allowed") {
+		t.Fatalf("ReadImageBase64 error = %v, want path rejection", err)
+	}
+}
 
 func TestCompactConfirmArgsEditUsesV2Fields(t *testing.T) {
 	req := controlruntime.ConfirmRequest{
@@ -81,39 +117,20 @@ func TestReplyConfirmWithPermissionIgnoredWhenCannotEscalate(t *testing.T) {
 }
 
 type approvalBot struct {
-	confirm       func(controlruntime.ConfirmRequest) controlruntime.ConfirmReply
 	allowEscalate bool
 	replies       chan controlruntime.ConfirmReply
 }
 
-func (b *approvalBot) Run(string, controlruntime.RunCallbacks) (string, error) {
+func (b *approvalBot) Run(_ context.Context, _ string, host controlruntime.RunHost) (string, error) {
 	req := controlruntime.ConfirmRequest{
 		ToolName:              "shell",
 		Args:                  map[string]any{"command": "go get example.com/pkg"},
 		Kind:                  controlruntime.ConfirmKindPermission,
 		CanEscalatePermission: b.allowEscalate,
 	}
-	reply := b.confirm(req)
+	reply := host.Confirm(req)
 	b.replies <- reply
 	return "", nil
-}
-
-func (b *approvalBot) ExecuteCommand(string) (string, controlruntime.CmdResult) {
-	return "", controlruntime.CmdNone
-}
-func (b *approvalBot) SkillHint() (string, bool)      { return "", false }
-func (b *approvalBot) Stats() controlruntime.BotStats { return controlruntime.BotStats{} }
-func (b *approvalBot) CommandNames() []string         { return nil }
-func (b *approvalBot) ConfigureRuntime(callbacks controlruntime.ControlCallbacks) {
-	b.confirm = callbacks.Confirm
-}
-func (b *approvalBot) Steer(string)                                     {}
-func (b *approvalBot) Abort()                                           {}
-func (b *approvalBot) Close()                                           {}
-func (b *approvalBot) ProviderModel() (provider, model string)          { return "", "" }
-func (b *approvalBot) SessionMessages() []controlruntime.DisplayMessage { return nil }
-func (b *approvalBot) MemoryView(controlruntime.MemoryScope) controlruntime.MemoryView {
-	return controlruntime.MemoryView{}
 }
 
 func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan controlruntime.ConfirmReply) {
@@ -123,11 +140,14 @@ func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan co
 		replies:       make(chan controlruntime.ConfirmReply, 1),
 	}
 	rt := controlruntime.New(bot)
-	t.Cleanup(rt.Close)
+	t.Cleanup(func() {
+		if err := rt.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	app := &App{ctx: context.Background(), rt: rt}
 
-	_, err := rt.Submit(context.Background(), controlruntime.Input{
-		Kind:   controlruntime.InputMessage,
+	_, err := rt.StartRun(context.Background(), controlruntime.Input{
 		Source: controlruntime.SourceRef{Kind: "test"},
 		Text:   "run approval",
 	})
@@ -136,9 +156,9 @@ func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan co
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		pending := rt.PendingApprovals()
-		if len(pending) == 1 {
-			return app, pending[0].ID, bot.replies
+		run, ok := rt.CurrentRun()
+		if ok && len(run.Approvals) == 1 {
+			return app, run.Approvals[0].ID, bot.replies
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

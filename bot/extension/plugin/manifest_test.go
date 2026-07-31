@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +31,15 @@ func TestParseManifest(t *testing.T) {
 	}
 	if len(m.Skills) != 1 || m.Skills[0] != "./skills/test-skill" {
 		t.Errorf("skills = %v, want [./skills/test-skill]", m.Skills)
+	}
+}
+
+func TestParseManifestRejectsPathName(t *testing.T) {
+	for _, name := range []string{"../escape", "nested/plugin", `nested\plugin`} {
+		data := []byte(`{"name":` + fmt.Sprintf("%q", name) + `}`)
+		if _, err := parseManifestData(data); err == nil {
+			t.Fatalf("parseManifestData accepted unsafe name %q", name)
+		}
 	}
 }
 

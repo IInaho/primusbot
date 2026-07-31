@@ -12,13 +12,7 @@ import (
 	"nekocode/bot/tools/runtime/workspace"
 )
 
-// backend is the sandbox executor used by the shell tool. It defaults to
-// sandbox.DefaultBackend and may be overridden (e.g. in tests) via setBackend.
 var backend sandbox.Backend = sandbox.DefaultBackend{}
-
-// setBackend replaces the package-level sandbox backend. Intended for tests
-// that need to inject a fake backend without touching the real OS sandbox.
-func setBackend(b sandbox.Backend) { backend = b }
 
 type sandboxRequest struct {
 	Mode          string

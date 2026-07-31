@@ -31,7 +31,11 @@ func TestSyncerIndexesAndRemovesSupportedFileEvents(t *testing.T) {
 	}
 	s.SetGraph(g)
 	s.Start()
-	t.Cleanup(s.Stop)
+	t.Cleanup(func() {
+		if err := s.Stop(); err != nil {
+			t.Errorf("stop syncer: %v", err)
+		}
+	})
 
 	path := filepath.Join(cwd, "main.go")
 	if err := os.WriteFile(path, []byte("package main\n\nfunc Hello() {}\n"), 0o644); err != nil {
@@ -71,7 +75,11 @@ func TestSyncerIgnoresUnsupportedFiles(t *testing.T) {
 	}
 	s.SetGraph(g)
 	s.Start()
-	t.Cleanup(s.Stop)
+	t.Cleanup(func() {
+		if err := s.Stop(); err != nil {
+			t.Errorf("stop syncer: %v", err)
+		}
+	})
 
 	if err := os.WriteFile(filepath.Join(cwd, "notes.txt"), []byte("ignore me"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)

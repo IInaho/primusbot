@@ -24,6 +24,9 @@ type Syncer struct {
 	mu      sync.Mutex
 	stopCh  chan struct{}
 	doneCh  chan struct{}
+	start   sync.Once
+	stop    sync.Once
+	stopErr error
 }
 
 // NewSyncer creates a new file syncer.
@@ -44,7 +47,9 @@ func NewSyncer(indexer *indexerpkg.Indexer, cwd string, graphMu *sync.RWMutex) (
 
 	// Add directories to watch
 	if err := s.addWatchDirs(cwd); err != nil {
-		watcher.Close()
+		if closeErr := watcher.Close(); closeErr != nil {
+			return nil, fmt.Errorf("%w (close watcher: %v)", err, closeErr)
+		}
 		return nil, err
 	}
 
@@ -76,67 +81,72 @@ func (s *Syncer) addWatchDirs(dir string) error {
 
 // Start begins watching for file changes.
 func (s *Syncer) Start() {
-	go func() {
-		defer close(s.doneCh)
-		var debounceTimer *time.Timer
-		pendingChanges := make(map[string]fsnotify.Op) // path → accumulated ops
+	s.start.Do(func() { go s.run() })
+}
 
-		for {
-			select {
-			case <-s.stopCh:
-				return
-			case event, ok := <-s.watcher.Events:
-				if !ok {
-					return
-				}
-				// Only care about write/create/remove events
-				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) == 0 {
-					continue
-				}
-
-				// If a new directory was created, watch it (if not ignored)
-				if event.Op&fsnotify.Create != 0 {
-					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-						name := info.Name()
-						if !indexerpkg.ShouldSkipDir(name) {
-							s.watcher.Add(event.Name)
-						}
-						continue // directory events don't need file-level processing
-					}
-				}
-
-				if !indexerpkg.SupportsFile(event.Name) {
-					continue
-				}
-
-				// Accumulate the change (under lock to avoid data race with timer callback)
-				s.mu.Lock()
-				pendingChanges[event.Name] |= event.Op
-				s.mu.Unlock()
-
-				// (Re)set the debounce timer
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
-					s.mu.Lock()
-					changes := pendingChanges
-					pendingChanges = make(map[string]fsnotify.Op)
-					s.mu.Unlock()
-
-					for path, op := range changes {
-						s.handleFileChange(path, op)
-					}
-				})
-
-			case err, ok := <-s.watcher.Errors:
-				if !ok {
-					return
-				}
-				_ = err
-			}
+func (s *Syncer) run() {
+	defer close(s.doneCh)
+	var debounceTimer *time.Timer
+	var debounce <-chan time.Time
+	pendingChanges := make(map[string]fsnotify.Op)
+	defer func() {
+		if debounceTimer != nil {
+			debounceTimer.Stop()
 		}
 	}()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case event, ok := <-s.watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) == 0 {
+				continue
+			}
+
+			if event.Op&fsnotify.Create != 0 {
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					if !indexerpkg.ShouldSkipDir(info.Name()) {
+						_ = s.watcher.Add(event.Name)
+					}
+					continue
+				}
+			}
+
+			if !indexerpkg.SupportsFile(event.Name) {
+				continue
+			}
+			pendingChanges[event.Name] |= event.Op
+			if debounceTimer == nil {
+				debounceTimer = time.NewTimer(500 * time.Millisecond)
+			} else {
+				if !debounceTimer.Stop() {
+					select {
+					case <-debounceTimer.C:
+					default:
+					}
+				}
+				debounceTimer.Reset(500 * time.Millisecond)
+			}
+			debounce = debounceTimer.C
+
+		case <-debounce:
+			changes := pendingChanges
+			pendingChanges = make(map[string]fsnotify.Op)
+			debounce = nil
+			for path, op := range changes {
+				s.handleFileChange(path, op)
+			}
+
+		case _, ok := <-s.watcher.Errors:
+			if !ok {
+				return
+			}
+		}
+	}
 }
 
 // handleFileChange processes a file change event.
@@ -168,10 +178,14 @@ func (s *Syncer) handleFileChange(path string, op fsnotify.Op) {
 }
 
 // Stop stops the syncer and waits for the background goroutine to exit.
-func (s *Syncer) Stop() {
-	close(s.stopCh)
-	s.watcher.Close()
-	<-s.doneCh
+func (s *Syncer) Stop() error {
+	s.Start()
+	s.stop.Do(func() {
+		close(s.stopCh)
+		s.stopErr = s.watcher.Close()
+		<-s.doneCh
+	})
+	return s.stopErr
 }
 
 // SetGraph updates the graph reference.

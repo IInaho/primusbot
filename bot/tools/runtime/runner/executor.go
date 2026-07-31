@@ -2,7 +2,7 @@ package runner
 
 import (
 	"fmt"
-	"nekocode/bot/view"
+	"nekocode/protocol"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,8 +27,8 @@ type Previewer interface {
 type Executor struct {
 	registry  ToolRegistry
 	state     *execution.ExecutionState
-	confirmFn view.ConfirmFunc
-	phaseFn   view.PhaseFunc
+	confirmFn protocol.ConfirmFunc
+	phaseFn   protocol.PhaseFunc
 	planMode  bool
 	previewFn func(toolName string, args map[string]any, preview string)
 	permStore *permission.Store
@@ -80,19 +80,19 @@ func NewExecutor(r ToolRegistry) *Executor {
 
 func (e *Executor) ExecutionState() *execution.ExecutionState { return e.state }
 
-func (e *Executor) SetConfirmFn(fn view.ConfirmFunc) {
+func (e *Executor) SetConfirmFn(fn protocol.ConfirmFunc) {
 	e.fnMu.Lock()
 	e.confirmFn = fn
 	e.fnMu.Unlock()
 }
 
-func (e *Executor) ConfirmFn() view.ConfirmFunc {
+func (e *Executor) ConfirmFn() protocol.ConfirmFunc {
 	e.fnMu.RLock()
 	defer e.fnMu.RUnlock()
 	return e.confirmFn
 }
 
-func (e *Executor) SetPhaseFn(fn view.PhaseFunc) {
+func (e *Executor) SetPhaseFn(fn protocol.PhaseFunc) {
 	e.fnMu.Lock()
 	e.phaseFn = fn
 	e.fnMu.Unlock()

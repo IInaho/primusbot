@@ -1,21 +1,18 @@
 // Package core defines the stable runtime protocol shared by the public
-// facade and internal services.
+// runtime package and internal services.
 package core
 
 import (
 	"context"
 	"time"
+
+	"nekocode/protocol"
 )
 
 type RunID string
 
-type InputKind string
-
 const (
-	InputMessage       InputKind = "message"
-	InputCommand       InputKind = "command"
-	InputApprovalReply InputKind = "approval_reply"
-	InputQuestionReply InputKind = "question_reply"
+	ProtocolVersion = "2.0"
 )
 
 type SourceRef struct {
@@ -30,13 +27,9 @@ type SenderRef struct {
 }
 
 type Input struct {
-	ID        string    `json:"id,omitempty"`
-	Kind      InputKind `json:"kind"`
-	Source    SourceRef `json:"source"`
-	Sender    SenderRef `json:"sender"`
-	Text      string    `json:"text"`
-	SessionID string    `json:"session_id,omitempty"`
-	ReplyTo   string    `json:"reply_to,omitempty"`
+	Source SourceRef `json:"source"`
+	Sender SenderRef `json:"sender"`
+	Text   string    `json:"text"`
 }
 
 type RunStatus string
@@ -48,7 +41,7 @@ const (
 	RunWaitingQuestion RunStatus = "waiting_question"
 	RunDone            RunStatus = "done"
 	RunFailed          RunStatus = "failed"
-	RunAborted         RunStatus = "aborted"
+	RunCancelled       RunStatus = "aborted"
 )
 
 type EventType string
@@ -73,23 +66,26 @@ const (
 	EventRunStarted        EventType = "run_started"
 	EventRunDone           EventType = "run_done"
 	EventRunFailed         EventType = "run_failed"
-	EventRunAborted        EventType = "run_aborted"
-	EventSessionResumed    EventType = "session_resumed"
+	EventRunCancelled      EventType = "run_aborted"
+	EventSessionChanged    EventType = "session_changed"
 	EventConnectorStatus   EventType = "connector_status"
+	EventMetricsUpdated    EventType = "metrics_updated"
 )
 
 type Event struct {
-	ID        string    `json:"id"`
-	RunID     RunID     `json:"run_id,omitempty"`
-	Type      EventType `json:"type"`
-	Source    SourceRef `json:"source"`
-	Time      time.Time `json:"time"`
-	Payload   any       `json:"payload,omitempty"`
-	SessionID string    `json:"session_id,omitempty"`
+	Version  string    `json:"version,omitempty"`
+	ID       string    `json:"id"`
+	Sequence uint64    `json:"sequence,omitempty"`
+	RunID    RunID     `json:"run_id,omitempty"`
+	Type     EventType `json:"type"`
+	Source   SourceRef `json:"source"`
+	Time     time.Time `json:"time"`
+	Payload  any       `json:"payload,omitempty"`
 }
 
 type EventFilter struct {
 	RunID   RunID
+	After   uint64
 	Types   []EventType
 	Sources []string
 }
@@ -111,37 +107,37 @@ type PhasePayload struct {
 }
 
 type ToolPayload struct {
-	ToolName string `json:"tool_name"`
-	CallID   string `json:"call_id,omitempty"`
-	Args     string `json:"args,omitempty"`
-	Output   string `json:"output,omitempty"`
-	Preview  string `json:"preview,omitempty"`
-	IsError  bool   `json:"is_error,omitempty"`
+	ToolName      string `json:"tool_name"`
+	CallID        string `json:"call_id,omitempty"`
+	Args          string `json:"args,omitempty"`
+	Output        string `json:"output,omitempty"`
+	Preview       string `json:"preview,omitempty"`
+	IsError       bool   `json:"is_error,omitempty"`
+	SubAgentID    string `json:"subagent_id,omitempty"`
+	SubAgentColor int    `json:"subagent_color,omitempty"`
 }
 
-type DonePayload struct {
+type SubAgentPayload struct {
+	ID    string `json:"id"`
+	Type  string `json:"type,omitempty"`
+	Color int    `json:"color,omitempty"`
+}
+
+type SessionPayload struct {
+	ID string `json:"id,omitempty"`
+}
+
+type RunResult struct {
 	Output string `json:"output"`
 	Error  string `json:"error,omitempty"`
 }
 
-// Control is the application-facing interaction contract.
-type Control interface {
-	Submit(ctx context.Context, input Input) (RunID, error)
-	Steer(ctx context.Context, runID RunID, input Input) error
-	Abort(ctx context.Context, runID RunID) error
-	Approve(ctx context.Context, approvalID string, decision ApprovalDecision) error
-	Answer(ctx context.Context, questionID string, reply QuestionReply) error
-	Subscribe(ctx context.Context, filter EventFilter) (<-chan Event, error)
-	Connect(ctx context.Context, name string, args []string) (string, error)
-	Disconnect(name string) (string, error)
-}
-
 // ConnectorRuntime is the narrow host contract supplied to IM connectors.
 type ConnectorRuntime interface {
-	Submit(ctx context.Context, input Input) (RunID, error)
-	Abort(ctx context.Context, runID RunID) error
-	Approve(ctx context.Context, approvalID string, decision ApprovalDecision) error
-	Answer(ctx context.Context, questionID string, reply QuestionReply) error
-	Subscribe(ctx context.Context, filter EventFilter) (<-chan Event, error)
+	StartRun(ctx context.Context, input Input) (RunID, error)
+	CancelRun(ctx context.Context, runID RunID) error
+	DecideApproval(ctx context.Context, approvalID string, decision ApprovalDecision) error
+	AnswerQuestion(ctx context.Context, questionID string, reply protocol.QuestionReply) error
+	Events(ctx context.Context, filter EventFilter) (<-chan Event, error)
 	ReportConnectorStatus(payload ConnectorStatusPayload)
 }

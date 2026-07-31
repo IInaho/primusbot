@@ -59,7 +59,7 @@ func TestValidatePathWritableUsesWorkspaceGuard(t *testing.T) {
 func TestNewToolHTTPClient(t *testing.T) {
 	c := NewToolHTTPClient(0)
 	if c == nil {
-		t.Error("nil client")
+		t.Fatal("nil client")
 	}
 	if c.Timeout != 0 {
 		t.Error("expected zero timeout")

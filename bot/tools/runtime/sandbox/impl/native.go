@@ -436,8 +436,7 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 		return fmt.Errorf("chdir workspace: %w", err)
 	}
 	if err := unix.Unmount("/.old", unix.MNT_DETACH); err != nil {
-		// Non-fatal: a lazy detach keeps the old root around briefly but it is
-		// invisible inside the new tree.
+		return fmt.Errorf("detach old root: %w", err)
 	}
 
 	// 5. Environment + exec the command.
@@ -482,7 +481,9 @@ func setupDev(root string) error {
 		}
 		dst := filepath.Join(root, dev)
 		if f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
-			f.Close()
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("close device placeholder %s: %w", dst, err)
+			}
 		}
 		if err := unix.Mount(dev, dst, "", unix.MS_BIND, ""); err != nil {
 			return fmt.Errorf("bind %s: %w", dev, err)

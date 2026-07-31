@@ -1,5 +1,5 @@
 // Command minimal-agent shows the smallest useful assembly of the
-// bot/agent/runtime public contract: a context manager, a tool registry
+// bot/agent public contract: a context manager, a tool registry
 // with the builtin catalog, an LLM client, and one Run with step events
 // printed to stdout.
 //
@@ -16,12 +16,12 @@ import (
 	"fmt"
 	"os"
 
-	"nekocode/bot/agent/runtime"
+	agentcore "nekocode/bot/agent"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
-	commonview "nekocode/common/view"
+	"nekocode/protocol"
 )
 
 func main() {
@@ -32,18 +32,23 @@ func main() {
 	}
 	model := getenv("NEKOCODE_MODEL", "gpt-4o-mini")
 
-	llm := provider.NewClientWithProtocol(apiKey, os.Getenv("NEKOCODE_BASE_URL"), model, getenv("NEKOCODE_PROTOCOL", "openai"))
-
-	registry := tools.NewRegistry()
-	catalog.RegisterAll(registry, nil)
-
-	agent := runtime.New(context.Background(), runtime.AgentConfig{
-		CtxMgr:   ctxmgr.NewSub("You are a helpful assistant.", 128000, nil),
-		LLM:      llm,
-		Registry: registry,
+	llm := provider.New(provider.Config{
+		APIKey: apiKey, BaseURL: os.Getenv("NEKOCODE_BASE_URL"),
+		Model: model, Protocol: getenv("NEKOCODE_PROTOCOL", "openai"),
 	})
 
-	result := agent.Run("你好，介绍一下你自己", func(ev commonview.StepEvent) {
+	registry := tools.New()
+	catalog.RegisterAll(registry, nil)
+
+	agent := agentcore.New(context.Background(), agentcore.Config{
+		Context: ctxmgr.New(ctxmgr.Config{
+			SystemPrompt: "You are a helpful assistant.", ContextWindow: 128000,
+		}),
+		Model: llm,
+		Tools: registry,
+	})
+
+	result := agent.Run("你好，介绍一下你自己", func(ev protocol.StepEvent) {
 		fmt.Printf("[%s] %s %s\n", ev.Action, ev.ToolName, ev.Output)
 	})
 	fmt.Println("---")

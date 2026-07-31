@@ -3,7 +3,7 @@ package core
 import (
 	"time"
 
-	commonview "nekocode/common/view"
+	"nekocode/protocol"
 )
 
 type ApprovalStatus string
@@ -21,8 +21,8 @@ type ApprovalDecision struct {
 	AllowWithPermission bool `json:"allow_with_permission,omitempty"`
 }
 
-func (d ApprovalDecision) ConfirmReply() ConfirmReply {
-	return ConfirmReply{
+func (d ApprovalDecision) ConfirmReply() protocol.ConfirmReply {
+	return protocol.ConfirmReply{
 		Allowed:             d.Allowed,
 		Remember:            d.Remember,
 		AllowWithPermission: d.AllowWithPermission,
@@ -44,11 +44,11 @@ type ApprovalView struct {
 	Metadata              map[string]any `json:"metadata,omitempty"`
 }
 
-func (v ApprovalView) ToConfirmRequest() ConfirmRequest {
-	return ConfirmRequest{
+func (v ApprovalView) ToConfirmRequest() protocol.ConfirmRequest {
+	return protocol.ConfirmRequest{
 		ToolName:              v.ToolName,
 		Args:                  v.Args,
-		Kind:                  ConfirmKind(v.Kind),
+		Kind:                  protocol.ConfirmKind(v.Kind),
 		CanEscalatePermission: v.CanEscalatePermission,
 	}
 }
@@ -62,28 +62,14 @@ const (
 )
 
 type QuestionView struct {
-	ID         string         `json:"id"`
-	Questions  []QuestionItem `json:"questions"`
-	Status     QuestionStatus `json:"status"`
-	CreatedAt  time.Time      `json:"created_at"`
-	ResolvedAt *time.Time     `json:"resolved_at,omitempty"`
-	Source     SourceRef      `json:"source"`
+	ID         string                  `json:"id"`
+	Questions  []protocol.QuestionItem `json:"questions"`
+	Status     QuestionStatus          `json:"status"`
+	CreatedAt  time.Time               `json:"created_at"`
+	ResolvedAt *time.Time              `json:"resolved_at,omitempty"`
+	Source     SourceRef               `json:"source"`
 }
 
-func (v QuestionView) ToQuestionRequest() QuestionRequest {
-	return QuestionRequest{Questions: v.Questions}
+func (v QuestionView) ToQuestionRequest() protocol.QuestionRequest {
+	return protocol.QuestionRequest{Questions: v.Questions}
 }
-
-type ConfirmKind = commonview.ConfirmKind
-
-const (
-	ConfirmKindPermission = commonview.ConfirmKindPermission
-	ConfirmKindInstall    = commonview.ConfirmKindInstall
-)
-
-type ConfirmRequest = commonview.ConfirmRequest
-type ConfirmReply = commonview.ConfirmReply
-type QuestionOption = commonview.QuestionOption
-type QuestionItem = commonview.QuestionItem
-type QuestionReply = commonview.QuestionReply
-type QuestionRequest = commonview.QuestionRequest

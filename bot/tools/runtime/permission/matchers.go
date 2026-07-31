@@ -282,8 +282,7 @@ func (FilePathMatcher) Match(spec string, info map[string]any) (bool, error) {
 // target path. This is a pragmatic implementation (not a full gitignore
 // engine): it handles the common anchors and * / ** wildcards.
 func matchPathPattern(spec, target, workspace, home string) bool {
-	var root string
-	pat := spec
+	var root, pat string
 	switch {
 	case strings.HasPrefix(spec, "//"):
 		root = "/"

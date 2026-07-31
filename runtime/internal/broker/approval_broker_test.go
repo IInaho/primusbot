@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"nekocode/protocol"
 	"nekocode/runtime/internal/core"
 	"nekocode/runtime/internal/eventbus"
 )
@@ -19,28 +20,27 @@ func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
 		t.Fatalf("subscribe: %v", err)
 	}
 
-	broker := NewApprovalBroker(bus, core.SourceRef{Kind: "test"}, func() RunID { return "run_1" })
-	result := make(chan ConfirmReply, 1)
+	broker := NewApprovalBroker(bus, core.SourceRef{Kind: "test"}, func() core.RunID { return "run_1" })
+	result := make(chan protocol.ConfirmReply, 1)
 	go func() {
-		req := ConfirmRequest{
+		req := protocol.ConfirmRequest{
 			ToolName: "shell",
 			Args:     map[string]any{"command": "go test ./..."},
-			Kind:     ConfirmKindPermission,
-			Response: make(chan ConfirmReply, 1),
+			Kind:     protocol.ConfirmKindPermission,
 		}
 		result <- broker.Request(req)
 	}()
 
-	var approval ApprovalView
+	var approval core.ApprovalView
 	select {
 	case ev := <-events:
 		if ev.RunID != "run_1" {
 			t.Fatalf("approval event run id = %q, want run_1", ev.RunID)
 		}
 		var ok bool
-		approval, ok = ev.Payload.(ApprovalView)
+		approval, ok = ev.Payload.(core.ApprovalView)
 		if !ok {
-			t.Fatalf("payload type = %T, want ApprovalView", ev.Payload)
+			t.Fatalf("payload type = %T, want core.ApprovalView", ev.Payload)
 		}
 		if approval.ArgsHash == "" || approval.ToolCallHash == "" {
 			t.Fatalf("approval hashes were not set: %#v", approval)
@@ -49,7 +49,7 @@ func TestApprovalBrokerDecideUnblocksRequest(t *testing.T) {
 		t.Fatal("timed out waiting for approval request")
 	}
 
-	if err := broker.Decide(approval.ID, ApprovalDecision{Allowed: true}); err != nil {
+	if err := broker.Decide(approval.ID, core.ApprovalDecision{Allowed: true}); err != nil {
 		t.Fatalf("decide: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestApprovalBrokerRequestAfterCloseIsRejected(t *testing.T) {
 	broker := NewApprovalBroker(nil, core.SourceRef{Kind: "test"}, nil)
 	broker.Close()
 
-	reply := broker.Request(ConfirmRequest{ToolName: "shell"})
+	reply := broker.Request(protocol.ConfirmRequest{ToolName: "shell"})
 	if reply.Allowed {
 		t.Fatal("approval request was allowed after broker close")
 	}

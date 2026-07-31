@@ -2,16 +2,14 @@ import { EventsOn, Quit } from '../../wailsjs/runtime/runtime'
 import {
   Abort,
   ClearSelectedSkill,
-  ContextReport,
   ContextSnapshot,
-  ContextStatus,
   DeleteSession,
   GetConfig,
   GetSkillManagement,
   ListSessions,
   LoadSession,
   NewSession,
-  ProviderModel,
+  CurrentModel,
   ReadImageBase64,
   RefreshSkillManagement,
   ReplyConfirm,
@@ -25,10 +23,10 @@ import {
   SwitchModel,
 } from '../../wailsjs/go/main/App'
 import type { ConfigView } from '../types/config'
-import type { view } from '../../wailsjs/go/models'
-type GUIContextSnapshot = view.ContextSnapshot
-type SessionMeta = view.SessionMeta
-type DisplayMessage = view.DisplayMessage
+import type { runtime } from '../../wailsjs/go/models'
+type GUIContextSnapshot = runtime.ContextSnapshot
+type SessionMeta = runtime.SessionMeta
+type DisplayMessage = runtime.DisplayMessage
 import type { SkillManagementView as SkillManagement } from '../types/skills'
 
 export function isWailsEnvironment(): boolean {
@@ -59,9 +57,9 @@ export function safeAbort(): void {
   }
 }
 
-export function safeProviderModel(): Promise<string> {
+export function safeCurrentModel(): Promise<string> {
   try {
-    return ProviderModel()
+    return CurrentModel()
   } catch {
     return Promise.resolve('')
   }
@@ -70,22 +68,6 @@ export function safeProviderModel(): Promise<string> {
 export function safeSwitchModel(name: string): Promise<string> {
   try {
     return SwitchModel(name)
-  } catch {
-    return Promise.resolve('')
-  }
-}
-
-export function safeContextStatus(): Promise<string> {
-  try {
-    return ContextStatus()
-  } catch {
-    return Promise.resolve('')
-  }
-}
-
-export function safeContextReport(): Promise<string> {
-  try {
-    return ContextReport()
   } catch {
     return Promise.resolve('')
   }

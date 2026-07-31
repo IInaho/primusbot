@@ -16,7 +16,7 @@ import { useChat } from './hooks/useChat'
 import { useModelInfo } from './hooks/useModelInfo'
 import { useAutoScroll } from './hooks/useAutoScroll'
 import { useTextareaResize } from './hooks/useTextareaResize'
-import { useSessions } from './hooks/useSessions'
+import { mapDisplayMessage, useSessions } from './hooks/useSessions'
 import { useTheme } from './hooks/useTheme'
 import {
   safeClearSelectedSkill,
@@ -30,8 +30,9 @@ import {
 } from './lib/wails'
 import type { ConfirmEvent, Msg, QuestionEvent } from './types/events'
 import type { ModelConfig } from './types/config'
-import type { view } from '../wailsjs/go/models'
-type ContextSnapshot = view.ContextSnapshot
+import type { runtime } from '../wailsjs/go/models'
+type ContextSnapshot = runtime.ContextSnapshot
+type DisplayMessage = runtime.DisplayMessage
 import type { SkillView } from './types/skills'
 
 export default function App() {
@@ -208,6 +209,14 @@ export default function App() {
       refreshSessions()
     })
   }, [refreshSessions])
+
+  useEffect(() => {
+    return safeEventsOn('session:changed', (event: unknown) => {
+      const messages = (event as { messages?: DisplayMessage[] })?.messages
+      setMessages(Array.isArray(messages) ? messages.map(mapDisplayMessage) : [])
+      follow()
+    })
+  }, [setMessages, follow])
 
   const showEmptyWorkspace = !sessionsLoading && sessions.length === 0 && msgs.length === 0
 

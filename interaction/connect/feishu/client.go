@@ -15,7 +15,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"nekocode/common/debug"
+	"nekocode/logger"
 )
 
 // sdkLogger adapts the Lark SDK's logger to the project debug channel so SDK
@@ -28,11 +28,11 @@ func (sdkLogger) Debug(context.Context, ...interface{}) {}
 func (sdkLogger) Info(context.Context, ...interface{})  {}
 
 func (sdkLogger) Warn(_ context.Context, args ...interface{}) {
-	debug.Log("feishu sdk [warn] %s", strings.TrimSpace(fmt.Sprintln(args...)))
+	logger.Log("feishu sdk [warn] %s", strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 func (sdkLogger) Error(_ context.Context, args ...interface{}) {
-	debug.Log("feishu sdk [error] %s", strings.TrimSpace(fmt.Sprintln(args...)))
+	logger.Log("feishu sdk [error] %s", strings.TrimSpace(fmt.Sprintln(args...)))
 }
 
 // feishuClient wraps the Lark SDK: REST for outbound messages, websocket

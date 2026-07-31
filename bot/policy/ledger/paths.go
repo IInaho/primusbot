@@ -9,6 +9,8 @@ import (
 	"nekocode/bot/policy/internal/shellscan"
 )
 
+type pathSet map[string]struct{}
+
 func extractReadPaths(name string, args map[string]any) []string {
 	switch name {
 	case "read":

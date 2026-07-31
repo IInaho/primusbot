@@ -3,6 +3,7 @@
 package standard
 
 import (
+	"errors"
 	"fmt"
 
 	"nekocode/bot"
@@ -12,14 +13,15 @@ import (
 	controlruntime "nekocode/runtime"
 )
 
-var _ controlruntime.Backend = (*bot.Bot)(nil)
-
 // New constructs the standard application runtime.
 func New() (*controlruntime.Manager, error) {
-	rt := controlruntime.New(bot.New())
-	if err := rt.EnableDefaultEventRecording(); err != nil {
-		rt.Close()
+	standardBot, err := bot.New()
+	if err != nil {
 		return nil, fmt.Errorf("standard runtime: %w", err)
+	}
+	rt := FromBot(standardBot)
+	if err := rt.EnableDefaultEventRecording(); err != nil {
+		return nil, errors.Join(fmt.Errorf("standard runtime: %w", err), rt.Close())
 	}
 	rt.RegisterConnector("telegram", func(runtime controlruntime.ConnectorRuntime) controlruntime.Connector {
 		return telegram.New(runtime)
@@ -31,4 +33,13 @@ func New() (*controlruntime.Manager, error) {
 		return qqbot.New(runtime)
 	})
 	return rt, nil
+}
+
+// FromBot creates a runtime around an existing standard bot without enabling
+// event recording or registering bundled connectors.
+func FromBot(core *bot.Bot) *controlruntime.Manager {
+	if core == nil {
+		panic("runtime/standard: nil bot")
+	}
+	return controlruntime.New(adapt(core))
 }

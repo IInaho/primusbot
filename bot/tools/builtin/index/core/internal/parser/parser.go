@@ -6,9 +6,13 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
 	graphpkg "nekocode/bot/tools/builtin/index/core/internal/graph"
-	"nekocode/bot/tools/builtin/index/core/internal/treesitter"
 )
 
 type Node = graphpkg.Node
@@ -37,10 +41,9 @@ type langConfig struct {
 var supportedLangs = buildSupportedLangs()
 
 func buildSupportedLangs() map[string]langConfig {
-	L := treesitter.Languages
 	return map[string]langConfig{
 		".go": {
-			lang: L[".go"],
+			lang: golang.GetLanguage(),
 			queries: map[string]string{
 				"functions":    `(function_declaration name: (identifier) @name) @func`,
 				"methods":      `(method_declaration name: (field_identifier) @name) @method`,
@@ -55,7 +58,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".js": {
-			lang: L[".js"],
+			lang: javascript.GetLanguage(),
 			queries: map[string]string{
 				"functions":    `(function_declaration name: (identifier) @name) @func`,
 				"classes":      `(class_declaration name: (identifier) @name) @class`,
@@ -66,7 +69,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".jsx": {
-			lang: L[".jsx"],
+			lang: javascript.GetLanguage(),
 			queries: map[string]string{
 				"functions": `(function_declaration name: (identifier) @name) @func`,
 				"classes":   `(class_declaration name: (identifier) @name) @class`,
@@ -74,7 +77,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".ts": {
-			lang: L[".ts"],
+			lang: typescript.GetLanguage(),
 			queries: map[string]string{
 				"functions":    `(function_declaration name: (identifier) @name) @func`,
 				"classes":      `(class_declaration name: (type_identifier) @name) @class`,
@@ -86,7 +89,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".tsx": {
-			lang: L[".tsx"],
+			lang: typescript.GetLanguage(),
 			queries: map[string]string{
 				"functions": `(function_declaration name: (identifier) @name) @func`,
 				"classes":   `(class_declaration name: (type_identifier) @name) @class`,
@@ -94,7 +97,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".py": {
-			lang: L[".py"],
+			lang: python.GetLanguage(),
 			queries: map[string]string{
 				"functions":    `(function_definition name: (identifier) @name) @func`,
 				"classes":      `(class_definition name: (identifier) @name) @class`,
@@ -105,7 +108,7 @@ func buildSupportedLangs() map[string]langConfig {
 			},
 		},
 		".rs": {
-			lang: L[".rs"],
+			lang: rust.GetLanguage(),
 			queries: map[string]string{
 				"functions":    `(function_item name: (identifier) @name) @func`,
 				"structs":      `(struct_item name: (type_identifier) @name) @struct`,
@@ -224,8 +227,8 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 				continue
 			}
 
-			switch {
-			case queryName == "functions" || queryName == "methods":
+			switch queryName {
+			case "functions", "methods":
 				kind := KindFunc
 				if queryName == "methods" {
 					kind = KindMethod
@@ -245,7 +248,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 				})
 				funcByLine[startLine] = idx
 
-			case queryName == "classes":
+			case "classes":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindClass,
@@ -255,7 +258,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "structs":
+			case "structs":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindStruct,
@@ -265,7 +268,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "interfaces":
+			case "interfaces":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindInterface,
@@ -275,7 +278,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "types":
+			case "types":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindType,
@@ -285,7 +288,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "enums":
+			case "enums":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindType,
@@ -295,7 +298,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "traits":
+			case "traits":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindInterface,
@@ -305,7 +308,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "impls":
+			case "impls":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindType,
@@ -315,7 +318,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "vars":
+			case "vars":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindVar,
@@ -325,7 +328,7 @@ func (p *Parser) ParseFile(path string, content []byte) ([]*Node, []*Edge) {
 					PkgPath: pkgPath,
 				})
 
-			case queryName == "consts":
+			case "consts":
 				nodes = append(nodes, &Node{
 					Name:    name,
 					Kind:    KindConst,

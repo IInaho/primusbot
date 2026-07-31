@@ -1,11 +1,11 @@
 package extension
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
@@ -39,8 +39,11 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	registry := tools.NewRegistry()
-	manager := New(ctxmgr.New(ctxmgr.Config{}), registry, policy.New(), 32_000)
+	registry := tools.New()
+	manager := New(Config{
+		Context: ctxmgr.New(ctxmgr.Config{}), Tools: registry,
+		Policy: policy.New(), ContextWindow: 32_000,
+	})
 	manager.Load()
 	defer manager.Close()
 
@@ -80,32 +83,19 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 	}
 }
 
-func TestAsyncInstallAlwaysSignalsDone(t *testing.T) {
+func TestInstallReturnsFailure(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	t.Setenv("HOME", filepath.Join(root, "home"))
 
-	manager := New(ctxmgr.New(ctxmgr.Config{}), tools.NewRegistry(), policy.New(), 32_000)
+	manager := New(Config{
+		Context: ctxmgr.New(ctxmgr.Config{}), Tools: tools.New(),
+		Policy: policy.New(), ContextWindow: 32_000,
+	})
 	defer manager.Close()
 
-	done := make(chan struct{}, 1)
-	notifications := make(chan string, 1)
-	manager.installPlugin([]string{"./missing-plugin", "--yes"}, InstallCallbacks{
-		Notify: func(message string) { notifications <- message },
-		Done:   func() { done <- struct{}{} },
-	})
-
-	select {
-	case message := <-notifications:
-		if !strings.Contains(message, "Install failed") {
-			t.Fatalf("notification = %q", message)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("async install did not notify")
-	}
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("async install did not signal completion")
+	result := manager.installPlugin(context.Background(), []string{"./missing-plugin", "--yes"}, nil)
+	if !strings.Contains(result, "Install failed") {
+		t.Fatalf("result = %q", result)
 	}
 }

@@ -40,7 +40,10 @@ func WriteFileWithDir(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, perm)
+	if err := os.WriteFile(path, data, perm); err != nil {
+		return err
+	}
+	return os.Chmod(path, perm)
 }
 
 // ReadJSONFile reads a JSON file and unmarshals it into T.

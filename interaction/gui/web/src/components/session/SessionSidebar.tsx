@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { cn } from '../../lib/classnames'
 import type { Msg } from '../../types/events'
-import type { view } from '../../../wailsjs/go/models'
-type SessionMeta = view.SessionMeta
+import type { runtime } from '../../../wailsjs/go/models'
+type SessionMeta = runtime.SessionMeta
 import { NewSessionButton } from './NewSessionButton'
 import { SessionItem } from './SessionItem'
 

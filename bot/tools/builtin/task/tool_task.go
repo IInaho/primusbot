@@ -6,11 +6,11 @@ import (
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/taskbridge"
-	"nekocode/bot/tools/runtime/toolhelpers"
+	"nekocode/bot/tools/runtime/toolutil"
 )
 
 type TaskTool struct {
-	toolhelpers.SafeReadOnlyTool
+	toolutil.SafeReadOnlyTool
 	run taskbridge.TaskRunner
 }
 
@@ -39,12 +39,12 @@ func (t *TaskTool) Execute(ctx context.Context, args map[string]any) (string, er
 		return "", fmt.Errorf("task tool: not wired")
 	}
 
-	prompt, err := toolhelpers.RequireStringArg(args, "prompt")
+	prompt, err := toolutil.RequireStringArg(args, "prompt")
 	if err != nil {
 		return "", err
 	}
 
-	typeName, err := toolhelpers.RequireStringArg(args, "type")
+	typeName, err := toolutil.RequireStringArg(args, "type")
 	if err != nil {
 		return "", fmt.Errorf("missing type parameter — must specify: researcher, executor, verify")
 	}

@@ -147,7 +147,7 @@ func (i *Input) Cursor() *tea.Cursor {
 	if c == nil {
 		return nil
 	}
-	return tea.NewCursor(c.Position.X, c.Position.Y+1)
+	return tea.NewCursor(c.X, c.Y+1)
 }
 
 func (i *Input) Update(msg tea.Msg) (*Input, tea.Cmd) {

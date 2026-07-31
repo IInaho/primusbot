@@ -2,6 +2,7 @@ package block
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -272,9 +273,8 @@ func extractReadSummary(c string) string {
 				firstLine, lastLine := 0, 0
 				for _, l := range lines {
 					if colon := strings.IndexByte(l, ':'); colon > 0 {
-						var n int
-						fmt.Sscanf(l[:colon], "%d", &n)
-						if n > 0 {
+						n, err := strconv.Atoi(strings.TrimSpace(l[:colon]))
+						if err == nil && n > 0 {
 							if firstLine == 0 {
 								firstLine = n
 							}
@@ -360,9 +360,9 @@ func renderEditPreview(content string, width int, sty *styles.Styles) string {
 			trimmed := strings.TrimLeft(numPart, " ")
 			if len(trimmed) > 0 && (trimmed[0] == '-' || trimmed[0] == '+') {
 				prefix = trimmed[0]
-				fmt.Sscanf(trimmed[1:], "%d", &lineNo)
+				lineNo, _ = strconv.Atoi(trimmed[1:])
 			} else {
-				fmt.Sscanf(trimmed, "%d", &lineNo)
+				lineNo, _ = strconv.Atoi(trimmed)
 			}
 			text = textPart
 		}
@@ -379,11 +379,12 @@ func renderEditPreview(content string, width int, sty *styles.Styles) string {
 
 		contentLine := prefixStr + textFg(text)
 
-		if prefix == '-' {
+		switch prefix {
+		case '-':
 			out.WriteString(delLineBg(contentLine))
-		} else if prefix == '+' {
+		case '+':
 			out.WriteString(addLineBg(contentLine))
-		} else {
+		default:
 			out.WriteString(contentLine)
 			out.WriteString(reset)
 		}

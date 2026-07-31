@@ -69,7 +69,7 @@ func Load(pluginRoot, hooksPath string) ([]Hook, error) {
 }
 
 func makeSessionStartHook(pluginRoot string, eh eventHook) Hook {
-	inner := makePluginHook(PreTurn, "SessionStart", pluginRoot, eh, false)
+	inner := makePluginHook(PreModel, "SessionStart", pluginRoot, eh, false)
 	inner.Once = true
 	return inner
 }

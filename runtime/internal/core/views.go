@@ -1,23 +1,30 @@
 package core
 
-import "time"
+import (
+	"time"
 
-type RunView struct {
-	ID         RunID          `json:"id"`
-	Status     RunStatus      `json:"status"`
-	Source     SourceRef      `json:"source"`
-	Sender     SenderRef      `json:"sender"`
-	Input      string         `json:"input,omitempty"`
-	Phase      string         `json:"phase,omitempty"`
-	StartedAt  time.Time      `json:"started_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	FinishedAt *time.Time     `json:"finished_at,omitempty"`
-	Tools      []ToolView     `json:"tools,omitempty"`
-	Approvals  []ApprovalView `json:"approvals,omitempty"`
-	Questions  []QuestionView `json:"questions,omitempty"`
-	Output     string         `json:"output,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	EventCount int            `json:"event_count"`
+	"nekocode/protocol"
+)
+
+type RunSnapshot struct {
+	ID         RunID               `json:"id"`
+	Status     RunStatus           `json:"status"`
+	Source     SourceRef           `json:"source"`
+	Sender     SenderRef           `json:"sender"`
+	Input      string              `json:"input,omitempty"`
+	Phase      string              `json:"phase,omitempty"`
+	StartedAt  time.Time           `json:"started_at"`
+	UpdatedAt  time.Time           `json:"updated_at"`
+	FinishedAt *time.Time          `json:"finished_at,omitempty"`
+	Tools      []ToolView          `json:"tools,omitempty"`
+	Todos      []protocol.TodoItem `json:"todos,omitempty"`
+	SubAgents  []SubAgentView      `json:"subagents,omitempty"`
+	Approvals  []ApprovalView      `json:"approvals,omitempty"`
+	Questions  []QuestionView      `json:"questions,omitempty"`
+	Output     string              `json:"output,omitempty"`
+	Reasoning  string              `json:"reasoning,omitempty"`
+	Error      string              `json:"error,omitempty"`
+	EventCount int                 `json:"event_count"`
 }
 
 type ToolStatus string
@@ -29,32 +36,26 @@ const (
 )
 
 type ToolView struct {
-	Name       string     `json:"name"`
-	Args       string     `json:"args,omitempty"`
-	Preview    string     `json:"preview,omitempty"`
-	Output     string     `json:"output,omitempty"`
-	Status     ToolStatus `json:"status"`
-	IsError    bool       `json:"is_error,omitempty"`
+	CallID        string     `json:"call_id,omitempty"`
+	Name          string     `json:"name"`
+	Args          string     `json:"args,omitempty"`
+	Preview       string     `json:"preview,omitempty"`
+	Output        string     `json:"output,omitempty"`
+	Status        ToolStatus `json:"status"`
+	IsError       bool       `json:"is_error,omitempty"`
+	SubAgentID    string     `json:"subagent_id,omitempty"`
+	SubAgentColor int        `json:"subagent_color,omitempty"`
+	StartedAt     time.Time  `json:"started_at"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+}
+
+type SubAgentView struct {
+	ID         string     `json:"id"`
+	Type       string     `json:"type,omitempty"`
+	Color      int        `json:"color,omitempty"`
+	Active     bool       `json:"active"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
-}
-
-type ArtifactView struct {
-	RunID   RunID          `json:"run_id"`
-	Diffs   []ArtifactItem `json:"diffs,omitempty"`
-	Patches []ArtifactItem `json:"patches,omitempty"`
-	Reviews []ArtifactItem `json:"reviews,omitempty"`
-	Results []ArtifactItem `json:"results,omitempty"`
-	Errors  []ArtifactItem `json:"errors,omitempty"`
-	Events  int            `json:"events"`
-}
-
-type ArtifactItem struct {
-	Kind      string    `json:"kind"`
-	ToolName  string    `json:"tool_name,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 type ConnectorStatusPayload struct {

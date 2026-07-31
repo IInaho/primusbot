@@ -8,7 +8,7 @@ import (
 
 func ProgressStallHook() policy.Hook {
 	return policy.Hook{
-		Name: "progress_stall", Point: policy.PostTool,
+		Name: "progress_stall", Point: policy.PostToolBatch,
 		On: func(s policy.State) *policy.Result {
 			facts := s.Facts()
 			if facts.Activity.ToolCalls == 0 {

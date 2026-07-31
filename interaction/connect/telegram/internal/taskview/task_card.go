@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	commonview "nekocode/common/view"
+	"nekocode/interaction"
 	controlruntime "nekocode/runtime"
 )
 
@@ -83,7 +83,7 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 	case controlruntime.EventToolStarted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
 			card := t.card(ev.RunID)
-			tool := toolCard{Name: p.ToolName, Brief: commonview.ToolBrief(p.ToolName, p.Args), Status: "running"}
+			tool := toolCard{Name: p.ToolName, Brief: interaction.ToolBrief(p.ToolName, p.Args), Status: "running"}
 			card.Tools = append(card.Tools, tool)
 		}
 	case controlruntime.EventToolPreview:
@@ -109,7 +109,7 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			if status == "blocked" {
 				return compactMessage(
 					htmlTitle("已阻止"),
-					labelCode("工具", strings.TrimSpace(p.ToolName+" "+commonview.ToolBrief(p.ToolName, p.Args))),
+					labelCode("工具", strings.TrimSpace(p.ToolName+" "+interaction.ToolBrief(p.ToolName, p.Args))),
 					htmlPre(truncateRunes(p.Output, 1200)),
 				)
 			}
@@ -139,21 +139,21 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			}
 		}
 	case controlruntime.EventRunDone:
-		if p, ok := ev.Payload.(controlruntime.DonePayload); ok {
+		if p, ok := ev.Payload.(controlruntime.RunResult); ok {
 			card := t.card(ev.RunID)
 			card.Status = statusDone
 			card.Result = p.Output
 			return t.doneReplyLocked(card)
 		}
 	case controlruntime.EventRunFailed:
-		if p, ok := ev.Payload.(controlruntime.DonePayload); ok {
+		if p, ok := ev.Payload.(controlruntime.RunResult); ok {
 			card := t.card(ev.RunID)
 			card.Status = statusFailed
 			card.Result = p.Output
 			card.Error = p.Error
 			return t.doneReplyLocked(card)
 		}
-	case controlruntime.EventRunAborted:
+	case controlruntime.EventRunCancelled:
 		card := t.card(ev.RunID)
 		card.Status = statusAborted
 		return htmlTitle("已停止")
@@ -309,7 +309,7 @@ func (t *Tracker) card(id controlruntime.RunID) *taskCard {
 }
 
 func (t *Tracker) finishTool(card *taskCard, p controlruntime.ToolPayload, status string) {
-	brief := commonview.ToolBrief(p.ToolName, p.Args)
+	brief := interaction.ToolBrief(p.ToolName, p.Args)
 	for i := len(card.Tools) - 1; i >= 0; i-- {
 		if card.Tools[i].Name == p.ToolName && card.Tools[i].Status == "running" {
 			card.Tools[i].Brief = brief

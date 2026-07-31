@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"nekocode/common/debug"
+	"nekocode/logger"
 )
 
 // Plugin represents an installed plugin instance.
@@ -27,11 +27,11 @@ type Plugin struct {
 
 // SkillDirs returns the absolute skill directories for this plugin.
 func (p *Plugin) SkillDirs() []string {
-	if len(p.Manifest.Skills) == 0 {
+	if len(p.Skills) == 0 {
 		return p.autoDiscoverSkills()
 	}
-	dirs := make([]string, 0, len(p.Manifest.Skills))
-	for _, s := range p.Manifest.Skills {
+	dirs := make([]string, 0, len(p.Skills))
+	for _, s := range p.Skills {
 		dirs = append(dirs, resolvePath(p.Dir, s))
 	}
 	return dirs
@@ -39,9 +39,9 @@ func (p *Plugin) SkillDirs() []string {
 
 // AgentPaths returns agent .md file paths declared or auto-discovered.
 func (p *Plugin) AgentPaths() []string {
-	if len(p.Manifest.Agents) > 0 {
+	if len(p.Agents) > 0 {
 		var paths []string
-		for _, a := range p.Manifest.Agents {
+		for _, a := range p.Agents {
 			paths = append(paths, resolvePath(p.Dir, a))
 		}
 		return paths
@@ -51,8 +51,8 @@ func (p *Plugin) AgentPaths() []string {
 
 // HooksPath returns the hooks.json path and whether it exists.
 func (p *Plugin) HooksPath() (string, bool) {
-	if p.Manifest.Hooks != nil && p.Manifest.Hooks.Source != "" {
-		return p.Manifest.Hooks.Source, true
+	if p.Hooks != nil && p.Hooks.Source != "" {
+		return p.Hooks.Source, true
 	}
 	return p.autoDiscoverHooks()
 }
@@ -119,7 +119,7 @@ func (p *Plugin) autoDiscoverMCP() map[string]MCPServerConfig {
 // files; the first match stops the descent into that subtree.
 func walkFind(root string, matchName string, matchDir bool) []string {
 	var results []string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -164,7 +164,7 @@ type Manager struct {
 // directories.
 func New() *Manager {
 	reg := newRegistry(defaultDirs())
-	reg.Logf = debug.Log
+	reg.Logf = logger.Log
 	return &Manager{reg: reg}
 }
 

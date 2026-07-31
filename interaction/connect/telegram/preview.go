@@ -144,7 +144,6 @@ func chunkText(s string, max int) []string {
 		chunk := strings.TrimRight(window[:cut], "\n")
 		if chunk == "" {
 			chunk = window
-			cut = len(window)
 		}
 		chunks = append(chunks, chunk)
 		rest = strings.TrimLeft(string([]rune(rest)[len([]rune(chunk)):]), "\n")
