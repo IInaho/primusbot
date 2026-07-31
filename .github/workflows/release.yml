@@ -42,7 +42,7 @@ jobs:
           CC: /tmp/zigcc
           LD_FLAGS: -s -w -X 'nekocode/internal/version.Version=${{ github.ref_name }}'
         run: |
-          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-linux-${GOARCH} ./cmd
+          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-linux-${GOARCH} ./cmd/tui
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +71,7 @@ jobs:
           CGO_ENABLED: "1"
           LD_FLAGS: -s -w -X 'nekocode/internal/version.Version=${{ github.ref_name }}'
         run: |
-          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-darwin-${GOARCH} ./cmd
+          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-darwin-${GOARCH} ./cmd/tui
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
