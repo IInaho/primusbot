@@ -247,12 +247,15 @@ func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 	case "enter":
-		value := m.Input.Value()
 		if m.Suggestions.Visible() {
 			if selected := m.Suggestions.Accept(); selected != "" {
-				value = selected
+				m.Input.SetValue(selected + " ")
+				m.Input.SetCursorEnd()
 			}
+			m.resizeMessages()
+			return nil
 		}
+		value := m.Input.Value()
 		if value == "" {
 			m.Messages.GotoBottom()
 			m.Input.SetFollow(true)

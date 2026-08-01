@@ -4,8 +4,8 @@ type SandboxMode string
 
 const (
 	// ModeWorkspaceWrite is the default local-work mode: the workspace is
-	// writable, system paths are read-only, /tmp is isolated, and network is
-	// controlled separately by Profile.Network.
+	// writable and network intent is controlled separately by Profile.Network.
+	// Exact read visibility and isolation depend on the selected backend.
 	ModeWorkspaceWrite SandboxMode = "workspace-write"
 
 	// ModeReadOnly binds the workspace read-only. Explicit WritePaths, if any,
@@ -16,10 +16,9 @@ const (
 // Profile describes the sandbox environment for a command. The public
 // sandbox.Profile type is a type alias pointing at this struct.
 //
-// A zero-value Profile (with only Workspace set) applies the strictest
-// write-capable local isolation: no outbound network, only the workspace
-// directory is writable, system directories are read-only, and /tmp is an
-// isolated tmpfs.
+// A zero-value Profile (with only Workspace set) requests the strictest
+// write-capable profile. The native backend provides filesystem, /tmp, and
+// network isolation; reduced fallbacks may only enforce write restrictions.
 type Profile struct {
 	// Mode controls the filesystem access level for the workspace.
 	// Empty is treated as ModeWorkspaceWrite for backward compatibility.
@@ -29,9 +28,9 @@ type Profile struct {
 	// at its host-absolute path unless ModeReadOnly is selected. Required.
 	Workspace string
 
-	// Network controls outbound network access.
-	//   false (default) = isolated network namespace (loopback only)
-	//   true            = share host network namespace
+	// Network records whether network use is authorized.
+	//   false (default) = request network isolation where the backend supports it
+	//   true            = native backend shares the host network namespace
 	Network bool
 
 	// WritePaths are extra host directories bind-mounted as read-write

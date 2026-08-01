@@ -18,15 +18,15 @@ func TestToolBriefReadLineRange(t *testing.T) {
 	}
 }
 
-func TestToolBriefShellSessionActions(t *testing.T) {
-	if got := ToolBrief("shell", `{"action":"list"}`); got != "shell sessions" {
-		t.Fatalf("shell list args = %q, want shell sessions", got)
+func TestToolBriefProcessActions(t *testing.T) {
+	if got := ToolBrief("process", `{"action":"list"}`); got != "managed processes" {
+		t.Fatalf("process list args = %q, want managed processes", got)
 	}
-	if got := ToolBrief("shell", `{"action":"wait","session_id":3}`); got != "session 3" {
-		t.Fatalf("shell wait args = %q, want session 3", got)
+	if got := ToolBrief("process", `{"action":"wait","task":"download"}`); got != "download" {
+		t.Fatalf("process wait args = %q, want download", got)
 	}
-	if got := ToolAction("shell", `{"action":"logs","session_id":3}`); got != "poll" {
-		t.Fatalf("shell logs action = %q, want poll", got)
+	if got := ToolAction("process", `{"action":"watch","task":"listener","event":"output"}`); got != "watch" {
+		t.Fatalf("process watch action = %q, want watch", got)
 	}
 	if got := ToolAction("edit", `{"path":"/tmp/a.go"}`); got != "" {
 		t.Fatalf("non-shell action = %q, want empty", got)

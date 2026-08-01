@@ -106,6 +106,16 @@ func TestRenderToolLinePrefixesMultilineCommand(t *testing.T) {
 	}
 }
 
+func TestRenderToolSummaryIsBrighterThanOutput(t *testing.T) {
+	sty := styles.DefaultStyles()
+	if got, want := renderSummary("go test ./...", &sty), sty.Base.Render("go test ./..."); got != want {
+		t.Fatalf("tool summary style = %q, want base text style %q", got, want)
+	}
+	if got, muted := renderSummary("go test ./...", &sty), sty.Muted.Render("go test ./..."); got == muted {
+		t.Fatal("tool summary should not use the muted output style")
+	}
+}
+
 func TestRenderShellContentPreservesLeadingStatusSpace(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolContent(ContentBlock{
@@ -126,17 +136,17 @@ func TestRenderShellContentKeepsHeadAndTail(t *testing.T) {
 	got := renderToolContent(ContentBlock{
 		Type:     BlockTool,
 		ToolName: "shell",
-		Content:  "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n",
+		Content:  "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\n",
 		Done:     true,
 	}, 80, &sty)
 	clean := ansi.Strip(got)
 
-	for _, want := range []string{"line 0", "line 1", "line 2", "line 6", "line 7", "line 8"} {
+	for _, want := range []string{"line 0", "line 1", "line 2", "line 3", "line 4", "line 8", "line 9", "line 10", "line 11", "line 12"} {
 		if !strings.Contains(clean, want) {
 			t.Fatalf("missing retained line %q:\n%s", want, clean)
 		}
 	}
-	for _, notWant := range []string{"line 3", "line 5"} {
+	for _, notWant := range []string{"line 5", "line 6", "line 7"} {
 		if strings.Contains(clean, notWant) {
 			t.Fatalf("middle line %q should be hidden:\n%s", notWant, clean)
 		}
@@ -144,6 +154,16 @@ func TestRenderShellContentKeepsHeadAndTail(t *testing.T) {
 	if !strings.Contains(clean, "3 lines truncated") {
 		t.Fatalf("missing truncation marker:\n%s", clean)
 	}
+	lines := strings.Split(clean, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "lines truncated") && i+1 < len(lines) {
+			if strings.TrimRight(lines[i+1], " ") != "line 8" {
+				t.Fatalf("first tail line has unexpected indentation: %q\n%s", lines[i+1], clean)
+			}
+			return
+		}
+	}
+	t.Fatal("truncation marker line not found")
 }
 
 func TestRenderToolOutputUsesCornerConnector(t *testing.T) {
@@ -196,25 +216,25 @@ func TestRenderToolLineDoesNotShowCollapseToggle(t *testing.T) {
 	}
 }
 
-func TestRenderShellListUsesActionWording(t *testing.T) {
+func TestRenderProcessListUsesActionWording(t *testing.T) {
 	sty := styles.DefaultStyles()
 	got := renderToolLine(ContentBlock{
 		Type:       BlockTool,
-		ToolName:   "shell",
+		ToolName:   "process",
 		ToolAction: "list",
-		ToolArgs:   "shell sessions",
-		Content:    "(no shell sessions)",
+		ToolArgs:   "managed processes",
+		Content:    "(no managed processes)",
 		Done:       true,
 	}, 80, &sty)
 	clean := ansi.Strip(got)
 
 	if strings.Contains(clean, "Ran") {
-		t.Fatalf("shell list should not render as Ran:\n%s", clean)
+		t.Fatalf("process list should not render as Ran:\n%s", clean)
 	}
-	if !strings.Contains(clean, "Listed shell sessions") {
-		t.Fatalf("shell list should describe the action:\n%s", clean)
+	if !strings.Contains(clean, "Listed managed processes") {
+		t.Fatalf("process list should describe the action:\n%s", clean)
 	}
-	if !strings.Contains(clean, "No active shell sessions") {
-		t.Fatalf("empty shell list should be user-facing:\n%s", clean)
+	if !strings.Contains(clean, "No managed processes") {
+		t.Fatalf("empty process list should be user-facing:\n%s", clean)
 	}
 }

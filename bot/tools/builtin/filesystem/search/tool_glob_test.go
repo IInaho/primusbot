@@ -11,7 +11,7 @@ func TestGlobTool(t *testing.T) {
 	td := testutil.SetupTemp(t)
 	g := &GlobTool{}
 
-	out, err := g.Execute(context.Background(), map[string]any{"pattern": "*.go", "path": td})
+	out, err := g.Execute(testutil.Context(td), map[string]any{"pattern": "*.go", "path": td})
 	if err != nil {
 		t.Fatalf("glob: %v", err)
 	}

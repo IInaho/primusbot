@@ -144,8 +144,14 @@ Dynamic dollar commands:
 	})
 
 	p.Register("clear", func(_ context.Context, cmd *Command) (string, bool) {
-		deps.CtxMgr.Clear()
-		return "Conversation history cleared.", true
+		if deps.ResetConversation == nil {
+			return "Conversation reset is unavailable.", true
+		}
+		result, err := deps.ResetConversation(false)
+		if err != nil {
+			return "Failed to clear conversation: " + err.Error(), true
+		}
+		return result, true
 	})
 
 	p.Register("context", func(_ context.Context, cmd *Command) (string, bool) {
@@ -161,7 +167,10 @@ Dynamic dollar commands:
 	})
 
 	p.Register("new", func(_ context.Context, cmd *Command) (string, bool) {
-		result, err := ForceFreshStart(deps.CtxMgr, deps.Skills, deps.Policy)
+		if deps.ResetConversation == nil {
+			return "Conversation reset is unavailable.", true
+		}
+		result, err := deps.ResetConversation(true)
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
 		}

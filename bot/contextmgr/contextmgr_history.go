@@ -72,6 +72,9 @@ func (m *Manager) Clear() {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
 	m.clearLocked()
+	m.state.ctx.Archive = ""
+	m.state.ctx.Hints = ""
+	m.state.tracker.Restore(token.State{})
 }
 
 func (m *Manager) TruncateTo(n int) {

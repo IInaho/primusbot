@@ -22,7 +22,7 @@ func (t *skillTool) SetOnLoad(fn func(name string)) { t.onLoad = fn }
 
 func (t *skillTool) Name() string { return "skill" }
 func (t *skillTool) Description() string {
-	return "Load a skill's instructions and workflows by name. Use when a task matches an available skill. Do NOT reload a skill already loaded via slash command — if the skill content is already in context, use it directly."
+	return "Load a skill's instructions and workflows by name. Use when a task matches an available skill. If its <skill_content> is already present, follow it without reloading; a loaded skill may be reloaded only when compaction removed that content."
 }
 
 func (t *skillTool) Parameters() []core.Parameter {
@@ -32,6 +32,7 @@ func (t *skillTool) Parameters() []core.Parameter {
 			Type:        "string",
 			Required:    true,
 			Description: "The skill name to load, from the available skills list",
+			Enum:        t.registry.Names(),
 		},
 	}
 }
@@ -51,13 +52,9 @@ func (t *skillTool) Execute(ctx context.Context, args map[string]any) (string, e
 		return "", fmt.Errorf("skill not found: %s (available: %s)", name, t.registry.namesString())
 	}
 
-	// If already loaded, tell the model to use the existing content.
-	if t.registry.IsLoaded(name) {
-		return fmt.Sprintf("Skill %q is already loaded in this conversation. Use its instructions directly — do NOT call the skill tool again.", name), nil
-	}
-
-	// Notify that this skill is now loaded.
-	if t.onLoad != nil {
+	// Keep loaded skills reloadable: compaction can remove the original tool
+	// result while the registry's conversation-level loaded flag survives.
+	if !t.registry.IsLoaded(name) && t.onLoad != nil {
 		t.onLoad(name)
 	}
 

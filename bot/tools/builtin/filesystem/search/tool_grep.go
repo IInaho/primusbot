@@ -37,7 +37,7 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	basePath := toolutil.OptStringArg(args, "path", ".")
-	safeBasePath, err := toolutil.ValidatePathReadable(basePath)
+	safeBasePath, err := toolutil.ValidatePathReadableContext(ctx, basePath)
 	if err != nil {
 		return "", err
 	}

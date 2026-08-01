@@ -24,6 +24,9 @@ func TestBuildIncludesPopulatedSections(t *testing.T) {
 		!strings.Contains(got, "## Active Goals\n- release") {
 		t.Fatalf("Build() = %q", got)
 	}
+	if !strings.Contains(got, "potentially stale context") || !strings.Contains(got, "verified repository state override") {
+		t.Fatalf("Build() missing memory trust boundary: %q", got)
+	}
 }
 
 func TestLoadParsesSections(t *testing.T) {

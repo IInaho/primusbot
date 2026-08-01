@@ -59,7 +59,9 @@ func (b *Bot) saveSession() error {
 	}
 	snapshot.CaptureContext(b.ctxMgr.Snapshot(), promptTokens, completionTokens, loadedSkills)
 	snapshot.Ledger = b.ledgerSnapshot()
-	return b.sess.Save(snapshot)
+	err := b.sess.Save(snapshot)
+	b.syncPolicySessionID()
+	return err
 }
 
 func (b *Bot) CurrentSessionID() string { return b.sess.CurrentID() }
@@ -77,11 +79,26 @@ func (b *Bot) ResumeSession(id string) error {
 }
 
 func (b *Bot) resumeSession(id string) (*session.Snapshot, error) {
-	snapshot, err := b.sess.Resume(id)
+	oldID := b.sess.CurrentID()
+	snapshot, err := b.sess.Load(id)
 	if err != nil {
 		return nil, err
 	}
+	if oldID != id {
+		if err := b.closeSessionRuntime(oldID); err != nil {
+			return nil, err
+		}
+	}
+	if err := b.sess.Activate(snapshot); err != nil {
+		return nil, err
+	}
 	b.ctxMgr.Restore(snapshot.ContextSnapshot())
+	// Session files may contain a prompt from an older NekoCode version. Keep
+	// conversation state, but always pair it with the current stable rules;
+	// volatile environment data is injected separately on every Build.
+	if b.promptBuilder != nil {
+		b.ctxMgr.SetSystemPrompt(b.promptBuilder.BuildStatic())
+	}
 	if ag := b.getAgent(); ag != nil {
 		ag.AddTokens(snapshot.PromptTokens, snapshot.CompletionTokens)
 	}
@@ -103,9 +120,48 @@ func (b *Bot) ListSessions() []session.Meta {
 	return b.sess.List()
 }
 
-func (b *Bot) NewSession() *session.Snapshot {
-	b.ctxMgr.Clear()
-	snapshot := b.sess.StartNew()
+func (b *Bot) NewSession() (*session.Snapshot, error) {
+	_, err := b.resetConversation(false)
+	if err != nil {
+		return nil, err
+	}
+	return b.sess.Current(), nil
+}
+
+func (b *Bot) resetConversation(keepSummary bool) (string, error) {
+	result := "Conversation history cleared."
+	var previousContext contextmgr.ManagerSnapshot
+	if keepSummary {
+		previousContext = b.ctxMgr.Snapshot()
+		count, oldTokens, _ := b.ctxMgr.Stats()
+		if count <= 2 {
+			result = "New session started."
+		} else {
+			if b.ctxMgr.NeedsSummarization() {
+				if err := b.ctxMgr.Summarize(); err != nil {
+					return "", err
+				}
+			}
+			_, newTokens, hasSummary := b.ctxMgr.Stats()
+			summary := "no summary"
+			if hasSummary {
+				summary = "with summary"
+			}
+			result = fmt.Sprintf("%d messages, ~%d tokens → %s (~%d tokens)", count, oldTokens, summary, newTokens)
+		}
+	}
+	if err := b.closeSessionRuntime(b.sess.CurrentID()); err != nil {
+		if keepSummary {
+			b.ctxMgr.Restore(previousContext)
+		}
+		return "", err
+	}
+	if keepSummary {
+		b.ctxMgr.FreshStart()
+	} else {
+		b.ctxMgr.Clear()
+	}
+	b.sess.StartNew()
 	if b.ext != nil {
 		b.ext.ClearLoadedSkills()
 	}
@@ -116,10 +172,23 @@ func (b *Bot) NewSession() *session.Snapshot {
 		b.policy.Restore(ledger.Snapshot{})
 	}
 	b.syncPolicySessionID()
-	return snapshot
+	return result, nil
+}
+
+func (b *Bot) ensureSessionIdentity() {
+	if b.sess == nil {
+		return
+	}
+	if b.sess.CurrentID() == "" {
+		b.sess.StartNew()
+	}
+	b.syncPolicySessionID()
 }
 
 func (b *Bot) DeleteSession(id string) error {
+	if err := b.closeSessionRuntime(id); err != nil {
+		return err
+	}
 	if err := b.sess.Delete(id); err != nil {
 		return err
 	}
@@ -154,9 +223,23 @@ func formatSessionList(sessions []session.Meta) string {
 }
 
 func (b *Bot) syncPolicySessionID() {
-	if b.policy != nil && b.sess != nil {
-		b.policy.SetSessionID(b.sess.CurrentID())
+	if b.sess == nil {
+		return
 	}
+	id := b.sess.CurrentID()
+	if b.policy != nil {
+		b.policy.SetSessionID(id)
+	}
+	if b.toolbox != nil {
+		b.toolbox.SetSessionID(id)
+	}
+}
+
+func (b *Bot) closeSessionRuntime(id string) error {
+	if id == "" || b.toolbox == nil {
+		return nil
+	}
+	return b.toolbox.CloseSession(id)
 }
 
 func (b *Bot) ledgerSnapshot() ledger.Snapshot {

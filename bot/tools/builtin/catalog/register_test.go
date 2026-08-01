@@ -28,6 +28,7 @@ func TestInterface(t *testing.T) {
 		{&writetool.WriteTool{}, "write", core.ModeSequential, 2},
 		{&edittool.EditTool{}, "edit", core.ModeSequential, 5},
 		{&shell.ShellTool{}, "shell", core.ModeSequential, 5},
+		{shell.NewProcessTool(&shell.ShellTool{}), "process", core.ModeSequential, 3},
 		{&searchtool.GlobTool{}, "glob", core.ModeParallel, 1},
 		{&searchtool.GrepTool{}, "grep", core.ModeParallel, 1},
 		{&listtool.ListTool{}, "list", core.ModeParallel, 1},

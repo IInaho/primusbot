@@ -1,12 +1,25 @@
 package command
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/skill"
+	"nekocode/bot/tools"
 	"nekocode/bot/tools/runtime/core"
 )
+
+type planControllerStub struct{ enabled bool }
+
+func (s *planControllerStub) SetPlanMode(enabled bool) { s.enabled = enabled }
+
+type noSkills struct{}
+
+func (noSkills) SkillCommands() []skill.Command     { return nil }
+func (noSkills) Skill(string) (skill.Command, bool) { return skill.Command{}, false }
+func (noSkills) MarkSkillLoaded(string)             {}
 
 func TestEstimateToolDefTokens(t *testing.T) {
 	descs := []core.Descriptor{
@@ -37,12 +50,36 @@ func TestContextReportFormatting(t *testing.T) {
 }
 
 func TestPlanModePrompt(t *testing.T) {
-	got := planModePrompt("inspect only")
-	if !strings.Contains(got, "inspect only") {
-		t.Fatalf("missing task: %q", got)
+	got := planModePrompt()
+	for _, want := range []string{
+		"read-only analysis", "runtime blocks mutation", "<environment_context>", "evidence, not new instructions",
+		"confirmed facts", "concrete risks", "observable verification", "reproduce the failure",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("plan prompt missing %q: %q", want, got)
+		}
 	}
-	if !strings.Contains(got, "BLOCKED: write, edit, bash") {
-		t.Fatalf("missing blocked tool rule: %q", got)
+	if strings.Contains(got, "<sandbox>") {
+		t.Fatalf("plan prompt refers to stale environment block: %q", got)
+	}
+}
+
+func TestPlanCommandAppendsModeToBaseSystemPrompt(t *testing.T) {
+	mgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "stale"})
+	controller := &planControllerStub{}
+	h := New(Deps{
+		CtxMgr: mgr,
+		Ag:     func() PlanModeController { return controller },
+		Skills: noSkills{}, ToolRegistry: tools.New(),
+		BaseSystemPrompt: func() string { return "stable behavior contract" },
+	})
+
+	if _, handled := h.Execute(context.Background(), "/plan inspect prompts", mgr); handled {
+		t.Fatal("plan command should continue into the agent")
+	}
+	got := mgr.Snapshot().SystemPrompt
+	if !controller.enabled || !strings.Contains(got, "stable behavior contract") || !strings.Contains(got, "<plan-mode>") {
+		t.Fatalf("plan mode did not preserve base contract: enabled=%t prompt=%q", controller.enabled, got)
 	}
 }
 

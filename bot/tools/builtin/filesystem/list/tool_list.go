@@ -30,7 +30,7 @@ func (t *ListTool) Execute(ctx context.Context, args map[string]any) (string, er
 		return "", err
 	}
 
-	safePath, err := toolutil.ValidatePathReadable(path)
+	safePath, err := toolutil.ValidatePathReadableContext(ctx, path)
 	if err != nil {
 		return "", err
 	}

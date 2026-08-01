@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/tools/runtime/workspace"
+	"sync"
 	"testing"
 )
 
@@ -82,5 +84,25 @@ func TestUnregisterThenReRegister(t *testing.T) {
 	tool, err := r.Get("z")
 	if err != nil || tool.Name() != "z" {
 		t.Error("z should exist after re-register")
+	}
+}
+
+func TestRegistryMetadataIsConcurrentSafe(t *testing.T) {
+	r := New()
+	manager := workspace.New(t.TempDir(), nil)
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.SetWorkspace(manager)
+			r.AllowInPlan("read")
+			_ = r.Workspace()
+			_ = r.PlanAllows("read")
+		}()
+	}
+	wg.Wait()
+	if !r.PlanAllows("read") || r.Workspace() == nil {
+		t.Fatal("registry metadata was not retained")
 	}
 }

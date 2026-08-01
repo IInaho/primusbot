@@ -148,3 +148,32 @@ func TestManagerStartNewAndClearCurrent(t *testing.T) {
 		t.Fatalf("current session after clear = %q", m.CurrentID())
 	}
 }
+
+func TestManagerLoadDoesNotChangeCurrentSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	seed := New("/tmp/work")
+	target := seed.Current()
+	target.Messages = []types.Message{{Role: "user", Content: "saved"}}
+	if err := seed.Save(target); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := New("/tmp/work")
+	currentID := manager.CurrentID()
+	loaded, err := manager.Load(target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ID != target.ID {
+		t.Fatalf("loaded id = %q, want %q", loaded.ID, target.ID)
+	}
+	if manager.CurrentID() != currentID {
+		t.Fatalf("load changed current id to %q, want %q", manager.CurrentID(), currentID)
+	}
+	if err := manager.Activate(loaded); err != nil {
+		t.Fatal(err)
+	}
+	if manager.CurrentID() != target.ID {
+		t.Fatalf("activate current id = %q, want %q", manager.CurrentID(), target.ID)
+	}
+}

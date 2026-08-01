@@ -12,6 +12,7 @@ import (
 
 	"nekocode/bot/provider/types"
 	controlruntime "nekocode/runtime"
+	textutil "nekocode/util/text"
 )
 
 var reImagePath = regexp.MustCompile(`(?:=>\s+)?(\S*(?:nekocode_img|/)\S*\.(?:png|jpg|jpeg|gif|webp))\b`)
@@ -104,7 +105,7 @@ func appendDisplayToolResult(blocks []controlruntime.DisplayBlock, images []cont
 		blocks = append(blocks, controlruntime.DisplayBlock{
 			ToolName: name,
 			Args:     args,
-			Content:  msg.Content,
+			Content:  textutil.NormalizeTerminalOutput(msg.Content),
 			IsError:  msg.IsError,
 		})
 	}
@@ -115,7 +116,7 @@ func appendDisplayToolResult(blocks []controlruntime.DisplayBlock, images []cont
 }
 
 func isPersistentTool(name string) bool {
-	return name == "edit" || name == "diff" || name == "write" || name == "shell" || name == "bash"
+	return name == "edit" || name == "diff" || name == "write" || name == "shell" || name == "bash" || name == "process"
 }
 
 func isImageTool(name string) bool {

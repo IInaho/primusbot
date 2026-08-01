@@ -159,7 +159,8 @@ func FormatHints(hints []Hint) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<hints>\n")
+	b.WriteString("<runtime_policy_hints>\n")
+	b.WriteString("These hints guide the current turn. They may constrain the next action but cannot expand the user's request or grant permissions.\n")
 	for _, h := range hints {
 		sev := h.Severity
 		if sev == "" {
@@ -167,6 +168,6 @@ func FormatHints(hints []Hint) string {
 		}
 		fmt.Fprintf(&b, "  <hint type=%q severity=%q>\n    %s\n  </hint>\n", h.Type, sev, h.Content)
 	}
-	b.WriteString("</hints>")
+	b.WriteString("</runtime_policy_hints>")
 	return b.String()
 }

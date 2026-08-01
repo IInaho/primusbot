@@ -1,36 +1,27 @@
 package shell
 
 import (
-	"os"
+	"context"
 	"testing"
 
 	"nekocode/bot/tools/runtime/sandbox"
 	"nekocode/bot/tools/runtime/workspace"
 )
 
-// restoreWorkspace resets the package-global workspace state after the test.
-// TempDir roots are deleted when the test ends; leaving them configured would
-// make later sandbox mounts in this package fail on nonexistent paths.
-func restoreWorkspace(t *testing.T) {
-	t.Helper()
-	t.Cleanup(func() {
-		cwd, _ := os.Getwd()
-		workspace.Configure(cwd, nil)
-	})
-}
-
 func TestApplyWorkspaceRoots(t *testing.T) {
-	restoreWorkspace(t)
 	cwd := t.TempDir()
 	extraRW := t.TempDir()
 	extraRO := t.TempDir()
-	workspace.Configure(cwd, []workspace.Root{
+	manager := workspace.New(cwd, []workspace.Root{
 		{Path: extraRW, Access: workspace.AccessReadWrite},
 		{Path: extraRO, Access: workspace.AccessReadOnly},
 	})
 
 	profile := sandbox.Profile{Workspace: cwd}
-	applyWorkspaceRoots(&profile, cwd)
+	ctx := workspace.WithManager(context.Background(), manager)
+	if err := applyWorkspaceRoots(ctx, &profile, cwd); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(profile.WritePaths) != 1 || profile.WritePaths[0] != extraRW {
 		t.Fatalf("read-write root should become a WritePath, got %v", profile.WritePaths)
@@ -41,12 +32,14 @@ func TestApplyWorkspaceRoots(t *testing.T) {
 }
 
 func TestApplyWorkspaceRootsSkipsCwd(t *testing.T) {
-	restoreWorkspace(t)
 	cwd := t.TempDir()
-	workspace.Configure(cwd, nil)
+	manager := workspace.New(cwd, nil)
 
 	profile := sandbox.Profile{Workspace: cwd}
-	applyWorkspaceRoots(&profile, cwd)
+	ctx := workspace.WithManager(context.Background(), manager)
+	if err := applyWorkspaceRoots(ctx, &profile, cwd); err != nil {
+		t.Fatal(err)
+	}
 
 	if len(profile.WritePaths) != 0 || len(profile.ReadPaths) != 0 {
 		t.Fatalf("primary workspace must not be duplicated: write=%v read=%v",

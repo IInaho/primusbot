@@ -19,7 +19,7 @@ func (t *WriteTool) Name() string { return "write" }
 
 func (t *WriteTool) Description() string {
 	return "Create or overwrite a file. Auto-creates parent dirs. " +
-		"For existing files, Read first to confirm current content — the policy layer tracks reads and warns if a file is written without prior Read. " +
+		"For existing files, read first to confirm current content; policy blocks overwrite when no prior read is recorded. " +
 		"For partial changes, prefer Edit with oldString/newString over Write — it produces minimal diffs and auto-snapshots for undo. " +
 		"Content escaping: use \\n for newlines, \\\" for quotes, \\\\ for backslashes."
 }
@@ -33,13 +33,17 @@ func (t *WriteTool) Parameters() []core.Parameter {
 
 // Preview shows a diff of what will be written vs existing content (if file exists).
 func (t *WriteTool) Preview(args map[string]any) string {
+	return t.PreviewContext(context.Background(), args)
+}
+
+func (t *WriteTool) PreviewContext(ctx context.Context, args map[string]any) string {
 	path, _ := args["path"].(string)
 	content, _ := args["content"].(string)
 	if path == "" {
 		return ""
 	}
 
-	safePath, err := toolutil.ValidatePathWritable(path)
+	safePath, err := toolutil.ValidatePathWritableContext(ctx, path)
 	if err != nil {
 		return ""
 	}
@@ -57,7 +61,7 @@ func (t *WriteTool) Execute(ctx context.Context, args map[string]any) (string, e
 		return "", err
 	}
 
-	safePath, err := toolutil.ValidatePathWritable(path)
+	safePath, err := toolutil.ValidatePathWritableContext(ctx, path)
 	if err != nil {
 		return "", err
 	}

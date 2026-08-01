@@ -22,13 +22,13 @@ func (t *TaskTool) Wire(run taskbridge.TaskRunner) {
 
 func (t *TaskTool) Name() string { return "task" }
 func (t *TaskTool) Description() string {
-	return "Delegate multi-step work to an isolated sub-agent. Only the main agent can use this tool — sub-agents cannot spawn nested agents. Include full context in prompt since the subagent cannot see your conversation. Types: researcher (search/analyze), executor (write/edit), verify (validate changes). For simple tasks (single file, one grep), use direct tools instead."
+	return "Delegate independent, multi-step work to an isolated sub-agent. Only the main agent can use this tool; sub-agents cannot spawn nested agents or see this conversation. Include the exact goal, scope, relevant paths, constraints, and expected evidence. Types: researcher (read-only analysis), executor (implementation), verify (read-only validation). Use direct tools for simple or tightly coupled work, and verify returned claims before relying on them."
 }
 
 func (t *TaskTool) Parameters() []core.Parameter {
 	return []core.Parameter{
 		{Name: "type", Type: "string", Required: true,
-			Description: "researcher | executor | verify"},
+			Enum: []string{"researcher", "executor", "verify"}, Description: "Sub-agent role."},
 		{Name: "prompt", Type: "string", Required: true,
 			Description: "Self-contained task description with exact file paths and expected output."},
 	}

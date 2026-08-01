@@ -26,6 +26,7 @@ func (b *Bot) getAgent() *agentcore.Agent {
 }
 
 func (b *Bot) Run(ctx context.Context, input string, host RunHost) (string, error) {
+	b.ensureSessionIdentity()
 	release := b.bindHost(host)
 	defer release()
 
@@ -52,7 +53,7 @@ func (b *Bot) runAgent(input string, onStep func(ev protocol.StepEvent)) (string
 	ag := b.getAgent()
 	result := ag.Run(input, onStep)
 	ag.Executor().SetPlanMode(false)
-	b.ctxMgr.SetSystemPrompt(b.promptBuilder.Build())
+	b.ctxMgr.SetSystemPrompt(b.promptBuilder.BuildStatic())
 	var compactionErr error
 	if b.ctxMgr.NeedsSummarization() {
 		compactionErr = b.ctxMgr.Summarize()

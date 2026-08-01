@@ -19,7 +19,6 @@ import (
 	agentcore "nekocode/bot/agent"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/protocol"
 )
@@ -37,15 +36,19 @@ func main() {
 		Model: model, Protocol: getenv("NEKOCODE_PROTOCOL", "openai"),
 	})
 
-	registry := tools.New()
-	catalog.RegisterAll(registry, nil)
+	toolbox := catalog.NewToolbox(nil)
+	defer func() {
+		if err := toolbox.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close toolbox:", err)
+		}
+	}()
 
 	agent := agentcore.New(context.Background(), agentcore.Config{
 		Context: ctxmgr.New(ctxmgr.Config{
 			SystemPrompt: "You are a helpful assistant.", ContextWindow: 128000,
 		}),
 		Model: llm,
-		Tools: registry,
+		Tools: toolbox.Registry,
 	})
 
 	result := agent.Run("你好，介绍一下你自己", func(ev protocol.StepEvent) {

@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/inst
 - 安装到 `~/.local/bin`（不需要 sudo；目录不可写时提示你处理）
 - 完成后运行 `nekocode-tui` 即可启动
 
-> 💡 想装特定版本？ `curl -fsSL ... | sh -s -- --version v0.3.3`
+> 💡 想装特定版本？ `curl -fsSL ... | sh -s -- --version v0.5.0`
 >
 > 💡 想装到别的位置？ `curl -fsSL ... | sh -s -- --dir /你的/目录`
 

@@ -29,7 +29,7 @@ func NewWebSearchTool() *WebSearchTool {
 func (t *WebSearchTool) Name() string { return "web_search" }
 
 func (t *WebSearchTool) Description() string {
-	return "Search the web. Include a \"Sources:\" section with [Title](URL) links after answering."
+	return "Search the public web. Include a \"Sources:\" section with [Title](URL) links after answering."
 }
 
 func (t *WebSearchTool) Parameters() []core.Parameter {

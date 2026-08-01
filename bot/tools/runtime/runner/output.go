@@ -3,6 +3,8 @@ package runner
 import (
 	"fmt"
 	"strings"
+
+	textutil "nekocode/util/text"
 )
 
 const (
@@ -12,6 +14,7 @@ const (
 )
 
 func formatOutput(toolName, output string) string {
+	output = textutil.NormalizeTerminalOutput(output)
 	if preserveFullOutput(toolName) {
 		return output
 	}

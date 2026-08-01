@@ -27,13 +27,6 @@ type Process struct {
 	cleanup     func()
 }
 
-func (p *Process) PID() int {
-	if p == nil || p.cmd == nil || p.cmd.Process == nil {
-		return 0
-	}
-	return p.cmd.Process.Pid
-}
-
 func (p *Process) Stdout() io.ReadCloser {
 	if p == nil {
 		return nil

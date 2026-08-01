@@ -4,7 +4,17 @@ package text
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
+
+// NormalizeTerminalOutput converts terminal-oriented output into stable plain text.
+func NormalizeTerminalOutput(value string) string {
+	value = ansi.Strip(value)
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\n\r", "\n")
+	return strings.ReplaceAll(value, "\r", "\n")
+}
 
 // TruncateByRune truncates s to max runes.
 func TruncateByRune(s string, max int) string {

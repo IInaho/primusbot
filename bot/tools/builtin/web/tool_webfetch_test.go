@@ -42,3 +42,17 @@ func TestWebFetchRedirectRejectsPrivateTarget(t *testing.T) {
 		t.Fatal("redirect to private network was allowed")
 	}
 }
+
+func TestWebFetchIgnoresEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:7897")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:7897")
+
+	client := NewWebFetchTool().client
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("web_fetch must connect directly so destination-IP SSRF checks cannot be bypassed by a proxy")
+	}
+}

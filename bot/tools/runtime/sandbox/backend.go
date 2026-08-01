@@ -6,7 +6,6 @@ package sandbox
 
 import (
 	"context"
-	"io"
 	"time"
 
 	"nekocode/bot/tools/runtime/sandbox/impl"
@@ -52,14 +51,16 @@ type Backend interface {
 
 // Profile describes the sandbox environment for a command.
 //
-// A zero-value Profile (with only Workspace set) applies the strictest
-// isolation: no outbound network, only the workspace directory is writable,
-// system directories are read-only, and /tmp is an isolated tmpfs.
+// A zero-value Profile (with only Workspace set) requests the strictest
+// write-capable profile. The native backend isolates networking and /tmp and
+// limits the filesystem view; reduced-isolation fallbacks may only enforce
+// which paths are writable.
 //
 // Fields opened by capability grants incrementally relax isolation without
 // leaving the sandbox:
 //
-//   - Network: share the host network namespace instead of an isolated one.
+//   - Network: authorize network use (the native backend shares the host
+//     network namespace; a reduced fallback may already lack isolation).
 //   - WritePaths: extra host directories bind-mounted as read-write.
 //
 // The sandbox package does NOT enforce a whitelist on WritePaths — the
@@ -80,16 +81,6 @@ const (
 
 // Process is a started sandbox or host process.
 type Process = impl.Process
-
-// ProcessLike is the subset of Process used by callers that need to inject
-// fakes in tests.
-type ProcessLike interface {
-	PID() int
-	Stdout() io.ReadCloser
-	Stderr() io.ReadCloser
-	Wait() error
-	Terminate(grace time.Duration) error
-}
 
 // UnavailableError is returned when no sandbox backend could be used.
 // Callers should treat it as a signal to request host-execution permission.

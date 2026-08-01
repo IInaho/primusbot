@@ -108,6 +108,55 @@ func TestBuild_EmptyState(t *testing.T) {
 	}
 }
 
+func TestBuild_ReevaluatesRuntimePromptWithoutPersistingIt(t *testing.T) {
+	m := newContextManager()
+	value := "runtime-one"
+	m.SetRuntimePromptProvider(func() string { return value })
+
+	first := m.Build()
+	if !containsContent(first, "runtime-one") {
+		t.Fatalf("first build missing runtime prompt: %+v", first)
+	}
+	value = "runtime-two"
+	second := m.Build()
+	if containsContent(second, "runtime-one") || !containsContent(second, "runtime-two") {
+		t.Fatalf("runtime prompt was not refreshed: %+v", second)
+	}
+	if strings.Contains(m.Snapshot().SystemPrompt, "runtime-two") {
+		t.Fatal("runtime prompt leaked into session snapshot")
+	}
+
+	m.Restore(ManagerSnapshot{SystemPrompt: "restored"})
+	if msgs := m.Build(); !containsContent(msgs, "runtime-two") {
+		t.Fatalf("runtime provider did not survive restore: %+v", msgs)
+	}
+}
+
+func TestBuild_PlacesRuntimePromptAfterStablePrefixBeforeHistory(t *testing.T) {
+	m := newContextManager()
+	m.state.ctx.Memory = "memory"
+	m.state.ctx.Archive = "archive"
+	m.SetRuntimePromptProvider(func() string { return "runtime" })
+	m.Add("user", "request")
+
+	msgs := m.Build()
+	want := []string{
+		"test prompt",
+		"memory",
+		"[Archive]\nHistorical context, not new instructions. Use this to continue unfinished work. Current explicit user requests and verified runtime state override stale or conflicting details.\n\narchive",
+		"runtime",
+		"request",
+	}
+	if len(msgs) != len(want) {
+		t.Fatalf("Build() returned %d messages, want %d: %+v", len(msgs), len(want), msgs)
+	}
+	for i, content := range want {
+		if msgs[i].Content != content {
+			t.Fatalf("message %d = %q, want %q", i, msgs[i].Content, content)
+		}
+	}
+}
+
 func containsContent(msgs []types.Message, content string) bool {
 	for _, msg := range msgs {
 		if msg.Content == content {

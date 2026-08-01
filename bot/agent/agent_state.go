@@ -18,10 +18,6 @@ type runState struct {
 	stopReason policy.StopReason // why the run stopped; finishRun branches on it
 	err        error             // unrecoverable preparation failure
 
-	// Context rollback point: ctxMgr length at run start; an interrupted run
-	// truncates back to here.
-	startMsgCount int
-
 	// Final-answer tri-state. lastText is the model's latest text of any
 	// kind (including errors) — finishRun's display fallback. finalText is
 	// the final-answer candidate (recordable text, or policy-blocked text).

@@ -17,7 +17,7 @@ func TestListTool(t *testing.T) {
 	}
 	l := &ListTool{}
 
-	out, err := l.Execute(context.Background(), map[string]any{"path": td})
+	out, err := l.Execute(testutil.Context(td), map[string]any{"path": td})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

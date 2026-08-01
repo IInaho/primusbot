@@ -136,7 +136,7 @@ nekocode/
 │   ├── command/                    #   斜杠命令系统
 │   │   ├── command.go              #     Handler 入口
 │   │   ├── parser.go               #     命令解析与注册
-│   │   └── lifecycle.go            #     ForceSummarize / ForceFreshStart / ContextReport
+│   │   └── lifecycle.go            #     ForceSummarize / ContextReport
 │   ├── contextmgr/                 #   上下文管理
 │   │   ├── contextmgr.go           #     入口：Manager + Config + New
 │   │   ├── contextmgr_context.go   #     Build 管线、设置与 token 用量
@@ -219,7 +219,7 @@ nekocode/
 │   └── tools/                      #   工具系统
 │       ├── tools.go                #     入口：工具注册表
 │       ├── builtin/                #     内置工具实现
-│       │   ├── catalog/            #       RegisterAll() 注册清单
+│       │   ├── catalog/            #       Toolbox 工具与生命周期
 │       │   ├── filesystem/         #       read/write/edit/list/tree/glob/grep
 │       │   ├── shell/              #       Bash 执行 + 危险分级
 │       │   ├── web/                #       web_search / web_fetch / html2md
@@ -305,7 +305,7 @@ New()
   ├── initCtxMgr()        → contextmgr.New() + index.Apply()
   ├── initSession()       → session.New(cwd)
   └── rebuildRuntime()
-      ├── initToolRegistry()     → catalog.RegisterAll() + index tool（条件注册）
+      ├── initToolRegistry()     → catalog.NewToolbox() + 条件工具
       ├── initPolicy()           → policy.New() + builtin.Register()
       ├── initExtensions()       → extension.New(Config).Load() + config MCP
       ├── initAgent()            → provider.New(Config) + agent.New(Config)
@@ -431,13 +431,14 @@ type Tool interface {
 
 ### 工具注册
 
-`bot/tools/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension 加载后注册 `skill` 工具。`bot/bot.go` 只负责工具注册表、Extension manager 和 command parser 的组装。
+`bot/tools/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension 加载后注册 `skill` 工具。`bot/bot.go` 只负责工具注册表、Extension manager 和 command parser 的组装。
 
 ### 内置工具
 
 | 工具 | 模式 | 危险等级 | 位置 |
 |------|------|----------|------|
-| bash | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `bot/tools/builtin/shell/` |
+| shell | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `bot/tools/builtin/shell/` |
+| process | Sequential | Safe，管理既有托管进程 | `bot/tools/builtin/shell/` |
 | read | Parallel | Safe | `bot/tools/builtin/filesystem/read/` |
 | write | Sequential | Write | `bot/tools/builtin/filesystem/write/` |
 | edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `bot/tools/builtin/filesystem/edit/` |
@@ -459,9 +460,9 @@ type Tool interface {
 
 | 子包 | 职责 |
 |------|------|
-| `builtin/catalog/` | RegisterAll() 注册清单 |
+| `builtin/catalog/` | Toolbox 工具组装与生命周期 |
 | `builtin/filesystem/{read,write,edit,list,tree,search}/` | 文件系统工具 |
-| `builtin/shell/` | Bash 执行 + 危险分级 |
+| `builtin/shell/` | Shell 执行、托管进程、事件式等待 + 危险分级 |
 | `builtin/web/` | Web 搜索/抓取/HTML2MD |
 | `builtin/media/` | 图片生成（即梦文生图） |
 | `builtin/task/` | 子 Agent 任务工具 |
@@ -646,10 +647,10 @@ Model
 | 工具配额 | `bot/policy/policy.go` | Policy 私有的单轮读取配额 |
 | LLM 网关 | `bot/provider/` | OpenAI/Anthropic 双协议，统一接口 |
 | 工具系统 | `bot/tools/` | Registry + builtin 实现 + runtime 执行编排 |
-| 工具注册 | `bot/tools/builtin/catalog/` | RegisterAll() 内置工具注册清单 |
+| 工具注册 | `bot/tools/builtin/catalog/` | Toolbox 内置工具组装与关闭 |
 | 工具执行 | `bot/tools/runtime/runner/` | 执行引擎（单工具/批量/预览/权限） |
 | 文件系统工具 | `bot/tools/builtin/filesystem/` | read/write/edit/list/tree/glob/grep |
-| Shell 工具 | `bot/tools/builtin/shell/` | bash 执行与风险分级 |
+| Shell/Process 工具 | `bot/tools/builtin/shell/` | Shell 执行、托管进程与风险分级 |
 | Web 工具 | `bot/tools/builtin/web/` | web_search/web_fetch/html2md |
 | 媒体工具 | `bot/tools/builtin/media/` | image_gen（即梦文生图） |
 | 任务工具 | `bot/tools/builtin/task/`, `bot/tools/builtin/todo/` | sub-agent task 与 todo_write |

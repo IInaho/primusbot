@@ -30,11 +30,12 @@ type ContextReport struct {
 }
 
 func (m *Manager) Report() ContextReport {
+	runtimePrompt := m.buildRuntimePrompt()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
 
 	r := ContextReport{}
-	r.SystemPrompt = token.EstimateString(m.state.ctx.SystemPrompt)
+	r.SystemPrompt = token.EstimateString(m.state.ctx.SystemPrompt) + token.EstimateString(runtimePrompt)
 	r.TodoText = token.EstimateString(m.state.ctx.Todo)
 	r.SkillList = token.EstimateString(m.state.ctx.Skills)
 

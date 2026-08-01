@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,62 +22,95 @@ type Root struct {
 	Access Access `json:"access"`
 }
 
-var current = struct {
-	sync.RWMutex
-	// configured roots come from Configure (cwd + config file + remembered
-	// roots) and are replaced wholesale on every reload.
+// Manager owns workspace authority for one tool registry. Temporary roots are
+// isolated by session and never shared across Bot instances.
+type Manager struct {
+	mu         sync.RWMutex
 	configured []Root
-	// session roots come from AddSessionRoot (user approved a workspace
-	// during the session) and survive Configure reloads.
-	session []Root
-}{}
-
-func Configure(primary string, extra []Root) {
-	roots := []Root{{Path: primary, Access: AccessReadWrite}}
-	roots = append(roots, extra...)
-	current.Lock()
-	current.configured = normalizeRoots(roots)
-	current.Unlock()
+	sessions   map[string][]Root
+	sessionID  string
 }
 
-func AddSessionRoot(path string, access Access) (Root, error) {
+func New(primary string, extra []Root) *Manager {
+	m := &Manager{sessions: make(map[string][]Root), sessionID: "default"}
+	m.Configure(primary, extra)
+	return m
+}
+
+func (m *Manager) Configure(primary string, extra []Root) {
+	if strings.TrimSpace(primary) == "" {
+		roots := append(fallbackRoots(), extra...)
+		m.mu.Lock()
+		m.configured = normalizeRoots(roots)
+		m.mu.Unlock()
+		return
+	}
+	roots := []Root{{Path: primary, Access: AccessReadWrite}}
+	roots = append(roots, extra...)
+	m.mu.Lock()
+	m.configured = normalizeRoots(roots)
+	m.mu.Unlock()
+}
+
+func (m *Manager) SetSession(id string) {
+	m.mu.Lock()
+	m.sessionID = id
+	m.mu.Unlock()
+}
+
+func (m *Manager) DropSession(id string) {
+	if id == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.sessions, id)
+	if m.sessionID == id {
+		m.sessionID = ""
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) AddSessionRoot(path string, access Access) (Root, error) {
 	root, err := normalizeRoot(Root{Path: path, Access: access})
 	if err != nil {
 		return Root{}, err
 	}
-	current.Lock()
-	defer current.Unlock()
-	current.session = upsertRoot(current.session, root)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionID == "" {
+		return Root{}, fmt.Errorf("workspace session is not active")
+	}
+	m.sessions[m.sessionID] = upsertRoot(m.sessions[m.sessionID], root)
 	return root, nil
 }
 
-func Snapshot() []Root {
-	current.RLock()
-	roots := append([]Root(nil), current.configured...)
-	for _, r := range current.session {
+func (m *Manager) Snapshot() []Root {
+	m.mu.RLock()
+	roots := append([]Root(nil), m.configured...)
+	for _, r := range m.sessions[m.sessionID] {
 		roots = upsertRoot(roots, r)
 	}
-	current.RUnlock()
+	m.mu.RUnlock()
 	if len(roots) > 0 {
 		return roots
 	}
 	return fallbackRoots()
 }
 
-func CheckRead(path string) (string, Root, bool, error) {
-	return check(path, AccessReadOnly)
+func (m *Manager) CheckRead(path string) (string, Root, bool, error) {
+	return m.check(path, AccessReadOnly)
 }
 
-func CheckWrite(path string) (string, Root, bool, error) {
-	return check(path, AccessReadWrite)
+func (m *Manager) CheckWrite(path string) (string, Root, bool, error) {
+	return m.check(path, AccessReadWrite)
 }
 
-func check(path string, need Access) (string, Root, bool, error) {
+func (m *Manager) check(path string, need Access) (string, Root, bool, error) {
 	resolved, err := Resolve(path)
 	if err != nil {
 		return "", Root{}, false, err
 	}
-	for _, root := range Snapshot() {
+	for _, root := range m.Snapshot() {
 		if !rootAllows(root, need) {
 			continue
 		}
@@ -85,6 +119,20 @@ func check(path string, need Access) (string, Root, bool, error) {
 		}
 	}
 	return resolved, Root{}, false, nil
+}
+
+type managerContextKey struct{}
+
+func WithManager(ctx context.Context, manager *Manager) context.Context {
+	if manager == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, managerContextKey{}, manager)
+}
+
+func FromContext(ctx context.Context) (*Manager, bool) {
+	manager, ok := ctx.Value(managerContextKey{}).(*Manager)
+	return manager, ok && manager != nil
 }
 
 func Resolve(path string) (string, error) {

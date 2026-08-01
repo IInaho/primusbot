@@ -128,7 +128,11 @@ func (a *adapter) ResumeSession(id string) error {
 }
 
 func (a *adapter) NewSession() (controlruntime.SessionMeta, error) {
-	return viewmodel.SessionSnapshot(a.bot.NewSession()), nil
+	snapshot, err := a.bot.NewSession()
+	if err != nil {
+		return controlruntime.SessionMeta{}, err
+	}
+	return viewmodel.SessionSnapshot(snapshot), nil
 }
 
 func (a *adapter) DeleteSession(id string) error {

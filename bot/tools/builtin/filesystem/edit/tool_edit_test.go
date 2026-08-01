@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nekocode/bot/tools/runtime/execution"
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 func TestMain(m *testing.M) {
@@ -25,11 +26,10 @@ func TestMain(m *testing.M) {
 
 func TestEditV2ExactUniqueReplacement(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "one\ntwo\nthree\n")
 
-	result, err := (&EditTool{}).Execute(context.Background(), map[string]any{
+	result, err := (&EditTool{}).Execute(editTestContext(td), map[string]any{
 		"path":      p,
 		"oldString": "two",
 		"newString": "TWO",
@@ -47,11 +47,10 @@ func TestEditV2ExactUniqueReplacement(t *testing.T) {
 
 func TestEditV2RejectsAmbiguousOldString(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "x\ntarget\ny\ntarget\n")
 
-	_, err := (&EditTool{}).Execute(context.Background(), map[string]any{
+	_, err := (&EditTool{}).Execute(editTestContext(td), map[string]any{
 		"path":      p,
 		"oldString": "target",
 		"newString": "changed",
@@ -63,11 +62,10 @@ func TestEditV2RejectsAmbiguousOldString(t *testing.T) {
 
 func TestEditV2ReplaceAllExact(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "a foo\nb foo\n")
 
-	if _, err := (&EditTool{}).Execute(context.Background(), map[string]any{
+	if _, err := (&EditTool{}).Execute(editTestContext(td), map[string]any{
 		"path":       p,
 		"oldString":  "foo",
 		"newString":  "bar",
@@ -78,7 +76,7 @@ func TestEditV2ReplaceAllExact(t *testing.T) {
 	if got, want := readFile(t, p), "a bar\nb bar\n"; got != want {
 		t.Fatalf("unexpected content:\n%s", got)
 	}
-	preview := (&EditTool{}).Preview(map[string]any{
+	preview := (&EditTool{}).PreviewContext(editTestContext(td), map[string]any{
 		"path":       p,
 		"oldString":  "bar",
 		"newString":  "baz",
@@ -91,11 +89,10 @@ func TestEditV2ReplaceAllExact(t *testing.T) {
 
 func TestEditV2LineTrimFallback(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "func main() {\n    call()\n}\n")
 
-	result, err := (&EditTool{}).Execute(context.Background(), map[string]any{
+	result, err := (&EditTool{}).Execute(editTestContext(td), map[string]any{
 		"path":      p,
 		"oldString": "func main() {\ncall()\n}",
 		"newString": "func main() {\n    other()\n}\n",
@@ -113,11 +110,10 @@ func TestEditV2LineTrimFallback(t *testing.T) {
 
 func TestEditV2LineTrimFallbackPreservesTrailingLineBreak(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "before\n    call()\nafter\n")
 
-	if _, err := (&EditTool{}).Execute(context.Background(), map[string]any{
+	if _, err := (&EditTool{}).Execute(editTestContext(td), map[string]any{
 		"path":      p,
 		"oldString": "before\ncall()",
 		"newString": "before\nother()",
@@ -131,11 +127,10 @@ func TestEditV2LineTrimFallbackPreservesTrailingLineBreak(t *testing.T) {
 
 func TestEditV2PreviewIncludesStructuredPayload(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	writeFile(t, p, "one\ntwo\n")
 
-	preview := (&EditTool{}).Preview(map[string]any{
+	preview := (&EditTool{}).PreviewContext(editTestContext(td), map[string]any{
 		"path":      p,
 		"oldString": "two",
 		"newString": "TWO",
@@ -150,11 +145,10 @@ func TestEditV2PreviewIncludesStructuredPayload(t *testing.T) {
 
 func TestEditV2Revert(t *testing.T) {
 	td := t.TempDir()
-	t.Setenv("NEKOCODE_WORKSPACE", td)
 	p := filepath.Join(td, "file.txt")
 	original := "one\ntwo\n"
 	writeFile(t, p, original)
-	ctx := execution.WithExecutionState(context.Background(), execution.NewExecutionState())
+	ctx := execution.WithExecutionState(editTestContext(td), execution.NewExecutionState())
 
 	if _, err := (&EditTool{}).Execute(ctx, map[string]any{
 		"path":      p,
@@ -212,6 +206,10 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func editTestContext(root string) context.Context {
+	return workspace.WithManager(context.Background(), workspace.New(root, nil))
 }
 
 func readFile(t *testing.T, path string) string {

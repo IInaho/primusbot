@@ -54,9 +54,7 @@ func (r *loopRunner) run(input string, callback RunCallback) *RunResult {
 	})
 	result := r.finishRun(callback)
 	// Flush any steering messages that arrived too late to be drained during
-	// the run, so they are still recorded in the context instead of being
-	// lost. Done after finishRun so the interrupted-run truncation cannot
-	// cut them away.
+	// the run, so they are still recorded in the context instead of being lost.
 	a.drainSteering()
 	return result
 }
@@ -94,7 +92,6 @@ func (r *loopRunner) runTurn(input string, callback RunCallback) (finished bool)
 func (r *loopRunner) startRun(input string) {
 	a := r.agent
 	a.Reset()
-	a.run.startMsgCount = a.deps.ctxMgr.Len()
 	a.deps.ctxMgr.Add("user", input, "user")
 }
 
@@ -130,7 +127,10 @@ func (r *loopRunner) stepLimitReached() bool {
 func (r *loopRunner) finishRun(callback RunCallback) *RunResult {
 	a := r.agent
 	if a.getCtx().Err() != nil || a.run.stopReason == policy.StopInterrupted {
-		a.deps.ctxMgr.TruncateTo(a.run.startMsgCount)
+		// The context manager only receives committed messages: a complete model
+		// response and complete tool-result batches. Streaming deltas are never
+		// appended. Therefore interruption needs no rollback; truncating here can
+		// only discard valid work from this or an earlier turn.
 		return &RunResult{FinalOutput: msgInterrupted, Steps: a.run.step, Interrupted: true}
 	}
 	if a.run.err != nil {

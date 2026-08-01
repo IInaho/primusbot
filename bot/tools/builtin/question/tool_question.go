@@ -30,7 +30,26 @@ func (t *Tool) Parameters() []core.Parameter {
 			Name:        "questions",
 			Type:        "array",
 			Required:    true,
-			Description: "Questions to ask. Each item has question, optional header, options [{label, description}], optional multiple, and optional custom.",
+			Description: "One or more decisions that require user input.",
+			Items: &core.Schema{
+				Type: "object", Required: []string{"question"},
+				Properties: map[string]core.Schema{
+					"header":   {Type: "string", Description: "Short label for the decision."},
+					"question": {Type: "string", Description: "Clear question whose answer is needed to continue."},
+					"options": {
+						Type: "array", Description: "Optional predefined choices.",
+						Items: &core.Schema{
+							Type: "object", Required: []string{"label"},
+							Properties: map[string]core.Schema{
+								"label":       {Type: "string"},
+								"description": {Type: "string", Description: "Effect or tradeoff of this choice."},
+							},
+						},
+					},
+					"multiple": {Type: "boolean", Description: "Allow selecting more than one option; defaults to false."},
+					"custom":   {Type: "boolean", Description: "Allow a free-form answer; defaults to true."},
+				},
+			},
 		},
 	}
 }

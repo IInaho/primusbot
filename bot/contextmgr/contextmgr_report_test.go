@@ -8,6 +8,8 @@ import (
 
 func TestManagerReport(t *testing.T) {
 	m := New(Config{SystemPrompt: "system", ContextWindow: 10_000})
+	baseSystemTokens := m.Report().SystemPrompt
+	m.SetRuntimePromptProvider(func() string { return "runtime environment metadata" })
 	m.Add("user", "hello")
 	m.AddAssistantResponse("world", "")
 	m.AddToolResultsBatch([]ToolResultMsg{{
@@ -16,6 +18,9 @@ func TestManagerReport(t *testing.T) {
 	report := m.Report()
 	if report.Budget != 10_000 || report.SystemPrompt == 0 {
 		t.Fatalf("report budget/system = %+v", report)
+	}
+	if report.SystemPrompt <= baseSystemTokens {
+		t.Fatalf("runtime prompt was not counted in system tokens: base=%d report=%d", baseSystemTokens, report.SystemPrompt)
 	}
 	if report.UserMessages != 1 || report.AssistantMsgs != 1 || report.ToolResults != 1 {
 		t.Fatalf("report message counts = %+v", report)

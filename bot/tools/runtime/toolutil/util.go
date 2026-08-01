@@ -1,22 +1,22 @@
 package toolutil
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	nethttp "net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"nekocode/bot/tools/runtime/workspace"
 	utilhttp "nekocode/util/http"
 )
 
-var ansiRegex = regexp.MustCompile("\x1b\\[[0-9;]*[a-zA-Z]")
-
 func StripAnsi(s string) string {
-	return ansiRegex.ReplaceAllString(s, "")
+	return ansi.Strip(s)
 }
 
 func ValidatePath(path string) (string, error) {
@@ -24,25 +24,42 @@ func ValidatePath(path string) (string, error) {
 }
 
 func ValidatePathReadable(path string) (string, error) {
-	safePath, _, ok, err := workspace.CheckRead(path)
+	return ValidatePathReadableContext(context.Background(), path)
+}
+
+func ValidatePathReadableContext(ctx context.Context, path string) (string, error) {
+	manager := workspaceManager(ctx)
+	safePath, _, allowed, err := manager.CheckRead(path)
 	if err != nil {
 		return "", err
 	}
-	if ok {
+	if allowed {
 		return safePath, nil
 	}
-	return "", fmt.Errorf("path %s is outside readable workspaces (roots: %v)", safePath, workspace.Snapshot())
+	return "", fmt.Errorf("path %s is outside readable workspaces (roots: %v)", safePath, manager.Snapshot())
 }
 
 func ValidatePathWritable(path string) (string, error) {
-	safePath, _, ok, err := workspace.CheckWrite(path)
+	return ValidatePathWritableContext(context.Background(), path)
+}
+
+func ValidatePathWritableContext(ctx context.Context, path string) (string, error) {
+	manager := workspaceManager(ctx)
+	safePath, _, allowed, err := manager.CheckWrite(path)
 	if err != nil {
 		return "", err
 	}
-	if ok {
+	if allowed {
 		return safePath, nil
 	}
-	return "", fmt.Errorf("path %s is outside writable workspaces (roots: %v)", safePath, workspace.Snapshot())
+	return "", fmt.Errorf("path %s is outside writable workspaces (roots: %v)", safePath, manager.Snapshot())
+}
+
+func workspaceManager(ctx context.Context) *workspace.Manager {
+	if manager, ok := workspace.FromContext(ctx); ok {
+		return manager
+	}
+	return workspace.New("", nil)
 }
 
 func NormalizeText(text string) string {
@@ -51,7 +68,11 @@ func NormalizeText(text string) string {
 }
 
 func ReadSafeFile(path string) ([]byte, error) {
-	safePath, err := ValidatePathReadable(path)
+	return ReadSafeFileContext(context.Background(), path)
+}
+
+func ReadSafeFileContext(ctx context.Context, path string) ([]byte, error) {
+	safePath, err := ValidatePathReadableContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}

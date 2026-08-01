@@ -49,14 +49,18 @@ func (t *EditTool) Parameters() []core.Parameter {
 
 // Preview reads the file, applies the content-anchored edit to a copy, and returns a diff.
 func (t *EditTool) Preview(args map[string]any) string {
+	return t.PreviewContext(context.Background(), args)
+}
+
+func (t *EditTool) PreviewContext(ctx context.Context, args map[string]any) string {
 	path, _ := args["path"].(string)
 	if path == "" {
 		return ""
 	}
 	if rv, _ := args["revert"].(bool); rv {
-		return t.previewRevertSnapshot(path)
+		return t.previewRevertSnapshot(ctx, path)
 	}
-	return t.previewEdit(args)
+	return t.previewEdit(ctx, args)
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +75,7 @@ func (t *EditTool) Execute(ctx context.Context, args map[string]any) (string, er
 
 	// Revert mode: restore file from pre-edit snapshot.
 	if rv, _ := args["revert"].(bool); rv {
-		return t.revertSnapshot(path)
+		return t.revertSnapshot(ctx, path)
 	}
 	return t.executeEdit(ctx, args)
 }

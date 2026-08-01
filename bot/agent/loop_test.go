@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -119,6 +121,68 @@ func TestFinishRunDoesNotPersistNonRecordableText(t *testing.T) {
 	last := lastAssistantContent(a.deps.ctxMgr.Build())
 	if last != "draft answer from hook-retried turn" {
 		t.Fatalf("persisted assistant content = %q, want previous recordable text", last)
+	}
+}
+
+func TestFinishRunInterruptedPreservesWholeCurrentRun(t *testing.T) {
+	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "test", ContextWindow: 128000})
+	a := New(context.Background(), Config{Context: ctxMgr, Tools: tools.New()})
+
+	// A completed earlier turn after a tool result used to be lost because the
+	// rollback searched globally for the last tool message.
+	ctxMgr.AddAssistantToolCall("old tool", "", []types.ToolCall{{
+		ID: "old", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
+	}})
+	ctxMgr.AddToolResultsBatch([]ctxmgr.ToolResultMsg{{
+		Message: types.Message{Content: "old result", ToolCallID: "old"}, ToolName: "read",
+	}})
+	ctxMgr.Add("user", "follow-up")
+	ctxMgr.AddAssistantResponse("completed answer after old tool", "")
+	compacted := ctxMgr.Snapshot()
+	compacted.Archive = "summary of the old tool turn"
+	compacted.CompactBoundary = 2
+	ctxMgr.Restore(compacted)
+
+	a.loopRunner.startRun("long task")
+	for i := 0; i < 40; i++ {
+		id := "call-" + strconv.Itoa(i)
+		ctxMgr.AddAssistantToolCall("working", "", []types.ToolCall{{
+			ID: id, Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
+		}})
+		ctxMgr.AddToolResultsBatch([]ctxmgr.ToolResultMsg{{
+			Message: types.Message{Content: "result", ToolCallID: id}, ToolName: "read",
+		}})
+	}
+	before := ctxMgr.Snapshot()
+
+	a.run.stopReason = policy.StopInterrupted
+	result := a.loopRunner.finishRun(nil)
+	after := ctxMgr.Snapshot()
+
+	if !result.Interrupted || result.FinalOutput != msgInterrupted {
+		t.Fatalf("result = %+v, want interrupted", result)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("interruption changed committed context: before=%+v after=%+v", before, after)
+	}
+	if got := after.Messages[4].Content; got != "long task" {
+		t.Fatalf("current user request was not preserved: %q", got)
+	}
+}
+
+func TestFinishRunInterruptedBeforeFirstToolPreservesPriorHistoryAndInput(t *testing.T) {
+	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "test", ContextWindow: 128000})
+	a := New(context.Background(), Config{Context: ctxMgr, Tools: tools.New()})
+	ctxMgr.Add("user", "previous")
+	ctxMgr.AddAssistantResponse("previous answer", "")
+	a.loopRunner.startRun("current request")
+	before := ctxMgr.Snapshot().Messages
+
+	a.run.stopReason = policy.StopInterrupted
+	a.loopRunner.finishRun(nil)
+
+	if after := ctxMgr.Snapshot().Messages; !reflect.DeepEqual(after, before) {
+		t.Fatalf("interruption before first tool changed history: before=%+v after=%+v", before, after)
 	}
 }
 

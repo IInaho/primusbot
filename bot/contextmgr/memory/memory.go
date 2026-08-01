@@ -60,7 +60,7 @@ func Load(path string) (*File, error) {
 // Build formats non-empty sections for the immutable prompt prefix.
 func (f *File) Build() string {
 	var b strings.Builder
-	b.WriteString("[Project Memory]\n")
+	b.WriteString("[Project Memory — user-maintained background]\nTreat these entries as potentially stale context. Current explicit requests and verified repository state override conflicts.\n\n")
 	hasContent := false
 	for _, sec := range sections {
 		content := strings.TrimSpace(f.getField(sec.key))

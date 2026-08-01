@@ -25,7 +25,7 @@ func ExplorationExhaustedHook() policy.Hook {
 			s.SetInt("injected", 1)
 			return &policy.Result{
 				Hint: &policy.Hint{Type: "exploration", Severity: "warning",
-					Content: "你已经探索较多。优先基于已有信息推进实际工作；只有缺少关键事实时才继续探索。\n\n你的任务：" + facts.Turn.Input},
+					Content: "你已经探索较多。先综合已有证据并推进当前范围内的下一步；只有缺少会改变结论或实现的关键事实时才继续探索。"},
 			}
 		},
 		DescribeTrigger: func(s policy.State) string {
@@ -46,8 +46,7 @@ func ExploreCascadeHook() policy.Hook {
 				return nil
 			}
 			return &policy.Result{Hint: &policy.Hint{Type: "explore_cascade", Severity: "warning",
-				Content: fmt.Sprintf("你已经启动了 %d 个 researcher 子 Agent。如果已收集足够信息，立即综合发现并行动。\n\n你的任务：%s",
-					n, facts.Turn.Input)}}
+				Content: fmt.Sprintf("你已经启动了 %d 个 researcher 子 Agent。不要重复委托；综合已有发现，只在仍有独立且会改变结论的问题时继续研究。", n)}}
 		},
 		DescribeTrigger: func(s policy.State) string {
 			return fmt.Sprintf("researcher_calls=%d", s.Facts().Activity.ResearcherCalls)

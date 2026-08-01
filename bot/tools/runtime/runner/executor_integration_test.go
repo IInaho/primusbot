@@ -5,7 +5,6 @@ import (
 	"nekocode/protocol"
 	"strings"
 	"testing"
-	"time"
 
 	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/shell"
@@ -72,6 +71,8 @@ func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 func TestExecutorPlanMode(t *testing.T) {
 	r := tools.New()
 	r.Register(&writeTool{testTool{name: "writer"}})
+	r.Register(&testTool{name: "read"})
+	r.AllowInPlan("read")
 	e := runner.NewExecutor(r)
 	e.SetPlanMode(true)
 
@@ -80,6 +81,10 @@ func TestExecutorPlanMode(t *testing.T) {
 	})
 	if results[0].Error == "" {
 		t.Error("expected plan mode block")
+	}
+	results = e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "2", Name: "read"}})
+	if results[0].Error != "" || results[0].Output != "ok" {
+		t.Errorf("expected plan mode read to run: %+v", results[0])
 	}
 }
 
@@ -99,9 +104,11 @@ func TestExecutorConfirm(t *testing.T) {
 	}
 }
 
-func TestExecutorShellRunAndPoll(t *testing.T) {
+func TestExecutorShellRunAndProcessWait(t *testing.T) {
 	r := tools.New()
-	r.Register(&shell.ShellTool{})
+	shellTool := &shell.ShellTool{}
+	r.Register(shellTool)
+	r.Register(shell.NewProcessTool(shellTool))
 	e := runner.NewExecutor(r)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	prompts := 0
@@ -113,7 +120,7 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		if req.ToolName != "shell" {
 			t.Fatalf("shell command approval should display shell, got %+v", req)
 		}
-		if req.Args["command"] != "sleep 0.2 && echo executor-shell" {
+		if req.Args["command"] != "sleep 2.2 && echo executor-shell" {
 			t.Fatalf("shell command approval should show actual command, got %+v", req.Args)
 		}
 		if prompts > 1 {
@@ -129,41 +136,28 @@ func TestExecutorShellRunAndPoll(t *testing.T) {
 		ID:   "1",
 		Name: "shell",
 		Args: map[string]any{
-			"action":        "run",
-			"command":       "sleep 0.2 && echo executor-shell",
-			"yield_time_ms": 20,
-			"timeout_ms":    2000,
+			"command":    "sleep 2.2 && echo executor-shell",
+			"name":       "executor-test",
+			"timeout_ms": 5000,
 		},
 	}})[0]
 	if start.Error != "" {
 		t.Fatalf("shell run failed: %+v", start)
 	}
-	if !strings.Contains(start.Output, "session_id: 1") {
-		t.Fatalf("run output missing session id: %q", start.Output)
+	if !strings.Contains(start.Output, "task: executor-test") {
+		t.Fatalf("run output missing task name: %q", start.Output)
 	}
 
-	// The command needs ~200ms to finish; poll with a bounded retry instead of
-	// a fixed sleep so the test stays stable under -race and slow machines.
-	var logs core.ToolCallResult
-	for range 20 {
-		logs = e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
-			ID:   "2",
-			Name: "shell",
-			Args: map[string]any{
-				"action":     "poll",
-				"session_id": 1,
-			},
-		}})[0]
-		if logs.Error != "" {
-			t.Fatalf("shell poll failed: %+v", logs)
-		}
-		if strings.Contains(logs.Output, "executor-shell") {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
+	wait := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID:   "2",
+		Name: "process",
+		Args: map[string]any{"action": "wait", "task": "executor-test"},
+	}})[0]
+	if wait.Error != "" {
+		t.Fatalf("process wait failed: %+v", wait)
 	}
-	if !strings.Contains(logs.Output, "executor-shell") {
-		t.Fatalf("logs output missing command output: %q", logs.Output)
+	if !strings.Contains(wait.Output, "executor-shell") || !strings.Contains(wait.Output, "status: done") {
+		t.Fatalf("wait output missing command result: %q", wait.Output)
 	}
 }
 
@@ -181,7 +175,6 @@ func TestExecutorShellRunAppliesBashDenyRules(t *testing.T) {
 		ID:   "1",
 		Name: "shell",
 		Args: map[string]any{
-			"action":  "run",
 			"command": "sudo echo blocked",
 		},
 	}})[0]

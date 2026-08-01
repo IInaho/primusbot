@@ -45,10 +45,25 @@ type Tool interface {
 }
 
 type Parameter struct {
-	Name        string
+	Name               string
+	Type               string
+	Required           bool
+	Description        string
+	Enum               []string
+	Items              *Schema
+	Properties         map[string]Schema
+	RequiredProperties []string
+}
+
+// Schema describes nested tool input using the JSON Schema subset supported
+// by both built-in providers.
+type Schema struct {
 	Type        string
-	Required    bool
 	Description string
+	Enum        []string
+	Items       *Schema
+	Properties  map[string]Schema
+	Required    []string
 }
 
 type Descriptor struct {

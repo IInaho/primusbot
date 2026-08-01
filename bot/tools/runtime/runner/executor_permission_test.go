@@ -3,13 +3,11 @@ package runner
 import (
 	"context"
 	"nekocode/protocol"
-	"os"
 	"sync"
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/permission"
-	"nekocode/bot/tools/runtime/workspace"
 )
 
 // fakeToolForPerm is a minimal tool for permission-engine integration tests.
@@ -27,13 +25,11 @@ func (t fakeToolForPerm) Execute(context.Context, map[string]any) (string, error
 
 func newPermTestExecutor(t *testing.T) *Executor {
 	t.Helper()
-	cwd, _ := os.Getwd()
-	workspace.Configure("/repo", nil)
-	t.Cleanup(func() { workspace.Configure(cwd, nil) })
 	e := NewExecutor(fakeRegistry{
 		"shell": fakeToolForPerm{name: "shell"},
 		"write": fakeToolForPerm{name: "write"},
 	})
+	e.workspace.Configure("/repo", nil)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	return e
 }

@@ -113,6 +113,8 @@ func TestProgressStallHook(t *testing.T) {
 	}
 	if result := hook.On(state); result == nil || result.Hint == nil {
 		t.Fatalf("8th stall result = %+v, want warning hint", result)
+	} else if strings.Contains(result.Hint.Content, state.facts.Turn.Input) {
+		t.Fatalf("policy hint elevated raw user input: %q", result.Hint.Content)
 	}
 }
 
@@ -125,6 +127,9 @@ func TestExplorationHooks(t *testing.T) {
 	result := hook.On(state)
 	if result == nil || result.Hint == nil || result.RequireTool != nil {
 		t.Fatalf("exploration exhausted result = %+v, want hint", result)
+	}
+	if strings.Contains(result.Hint.Content, state.facts.Turn.Input) {
+		t.Fatalf("policy hint elevated raw user input: %q", result.Hint.Content)
 	}
 }
 
@@ -140,6 +145,8 @@ func TestExploreCascadeHook(t *testing.T) {
 	state.facts.Activity.ResearcherCalls = 4
 	if result := hook.On(state); result == nil || result.Hint == nil || result.Hint.Type != "explore_cascade" {
 		t.Fatalf("4 researchers result = %+v, want cascade hint", result)
+	} else if strings.Contains(result.Hint.Content, state.facts.Turn.Input) {
+		t.Fatalf("policy hint elevated raw user input: %q", result.Hint.Content)
 	}
 }
 

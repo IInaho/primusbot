@@ -14,6 +14,12 @@ import (
 
 type Manager struct {
 	state *managerState
+
+	// runtimePrompt is evaluated for every Build and is intentionally not part
+	// of ManagerSnapshot. It carries volatile process state (cwd, date, sandbox
+	// roots) without freezing it into a saved session.
+	runtimeMu     sync.RWMutex
+	runtimePrompt func() string
 }
 
 type compactor interface {
@@ -45,8 +51,7 @@ type Config struct {
 
 func makeSummarizer(ctx context.Context, client provider.LLM) Summarizer {
 	return func(msgs []types.Message, prevSummary string) (string, error) {
-		prompt := buildSummaryPrompt(msgs, prevSummary)
-		resp, err := client.Chat(ctx, []types.Message{{Role: "user", Content: prompt}}, nil)
+		resp, err := client.Chat(ctx, buildSummaryMessages(msgs, prevSummary), nil)
 		if err != nil {
 			return "", err
 		}

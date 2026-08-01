@@ -16,7 +16,7 @@ func ReadOnlySpiralHint(streak int) *Hint {
 	return &Hint{
 		Type:     "read_only_spiral",
 		Severity: "warning",
-		Content:  "You've been reading without acting. Summarize your findings now - don't read any more files.",
+		Content:  "Pause and synthesize the evidence gathered so far. Identify the one unresolved fact that could change the decision, if any; avoid more reads that would not change the next action.",
 	}
 }
 

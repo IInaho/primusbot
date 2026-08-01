@@ -21,7 +21,6 @@ import (
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
 	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/protocol"
 )
@@ -65,8 +64,12 @@ func main() {
 		Model: model, Protocol: getenv("NEKOCODE_PROTOCOL", "openai"),
 	})
 
-	registry := tools.New()
-	catalog.RegisterAll(registry, nil)
+	toolbox := catalog.NewToolbox(nil)
+	defer func() {
+		if err := toolbox.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close toolbox:", err)
+		}
+	}()
 
 	gov := policy.New()
 	gov.Register(guardHook())
@@ -76,7 +79,7 @@ func main() {
 			SystemPrompt: "You are a helpful assistant.", ContextWindow: 128000,
 		}),
 		Model:  llm,
-		Tools:  registry,
+		Tools:  toolbox.Registry,
 		Policy: gov,
 	})
 

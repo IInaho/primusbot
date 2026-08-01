@@ -7,6 +7,7 @@ import (
 	agentcore "nekocode/bot/agent"
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
+	"nekocode/bot/prompt"
 	"nekocode/bot/provider"
 	"nekocode/bot/tools/runtime/taskbridge"
 	"nekocode/protocol"
@@ -15,7 +16,6 @@ import (
 func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, ag *agentcore.Agent) {
 	registry := b.toolbox.Registry
 	ctxMgr := b.ctxMgr
-	cwd := b.cwd
 	contextWindow := b.cfg.ContextWindow
 
 	t, err := registry.Get("task")
@@ -34,7 +34,7 @@ func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, 
 		engine := subagent.New(subagent.Config{
 			LLM: subLLM, Tools: registry, CompactionModel: compactionModel,
 		})
-		cfg, ok := buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, cwd, contextWindow, ag)
+		cfg, ok := buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, contextWindow, ag, b.environment)
 		if !ok {
 			return nil, fmt.Errorf("unknown sub-agent type: %s", agentType)
 		}
@@ -48,9 +48,10 @@ func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, 
 
 func buildSubagentRunConfig(
 	ctx context.Context,
-	prompt, agentType, thoroughness, cwd string,
+	prompt, agentType, thoroughness string,
 	contextWindow int,
 	ag *agentcore.Agent,
+	environment prompt.EnvironmentProvider,
 ) (subagent.RunConfig, bool) {
 	at, ok := subagent.Get(agentType)
 	if !ok {
@@ -59,13 +60,13 @@ func buildSubagentRunConfig(
 	cfg := subagent.RunConfig{
 		Prompt:        prompt,
 		AgentType:     at,
-		Cwd:           cwd,
 		Thoroughness:  thoroughness,
 		ContextWindow: contextWindow,
 		ConfirmFn:     ag.ConfirmFn(),
 		ToolState:     ag.ToolExecutionState(),
 		AddTokens:     ag.AddTokens,
 		Policy:        ag.Governance(),
+		Environment:   environment,
 	}
 	if subCB, ok := taskbridge.TaskCallbackFromCtx(ctx); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {

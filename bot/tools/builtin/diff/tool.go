@@ -53,15 +53,19 @@ func (t *Tool) Parameters() []core.Parameter {
 // Preview returns the actual diff content, so the tool call list shows the
 // full comparison before execution (same pattern as edit's Preview).
 func (t *Tool) Preview(args map[string]any) string {
-	result, _ := t.computeDiff(args)
+	return t.PreviewContext(context.Background(), args)
+}
+
+func (t *Tool) PreviewContext(ctx context.Context, args map[string]any) string {
+	result, _ := t.computeDiff(ctx, args)
 	return result
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	return t.computeDiff(args)
+	return t.computeDiff(ctx, args)
 }
 
-func (t *Tool) computeDiff(args map[string]any) (string, error) {
+func (t *Tool) computeDiff(ctx context.Context, args map[string]any) (string, error) {
 	old, _ := args["old"].(string)
 	new, _ := args["new"].(string)
 	path, _ := args["path"].(string)
@@ -77,11 +81,11 @@ func (t *Tool) computeDiff(args map[string]any) (string, error) {
 	}
 
 	// Resolve file paths
-	old, err := resolveSource(old)
+	old, err := resolveSource(ctx, old)
 	if err != nil {
 		return "", fmt.Errorf("old: %w", err)
 	}
-	new, err = resolveSource(new)
+	new, err = resolveSource(ctx, new)
 	if err != nil {
 		return "", fmt.Errorf("new: %w", err)
 	}
@@ -94,11 +98,11 @@ func (t *Tool) computeDiff(args map[string]any) (string, error) {
 	}), nil
 }
 
-func resolveSource(s string) (string, error) {
+func resolveSource(ctx context.Context, s string) (string, error) {
 	const prefix = "path:"
 	if strings.HasPrefix(s, prefix) {
 		path := strings.TrimSpace(strings.TrimPrefix(s, prefix))
-		safePath, err := toolutil.ValidatePath(path)
+		safePath, err := toolutil.ValidatePathReadableContext(ctx, path)
 		if err != nil {
 			return "", fmt.Errorf("validate %s: %w", path, err)
 		}

@@ -256,7 +256,8 @@ Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
 
 | 工具 | 功能 | 安全等级 | 执行模式 |
 |------|------|----------|----------|
-| **bash** | Shell 命令（只读命令自动 Safe） | Safe～Forbidden | Sequential |
+| **shell** | 启动 Shell 命令；短命令直接返回，长命令交给运行时托管 | Safe～Forbidden | Sequential |
+| **process** | 事件式等待/监听、列出或停止托管进程 | Safe | Sequential |
 | **read** | 文件读取 + 二进制检测 + 文件未找到建议 | Safe | Parallel |
 | **write** | 文件创建/覆盖（先读后改强制） | Write | Sequential |
 | **edit** | oldString/newString 内容锚定替换 + diff preview + gofmt 语法检查 | Write | Sequential |
@@ -272,6 +273,8 @@ Agent 运行时采用分层设计，将单体循环拆分为独立运行器：
 | **task** | 子 agent 委派 | Safe | Parallel |
 | **todo_write** | 任务列表更新 | Safe | Sequential |
 | **skill** | 技能包加载 | Safe | Sequential |
+
+`shell` 的短暂观察窗口由运行时控制，不暴露给模型。长命令返回任务名后继续运行；`process wait/watch` 在运行时内等待退出或输出事件，不要求模型轮询。可选 `shell.timeout_ms` 是终止进程组的硬超时；等待的内部安全边界只结束本次等待，不会停止进程。
 
 ### Question 工具
 

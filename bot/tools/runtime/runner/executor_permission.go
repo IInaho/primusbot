@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/execution"
 	"nekocode/protocol"
 )
 
@@ -49,7 +48,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 		return "", false, failDeniedByRule, execErr
 	}
 	if e.permissionAllowed(tc.Name, req) {
-		out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+		out, err := privileged.ExecuteWithPermission(e.toolContext(ctx), tc.Args, req)
 		if err == nil {
 			return out, true, 0, nil
 		}
@@ -76,7 +75,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 		if !preApproved.remember {
 			e.addSessionGrant(tc.Name, req)
 		}
-		out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+		out, err := privileged.ExecuteWithPermission(e.toolContext(ctx), tc.Args, req)
 		if err == nil {
 			return out, true, 0, nil
 		}
@@ -92,7 +91,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, tool core.Tool, 
 	} else {
 		e.addSessionGrant(tc.Name, req)
 	}
-	out, err := privileged.ExecuteWithPermission(execution.WithExecutionState(ctx, e.state), tc.Args, req)
+	out, err := privileged.ExecuteWithPermission(e.toolContext(ctx), tc.Args, req)
 	if err == nil {
 		return out, true, 0, nil
 	}

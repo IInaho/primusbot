@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,10 +12,6 @@ import (
 func SetupTemp(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
-	// Workspace guards resolve roots from NEKOCODE_WORKSPACE; set it to this
-	// temp dir so file tools accept paths inside the test fixture.
-	t.Setenv("NEKOCODE_WORKSPACE", d)
-	workspace.Configure(d, nil)
 	if err := os.WriteFile(filepath.Join(d, "a.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -28,4 +25,8 @@ func SetupTemp(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+func Context(root string) context.Context {
+	return workspace.WithManager(context.Background(), workspace.New(root, nil))
 }

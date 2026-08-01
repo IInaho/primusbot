@@ -20,10 +20,10 @@ func QuotaHook() policy.Hook {
 			}
 			s.SetInt("last_warned", left)
 			sev := "warning"
-			content := fmt.Sprintf("剩余 %d 次读取配额。请使用已有信息，优先进行实质性修改。", left)
+			content := fmt.Sprintf("剩余 %d 次读取配额。请综合已有证据并推进当前范围内的下一步；不要为了消耗配额继续扫描。", left)
 			if left <= 0 {
 				sev = "critical"
-				content = "读取配额已耗尽。不要再尝试 read/grep/glob——基于已有信息行动。"
+				content = "读取配额已耗尽。不要再尝试 read/grep/glob；基于已有证据完成当前范围内的工作，或准确说明缺少的关键事实。"
 			}
 			return &policy.Result{Hint: &policy.Hint{Type: "quota", Severity: sev, Content: content}}
 		},

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	textutil "nekocode/util/text"
 )
 
 type runLease struct {
@@ -359,7 +361,9 @@ func (r *Manager) publishTool(runID RunID, event ToolEvent) {
 	var eventType EventType
 	payload := ToolPayload{
 		ToolName: event.Name, CallID: event.CallID, Args: event.Args,
-		Output: event.Output, Preview: event.Preview, IsError: event.IsError,
+		Output:     textutil.NormalizeTerminalOutput(event.Output),
+		Preview:    textutil.NormalizeTerminalOutput(event.Preview),
+		IsError:    event.IsError,
 		SubAgentID: event.SubAgentID, SubAgentColor: event.SubAgentColor,
 	}
 	switch event.Kind {

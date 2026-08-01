@@ -1,7 +1,6 @@
 package write
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,7 @@ func TestWriteTool(t *testing.T) {
 	w := &WriteTool{}
 	p := filepath.Join(td, "new.txt")
 
-	out, err := w.Execute(context.Background(), map[string]any{"path": p, "content": "hello"})
+	out, err := w.Execute(testutil.Context(td), map[string]any{"path": p, "content": "hello"})
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -36,7 +35,7 @@ func TestWritePreviewAllowsEmptyContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := w.Preview(map[string]any{"path": p, "content": ""})
+	out := w.PreviewContext(testutil.Context(td), map[string]any{"path": p, "content": ""})
 	if !strings.Contains(out, "-1:remove me") {
 		t.Fatalf("preview = %q, want deletion diff", out)
 	}
@@ -50,7 +49,7 @@ func TestWritePreviewNoChangesIsPlain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := w.Preview(map[string]any{"path": p, "content": "same\n"})
+	out := w.PreviewContext(testutil.Context(td), map[string]any{"path": p, "content": "same\n"})
 	if out != "" {
 		t.Fatalf("preview = %q, want empty no-change preview", out)
 	}

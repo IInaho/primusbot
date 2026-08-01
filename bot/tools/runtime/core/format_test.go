@@ -12,7 +12,15 @@ func TestToToolDefs(t *testing.T) {
 		Name: "test", Description: "a test tool",
 		Parameters: []Parameter{
 			{Name: "path", Type: "string", Required: true, Description: "file path"},
-			{Name: "depth", Type: "integer", Required: false, Description: "how deep"},
+			{
+				Name: "items", Type: "array", Required: false, Description: "work items",
+				Items: &Schema{
+					Type: "object", Required: []string{"status"},
+					Properties: map[string]Schema{
+						"status": {Type: "string", Enum: []string{"pending", "done"}},
+					},
+				},
+			},
 		},
 	}}
 	defs = ToToolDefs(descs)
@@ -34,6 +42,10 @@ func TestToToolDefs(t *testing.T) {
 	}
 	if len(d.Function.Parameters.Properties) != 2 {
 		t.Error("bad props count")
+	}
+	items := d.Function.Parameters.Properties["items"].Items
+	if items == nil || items.Type != "object" || len(items.Required) != 1 || items.Properties["status"].Enum[1] != "done" {
+		t.Fatalf("nested schema was not preserved: %+v", items)
 	}
 }
 

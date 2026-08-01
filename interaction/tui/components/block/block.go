@@ -18,7 +18,7 @@ type ContentBlock struct {
 	ToolName string
 	ToolArgs string
 	// ToolAction preserves action-like tool args that affect display wording.
-	// For shell this distinguishes run/list/wait/poll/stop.
+	// For process this distinguishes list/wait/watch/stop.
 	ToolAction string
 	Done       bool
 	IsError    bool   // true when the tool returned an error (used for rendering)
@@ -38,7 +38,7 @@ func FilterFinalBlocks(blocks []ContentBlock) []ContentBlock {
 }
 
 func IsPersistent(toolName string) bool {
-	return toolName == "edit" || toolName == "diff" || toolName == "shell" || toolName == "write"
+	return toolName == "edit" || toolName == "diff" || toolName == "shell" || toolName == "process" || toolName == "write"
 }
 
 // ParseReadOutput extracts the displayable content from read tool output.

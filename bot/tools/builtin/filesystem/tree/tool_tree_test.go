@@ -11,7 +11,7 @@ func TestTreeTool(t *testing.T) {
 	td := testutil.SetupTemp(t)
 	tr := &TreeTool{}
 
-	out, err := tr.Execute(context.Background(), map[string]any{"path": td, "depth": float64(2)})
+	out, err := tr.Execute(testutil.Context(td), map[string]any{"path": td, "depth": float64(2)})
 	if err != nil {
 		t.Fatalf("tree: %v", err)
 	}

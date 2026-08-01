@@ -1,6 +1,7 @@
 package toolutil
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ func TestStripAnsi(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"hello", "hello"},
 		{"\x1b[31mred\x1b[0m", "red"},
+		{"\x1b[?25lhidden cursor\x1b[?25h", "hidden cursor"},
 		{"no ansi here", "no ansi here"},
 	}
 	for _, tt := range tests {
@@ -43,15 +45,15 @@ func TestValidatePath(t *testing.T) {
 
 func TestValidatePathWritableUsesWorkspaceGuard(t *testing.T) {
 	ws := t.TempDir()
-	workspace.Configure(ws, nil)
+	ctx := workspace.WithManager(context.Background(), workspace.New(ws, nil))
 
 	inside := filepath.Join(ws, "a.txt")
-	if _, err := ValidatePathWritable(inside); err != nil {
+	if _, err := ValidatePathWritableContext(ctx, inside); err != nil {
 		t.Fatalf("inside workspace should be writable: %v", err)
 	}
 
 	outside := filepath.Join(t.TempDir(), "evil.txt")
-	if _, err := ValidatePathWritable(outside); err == nil {
+	if _, err := ValidatePathWritableContext(ctx, outside); err == nil {
 		t.Fatal("outside workspace should be rejected")
 	}
 }

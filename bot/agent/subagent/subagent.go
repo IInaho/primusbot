@@ -95,7 +95,7 @@ func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 
 	ctxMgr := e.newContextManager(cfg)
 
-	ctxMgr.Add("user", cfg.Prompt)
+	ctxMgr.Add("user", buildTaskPrompt(cfg))
 	phase := phaseReporter(cfg)
 	phase("Waiting")
 
@@ -161,6 +161,7 @@ func (r *engineRun) stepOnce() bool {
 		return true
 	}
 	calls, text, err := r.engine.reason(r.ctx, r.ctxMgr, r.cfg.AgentType.Tools, r.state.addTokens(r.cfg), r.phase)
+	r.ctxMgr.SetHints("")
 	if err != nil {
 		r.log("error: %v", err)
 		if r.state.lastText != "" {

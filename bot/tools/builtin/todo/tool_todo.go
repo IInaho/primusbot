@@ -27,12 +27,21 @@ func (t *TodoWriteTool) SetUpdateFn(fn protocol.TodoFunc) {
 
 func (t *TodoWriteTool) Name() string { return "todo_write" }
 func (t *TodoWriteTool) Description() string {
-	return "Update the task list (record only, not for planning). Each call fully replaces the list. Write the complete list in one call — never append. Format: [{\"content\":\"...\",\"status\":\"pending|in_progress|completed\"}]"
+	return "Replace the task-tracking list. Track only requested deliverables and necessary verification, not every observation; skip for simple work. Each call supplies the complete list with at most one in_progress item. Format: [{\"content\":\"...\",\"status\":\"pending|in_progress|completed\"}]"
 }
 
 func (t *TodoWriteTool) Parameters() []core.Parameter {
 	return []core.Parameter{
-		{Name: "todos", Type: "string", Required: true, Description: "JSON task list: [{\"content\":\"...\",\"status\":\"pending|in_progress|completed\"}]"},
+		{
+			Name: "todos", Type: "array", Required: true, Description: "Complete replacement task list.",
+			Items: &core.Schema{
+				Type: "object", Required: []string{"content", "status"},
+				Properties: map[string]core.Schema{
+					"content": {Type: "string", Description: "Concrete deliverable or verification step."},
+					"status":  {Type: "string", Enum: []string{"pending", "in_progress", "completed"}},
+				},
+			},
+		},
 	}
 }
 

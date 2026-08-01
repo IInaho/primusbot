@@ -23,9 +23,9 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn protoco
 	var allowed bool
 	var err error
 	if access == workspace.AccessReadWrite {
-		safePath, _, allowed, err = workspace.CheckWrite(path)
+		safePath, _, allowed, err = e.workspace.CheckWrite(path)
 	} else {
-		safePath, _, allowed, err = workspace.CheckRead(path)
+		safePath, _, allowed, err = e.workspace.CheckRead(path)
 	}
 	if err != nil {
 		return tc, err.Error(), false
@@ -52,7 +52,7 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn protoco
 	if !reply.Allowed {
 		return tc, "cancelled", false
 	}
-	root, err := workspace.AddSessionRoot(rootPath, access)
+	root, err := e.workspace.AddSessionRoot(rootPath, access)
 	if err != nil {
 		return tc, err.Error(), false
 	}

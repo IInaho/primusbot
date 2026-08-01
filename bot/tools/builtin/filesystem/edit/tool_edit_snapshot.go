@@ -1,6 +1,7 @@
 package edit
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -28,8 +29,8 @@ func snapshotUndoPath(safePath string) string {
 	return filepath.Join(fs.NekocodeDataDir("snapshots"), hash+"_"+filepath.Base(safePath)+".pre-edit")
 }
 
-func (t *EditTool) revertSnapshot(path string) (string, error) {
-	safePath, err := toolutil.ValidatePathWritable(path)
+func (t *EditTool) revertSnapshot(ctx context.Context, path string) (string, error) {
+	safePath, err := toolutil.ValidatePathWritableContext(ctx, path)
 	if err != nil {
 		return "", fmt.Errorf("revert: invalid path: %w", err)
 	}
@@ -50,8 +51,8 @@ func (t *EditTool) revertSnapshot(path string) (string, error) {
 	return renderRevertDiff(safePath, newTag, string(currentData), string(preData)), nil
 }
 
-func (t *EditTool) previewRevertSnapshot(path string) string {
-	safePath, err := toolutil.ValidatePath(path)
+func (t *EditTool) previewRevertSnapshot(ctx context.Context, path string) string {
+	safePath, err := toolutil.ValidatePathReadableContext(ctx, path)
 	if err != nil {
 		return ""
 	}

@@ -58,7 +58,7 @@ func (e *Executor) executeParallel(ctx context.Context, calls []indexedCall, res
 
 func (e *Executor) executeSequential(ctx context.Context, calls []indexedCall, results []core.ToolCallResult) {
 	for _, c := range calls {
-		e.emitPreview(c.call)
+		e.emitPreview(ctx, c.call)
 		results[c.idx] = e.executeOne(ctx, c.call)
 	}
 }

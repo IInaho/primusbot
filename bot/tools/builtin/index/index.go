@@ -49,7 +49,7 @@ func (t *IndexTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 }
 
 func (t *IndexTool) Description() string {
-	return "Pre-built project index. ALWAYS use this FIRST for: finding symbols (symbol:), finding files (file:), checking dependencies (deps:), full-text search (search:), or getting project overview (skeleton). Faster and more accurate than grep/glob for code structure queries."
+	return "Query the project index for symbols (symbol:), files (file:), package dependencies (deps:), text (search:), or an architecture overview (skeleton). Use it when code structure is the question; confirm relevant source before editing because index results are navigation evidence, not current file contents."
 }
 
 func (t *IndexTool) Parameters() []core.Parameter {

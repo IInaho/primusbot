@@ -54,8 +54,8 @@ type lineSpan struct {
 
 var fileLocks sync.Map
 
-func (t *EditTool) previewEdit(args map[string]any) string {
-	plan, err := buildEditPlan(args)
+func (t *EditTool) previewEdit(ctx context.Context, args map[string]any) string {
+	plan, err := buildEditPlan(ctx, args)
 	if err != nil {
 		path, _ := args["path"].(string)
 		return fmt.Sprintf("(%s: %v)", filepath.Base(path), err)
@@ -72,7 +72,7 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	if err != nil {
 		return "", err
 	}
-	safePath, err := toolutil.ValidatePathWritable(req.Path)
+	safePath, err := toolutil.ValidatePathWritableContext(ctx, req.Path)
 	if err != nil {
 		return "", err
 	}
@@ -81,7 +81,7 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	defer lock.Unlock()
 
 	args["path"] = safePath
-	plan, err := buildEditPlan(args)
+	plan, err := buildEditPlan(ctx, args)
 	if err != nil {
 		return "", err
 	}
@@ -114,16 +114,16 @@ func (t *EditTool) executeEdit(ctx context.Context, args map[string]any) (string
 	return msg, nil
 }
 
-func buildEditPlan(args map[string]any) (editPlan, error) {
+func buildEditPlan(ctx context.Context, args map[string]any) (editPlan, error) {
 	req, err := parseEditRequest(args)
 	if err != nil {
 		return editPlan{}, err
 	}
-	safePath, err := toolutil.ValidatePathReadable(req.Path)
+	safePath, err := toolutil.ValidatePathReadableContext(ctx, req.Path)
 	if err != nil {
 		return editPlan{}, err
 	}
-	data, err := toolutil.ReadSafeFile(safePath)
+	data, err := toolutil.ReadSafeFileContext(ctx, safePath)
 	if err != nil {
 		return editPlan{}, fmt.Errorf("failed to read file: %w", err)
 	}

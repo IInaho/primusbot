@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,11 +66,15 @@ func buildProfileFromRequest(workspace string, req sandboxRequest, authorizedCap
 // Without this the sandbox only exposes the process cwd, and commands touching
 // an added workspace fail with "cannot access". These roots are already
 // user-authorized (same semantics as the file tools), so no capability check.
-func applyWorkspaceRoots(profile *sandbox.Profile, cwd string) {
+func applyWorkspaceRoots(ctx context.Context, profile *sandbox.Profile, cwd string) error {
+	manager, ok := workspace.FromContext(ctx)
+	if !ok {
+		manager = workspace.New(cwd, nil)
+	}
 	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = resolved
 	}
-	for _, root := range workspace.Snapshot() {
+	for _, root := range manager.Snapshot() {
 		if root.Path == cwd {
 			continue // already covered by profile.Workspace
 		}
@@ -82,6 +87,7 @@ func applyWorkspaceRoots(profile *sandbox.Profile, cwd string) {
 			profile.ReadPaths = append(profile.ReadPaths, root.Path)
 		}
 	}
+	return nil
 }
 
 func hasCapability(caps []string, target string) bool {

@@ -27,7 +27,9 @@ func ToolBrief(toolName, rawArgs string) string {
 	case "write", "list", "tree", "edit":
 		return args["path"]
 	case "shell":
-		return shellBrief(args)
+		return cleanShellCommand(args["command"])
+	case "process":
+		return processBrief(args)
 	case "glob":
 		return args["pattern"]
 	case "grep":
@@ -63,41 +65,26 @@ func ToolBrief(toolName, rawArgs string) string {
 }
 
 // ToolAction returns the normalized sub-action of a tool call, or "" for
-// tools without actions. The legacy shell "logs" action maps to "poll".
+// tools without actions.
 func ToolAction(toolName, rawArgs string) string {
-	if toolName != "shell" {
+	if toolName != "process" {
 		return ""
 	}
-	return shellAction(parseToolArgs(rawArgs))
+	return strings.ToLower(strings.TrimSpace(parseToolArgs(rawArgs)["action"]))
 }
 
-func shellAction(args map[string]string) string {
+func processBrief(args map[string]string) string {
 	action := strings.ToLower(strings.TrimSpace(args["action"]))
-	if action == "logs" {
-		return "poll"
-	}
-	return action
-}
-
-func shellBrief(args map[string]string) string {
-	action := shellAction(args)
-	if action == "" || action == "run" {
-		return cleanShellCommand(args["command"])
-	}
 	switch action {
 	case "list":
-		return "shell sessions"
-	case "wait", "poll", "stop":
-		id := args["session_id"]
-		if id == "" {
-			id = args["id"]
+		return "managed processes"
+	case "wait", "watch", "stop":
+		if task := args["task"]; task != "" {
+			return task
 		}
-		if id != "" {
-			return "session " + id
-		}
-		return "shell session"
+		return "managed process"
 	default:
-		return action + " shell"
+		return action
 	}
 }
 

@@ -23,6 +23,9 @@ type WebFetchTool struct {
 
 func NewWebFetchTool() *WebFetchTool {
 	transport := utilhttp.NewSharedTransport()
+	// Deliberately ignore process proxy variables. The custom DialContext
+	// validates and pins the actual destination IP; an HTTP proxy would make
+	// it validate only the proxy address and would weaken the SSRF boundary.
 	transport.Proxy = nil
 	dialer := &net.Dialer{}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -63,7 +66,7 @@ func NewWebFetchTool() *WebFetchTool {
 func (t *WebFetchTool) Name() string { return "web_fetch" }
 
 func (t *WebFetchTool) Description() string {
-	return "Fetch web page as text. When quoting, cite source URL and keep quotes ≤125 chars."
+	return "Fetch a public web page as text; private, intranet, and loopback addresses are rejected. When quoting, cite the source URL and keep quotes ≤125 characters."
 }
 
 func (t *WebFetchTool) Parameters() []core.Parameter {

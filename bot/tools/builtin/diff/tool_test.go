@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 func TestToolReadsPathSources(t *testing.T) {
@@ -19,7 +21,8 @@ func TestToolReadsPathSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := NewTool().Execute(context.Background(), map[string]any{
+	ctx := workspace.WithManager(context.Background(), workspace.New(dir, nil))
+	out, err := NewTool().Execute(ctx, map[string]any{
 		"old":     "path:" + oldPath,
 		"new":     "path:" + newPath,
 		"path":    "sample.txt",

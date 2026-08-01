@@ -28,8 +28,7 @@ func ProgressStallHook() policy.Hook {
 			s.SetInt("stall_turns", 0)
 			return &policy.Result{
 				Hint: &policy.Hint{Type: "stall", Severity: "warning",
-					Content: fmt.Sprintf("连续 %d 轮工具调用没有产生新证据（新文件读取、修改或验证）。基于已有信息推进实际工作，或明确报告阻塞。\n\n你的任务：%s",
-						n, facts.Turn.Input)},
+					Content: fmt.Sprintf("连续 %d 轮工具调用没有产生新证据、修改或验证结果。停止重复操作，基于已有信息完成当前范围内的下一步，或准确报告阻塞条件。", n)},
 			}
 		},
 		DescribeTrigger: func(s policy.State) string {

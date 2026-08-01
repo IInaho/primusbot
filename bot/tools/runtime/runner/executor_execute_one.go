@@ -9,6 +9,7 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.ToolCallResult {
@@ -22,7 +23,7 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 	if phaseFn != nil {
 		phaseFn(protocol.PhaseRunning + " " + tc.Name)
 	}
-	if planMode {
+	if planMode && !e.planAllows(tc.Name) {
 		return core.ToolCallResult{ID: tc.ID, Name: tc.Name, Error: "plan mode: blocked"}
 	}
 
@@ -100,11 +101,6 @@ type permissionDecision struct {
 // they are command-level safety prompts the user opted into, orthogonal to
 // capability grants, so a net.outbound grant MUST NOT silence an "ask rm *".
 func (e *Executor) evaluatePermission(tc core.ToolCallItem, tool *core.Tool, predictedReq *core.PermissionRequest) permissionDecision {
-	// Non-run shell actions (wait/poll/list/stop) manage existing sessions —
-	// they don't execute new commands and shouldn't trigger command-level asks.
-	if tc.Name == "shell" && !shellActionIsRun(tc) {
-		return permissionDecision{}
-	}
 	engine, ws, home := e.permissionEngine()
 	if cmd, ok := shellCommandForPolicy(tc); ok {
 		callInfo := permission.BuildCallInfo("shell", map[string]any{"command": cmd}, ws, home)
@@ -121,15 +117,6 @@ func (e *Executor) evaluatePermission(tc core.ToolCallItem, tool *core.Tool, pre
 	callInfo := permission.BuildCallInfo(tc.Name, tc.Args, ws, home)
 	dec := engine.Evaluate(tc.Name, callInfo, defaultPermissionEffect(tc.Name))
 	return e.permissionDecisionForRule(dec, tc, predictedReq)
-}
-
-// shellActionIsRun reports whether a shell tool call actually executes a new
-// command. Session-management actions (wait/poll/list/stop) should not be
-// subject to the command-level permission prompts.
-func shellActionIsRun(tc core.ToolCallItem) bool {
-	action, _ := tc.Args["action"].(string)
-	action = strings.ToLower(strings.TrimSpace(action))
-	return action == "" || action == "run"
 }
 
 func (e *Executor) permissionDecisionForRule(dec permission.Decision, tc core.ToolCallItem, predictedReq *core.PermissionRequest) permissionDecision {
@@ -155,13 +142,7 @@ func (e *Executor) permissionDecisionForRule(dec permission.Decision, tc core.To
 }
 
 func shellCommandForPolicy(tc core.ToolCallItem) (string, bool) {
-	switch tc.Name {
-	case "shell":
-		action, _ := tc.Args["action"].(string)
-		action = strings.ToLower(strings.TrimSpace(action))
-		if action != "" && action != "run" {
-			return "", false
-		}
+	if tc.Name == "shell" {
 		cmd, _ := tc.Args["command"].(string)
 		cmd = strings.TrimSpace(cmd)
 		return cmd, cmd != ""
@@ -178,8 +159,8 @@ func (e *Executor) permissionEngine() (*permission.Engine, string, string) {
 }
 
 // defaultPermissionEffect is the fallback effect when no rule matches. The
-// shell tool itself defaults to allow so wait/poll/list do not prompt; shell
-// run is evaluated through command-level shell(...) rules before this fallback.
+// Shell is evaluated through command-level shell(...) rules before this
+// fallback. Process management defaults to allow because it starts no command.
 // Unregistered MCP tools (mcp__*) also default to ask — we can't make a
 // safety claim about tools we don't know. All other tools default to allow.
 func defaultPermissionEffect(toolName string) permission.Effect {
@@ -272,7 +253,11 @@ func (e *Executor) callTool(ctx context.Context, tool core.Tool, tc core.ToolCal
 			execErr = fmt.Errorf("panic: %v", r)
 		}
 	}()
-	return tool.Execute(execution.WithExecutionState(ctx, e.state), tc.Args)
+	return tool.Execute(e.toolContext(ctx), tc.Args)
+}
+
+func (e *Executor) toolContext(ctx context.Context) context.Context {
+	return workspace.WithManager(execution.WithExecutionState(ctx, e.state), e.workspace)
 }
 
 func (e *Executor) invalidateMutatedPaths(toolName string, paths []string) {

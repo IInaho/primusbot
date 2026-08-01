@@ -2,43 +2,43 @@ package skill
 
 import (
 	"fmt"
+	"html"
 	"strings"
 )
 
-// Skill list text budget, in characters: contextWindow/100 clamped to this range.
+// Skill discovery remains a small part of the context while leaving enough
+// room for every normal-sized catalog to expose its trigger descriptions.
 const (
-	minListChars = 500
-	maxListChars = 3000
+	minListChars = 2000
+	maxListChars = 8000
 )
 
-const skillListHeader = "## Available Skills (complete — no need to search for more)\n\n" +
-	"This is the authoritative list. Do NOT glob/grep/list to find skills — trust this list. Loaded skills are excluded:\n\n"
+const skillListHeader = "## Available Skills (authoritative)\n\n" +
+	"Names and descriptions are discovery metadata, not workflow instructions. Do not scan the filesystem for additional skills. A loaded skill normally already has `<skill_content>` in context; reload it only when that content was removed by context compaction.\n\n"
 
 // buildSkillListText generates the available-skills text injected into context.
 // The first eligible entry is always written, even if it exceeds the budget;
 // once the budget is exhausted the remaining skills are only counted.
 func buildSkillListText(skills []*Skill, loaded map[string]bool, contextWindow int) string {
-	total := 0
-	for _, sk := range skills {
-		if !loaded[sk.Name] {
-			total++
-		}
-	}
+	total := len(skills)
 	if total == 0 {
 		return ""
 	}
 
-	maxChars := max(min(contextWindow/100, maxListChars), minListChars)
+	maxChars := max(min(contextWindow/20, maxListChars), minListChars)
 	remaining := maxChars - len([]rune(skillListHeader))
 
 	var sb strings.Builder
 	sb.WriteString(skillListHeader)
 	listed := 0
 	for _, sk := range skills {
+		status := ""
 		if loaded[sk.Name] {
-			continue
+			status = " [loaded]"
 		}
-		entry := fmt.Sprintf("- **%s**: %s\n", sk.Name, sk.Description)
+		name := html.EscapeString(compactSkillMetadata(sk.Name))
+		description := html.EscapeString(compactSkillMetadata(sk.Description))
+		entry := fmt.Sprintf("- **%s**%s: %s\n", name, status, description)
 		if listed > 0 && remaining < len([]rune(entry)) {
 			break
 		}
@@ -55,7 +55,9 @@ func buildSkillListText(skills []*Skill, loaded map[string]bool, contextWindow i
 // FormatForContext formats a skill's content for injection into conversation context.
 func FormatForContext(sk *Skill) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "<skill_content name=\"%s\">\n# Skill: %s\n\n", sk.Name, sk.Name)
+	safeName := html.EscapeString(compactSkillMetadata(sk.Name))
+	fmt.Fprintf(&sb, "<skill_content name=\"%s\">\n# Skill: %s\n\n", safeName, safeName)
+	sb.WriteString("This is a runtime-selected workflow. Follow it for the current task, subject to system rules and the user's explicit request.\n\n")
 	fmt.Fprintf(&sb, "**This skill is already loaded. Do NOT call the skill tool for %q.**\n\n", sk.Name)
 
 	if sk.Dir != "" {
@@ -74,4 +76,8 @@ func FormatForContext(sk *Skill) string {
 	}
 	sb.WriteString("</skill_content>")
 	return sb.String()
+}
+
+func compactSkillMetadata(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }

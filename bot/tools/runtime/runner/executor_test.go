@@ -23,6 +23,17 @@ func (r fakeRegistry) Get(name string) (core.Tool, error) {
 	return nil, fmt.Errorf("tool not found: %s", name)
 }
 
+type workspaceOnlyRegistry struct {
+	fakeRegistry
+	manager *workspace.Manager
+}
+
+func (r workspaceOnlyRegistry) Workspace() *workspace.Manager { return r.manager }
+
+type planOnlyRegistry struct{ fakeRegistry }
+
+func (planOnlyRegistry) PlanAllows(name string) bool { return name == "read" }
+
 type fakeTool struct {
 	name   string
 	mode   core.ExecutionMode
@@ -50,6 +61,14 @@ func (t *captureTool) Execute(_ context.Context, args map[string]any) (string, e
 	return "ok", nil
 }
 
+type legacyPreviewTool struct{ fakeTool }
+
+func (legacyPreviewTool) Preview(map[string]any) string { return "legacy" }
+
+type contextPreviewTool struct{ fakeTool }
+
+func (contextPreviewTool) PreviewContext(context.Context, map[string]any) string { return "context" }
+
 func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
 		"read":  fakeTool{name: "read", mode: core.ModeParallel},
@@ -69,10 +88,36 @@ func TestExecutorBatchPreservesCallOrderAcrossModes(t *testing.T) {
 	}
 }
 
+func TestExecutorDiscoversRegistryCapabilitiesIndependently(t *testing.T) {
+	manager := workspace.New(t.TempDir(), nil)
+	workspaceExecutor := NewExecutor(workspaceOnlyRegistry{manager: manager})
+	if workspaceExecutor.workspace != manager {
+		t.Fatal("workspace capability was ignored without plan metadata")
+	}
+
+	planExecutor := NewExecutor(planOnlyRegistry{})
+	if !planExecutor.planAllows("read") || planExecutor.planAllows("write") {
+		t.Fatal("plan metadata was ignored without workspace capability")
+	}
+}
+
+func TestExecutorSupportsLegacyAndContextPreviews(t *testing.T) {
+	e := NewExecutor(fakeRegistry{
+		"legacy":  legacyPreviewTool{fakeTool{name: "legacy"}},
+		"context": contextPreviewTool{fakeTool{name: "context"}},
+	})
+	calls := []core.ToolCallItem{{Name: "legacy"}, {Name: "context"}}
+	e.PreparePreviewsContext(context.Background(), calls)
+	if calls[0].Args["_preview"] != "legacy" || calls[1].Args["_preview"] != "context" {
+		t.Fatalf("previews = %#v, %#v", calls[0].Args, calls[1].Args)
+	}
+}
+
 func TestExecutorBlocksPermissionDenyAndPlanMode(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
 		"blocked": fakeTool{name: "blocked", mode: core.ModeParallel},
 		"writer":  fakeTool{name: "writer", mode: core.ModeSequential},
+		"read":    fakeTool{name: "read", mode: core.ModeParallel},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{Deny: []string{"blocked"}}, "/repo", "/home/user")
 
@@ -81,8 +126,27 @@ func TestExecutorBlocksPermissionDenyAndPlanMode(t *testing.T) {
 	}
 
 	e.SetPlanMode(true)
+	e.SetPlanTools("read")
 	if got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "2", Name: "writer"}})[0]; got.Error == "" {
 		t.Fatal("expected plan mode error")
+	}
+	if got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "3", Name: "read"}})[0]; got.Error != "" || got.Output != "ok" {
+		t.Fatalf("plan mode should allow read-only exploration: %+v", got)
+	}
+}
+
+func TestPlanModeToolAllowlist(t *testing.T) {
+	e := NewExecutor(fakeRegistry{})
+	e.SetPlanTools("read", "grep", "glob", "list", "tree", "web_search", "web_fetch")
+	for _, name := range []string{"read", "grep", "glob", "list", "tree", "web_search", "web_fetch"} {
+		if !e.planAllows(name) {
+			t.Errorf("%q should be allowed in plan mode", name)
+		}
+	}
+	for _, name := range []string{"write", "edit", "shell", "process", "task", "todo_write", "index", "mcp__unknown"} {
+		if e.planAllows(name) {
+			t.Errorf("%q should be blocked in plan mode", name)
+		}
 	}
 }
 
@@ -99,22 +163,22 @@ func TestHasPermissionDeclIncludesSandboxOnlyPolicy(t *testing.T) {
 	}
 }
 
-func TestExecutorShellSessionActionsDoNotPromptByDefault(t *testing.T) {
+func TestExecutorProcessActionsDoNotPromptByDefault(t *testing.T) {
 	e := NewExecutor(fakeRegistry{
-		"shell": fakeTool{name: "shell", mode: core.ModeParallel},
+		"process": fakeTool{name: "process", mode: core.ModeParallel},
 	})
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
-		t.Fatal("shell wait/poll/list should not prompt by default")
+		t.Fatal("process wait/watch/list should not prompt by default")
 		return protocol.Deny()
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID:   "1",
-		Name: "shell",
+		Name: "process",
 		Args: map[string]any{
-			"action":     "wait",
-			"session_id": 1,
+			"action": "wait",
+			"task":   "download",
 		},
 	}})[0]
 	if got.Error != "" || got.Output != "ok" {
@@ -161,14 +225,9 @@ func TestExecutorConfirmDenial(t *testing.T) {
 func TestExecutorWorkspacePromptAddsReadRoot(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
-	workspace.Configure(primary, nil)
-	t.Cleanup(func() {
-		if cwd, err := filepath.Abs("."); err == nil {
-			workspace.Configure(cwd, nil)
-		}
-	})
 	tool := &captureTool{fakeTool: fakeTool{name: "read", mode: core.ModeParallel}}
 	e := NewExecutor(fakeRegistry{"read": tool})
+	e.workspace.Configure(primary, nil)
 
 	prompts := 0
 	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
@@ -201,14 +260,9 @@ func TestExecutorWorkspacePromptAddsReadRoot(t *testing.T) {
 func TestExecutorWorkspaceDenialBlocksBeforeExecute(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
-	workspace.Configure(primary, nil)
-	t.Cleanup(func() {
-		if cwd, err := filepath.Abs("."); err == nil {
-			workspace.Configure(cwd, nil)
-		}
-	})
 	tool := &captureTool{fakeTool: fakeTool{name: "write", mode: core.ModeSequential}}
 	e := NewExecutor(fakeRegistry{"write": tool})
+	e.workspace.Configure(primary, nil)
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply { return protocol.Deny() })
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{

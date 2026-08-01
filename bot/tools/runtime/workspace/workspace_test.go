@@ -9,26 +9,26 @@ import (
 func TestWorkspaceReadWriteAccess(t *testing.T) {
 	primary := t.TempDir()
 	docs := t.TempDir()
-	Configure(primary, []Root{{Path: docs, Access: AccessReadOnly}})
+	manager := New(primary, []Root{{Path: docs, Access: AccessReadOnly}})
 
-	if _, _, ok, err := CheckRead(filepath.Join(primary, "a.go")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckRead(filepath.Join(primary, "a.go")); err != nil || !ok {
 		t.Fatalf("primary should be readable: ok=%v err=%v", ok, err)
 	}
-	if _, _, ok, err := CheckWrite(filepath.Join(primary, "a.go")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckWrite(filepath.Join(primary, "a.go")); err != nil || !ok {
 		t.Fatalf("primary should be writable: ok=%v err=%v", ok, err)
 	}
-	if _, _, ok, err := CheckRead(filepath.Join(docs, "note.md")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckRead(filepath.Join(docs, "note.md")); err != nil || !ok {
 		t.Fatalf("read-only root should be readable: ok=%v err=%v", ok, err)
 	}
-	if _, _, ok, err := CheckWrite(filepath.Join(docs, "note.md")); err != nil || ok {
+	if _, _, ok, err := manager.CheckWrite(filepath.Join(docs, "note.md")); err != nil || ok {
 		t.Fatalf("read-only root should not be writable: ok=%v err=%v", ok, err)
 	}
 
 	outside := filepath.Join(t.TempDir(), "evil.txt")
-	if _, _, ok, err := CheckRead(outside); err != nil || ok {
+	if _, _, ok, err := manager.CheckRead(outside); err != nil || ok {
 		t.Fatalf("outside root should not be readable: ok=%v err=%v", ok, err)
 	}
-	if _, _, ok, err := CheckWrite(outside); err != nil || ok {
+	if _, _, ok, err := manager.CheckWrite(outside); err != nil || ok {
 		t.Fatalf("outside root should not be writable: ok=%v err=%v", ok, err)
 	}
 }
@@ -36,12 +36,12 @@ func TestWorkspaceReadWriteAccess(t *testing.T) {
 func TestWorkspaceAddSessionRootUpgradesAccess(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
-	Configure(primary, []Root{{Path: extra, Access: AccessReadOnly}})
+	manager := New(primary, []Root{{Path: extra, Access: AccessReadOnly}})
 
-	if _, err := AddSessionRoot(extra, AccessReadWrite); err != nil {
+	if _, err := manager.AddSessionRoot(extra, AccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok, err := CheckWrite(filepath.Join(extra, "out.txt")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckWrite(filepath.Join(extra, "out.txt")); err != nil || !ok {
 		t.Fatalf("upgraded root should be writable: ok=%v err=%v", ok, err)
 	}
 }
@@ -49,9 +49,9 @@ func TestWorkspaceAddSessionRootUpgradesAccess(t *testing.T) {
 func TestWorkspaceExtraReadWriteRoot(t *testing.T) {
 	primary := t.TempDir()
 	extra := t.TempDir()
-	Configure(primary, []Root{{Path: extra, Access: AccessReadWrite}})
+	manager := New(primary, []Root{{Path: extra, Access: AccessReadWrite}})
 
-	if _, _, ok, err := CheckWrite(filepath.Join(extra, "cache.txt")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckWrite(filepath.Join(extra, "cache.txt")); err != nil || !ok {
 		t.Fatalf("extra read-write root should be writable: ok=%v err=%v", ok, err)
 	}
 }
@@ -60,17 +60,52 @@ func TestConfigurePreservesSessionRoots(t *testing.T) {
 	primary := t.TempDir()
 	sessionRoot := t.TempDir()
 
-	Configure(primary, nil)
-	if _, err := AddSessionRoot(sessionRoot, AccessReadOnly); err != nil {
+	manager := New(primary, nil)
+	if _, err := manager.AddSessionRoot(sessionRoot, AccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 
 	// Simulate a hot reload (ApplyConfig -> reinit -> Configure): the
 	// session root added during the session must survive.
-	Configure(primary, nil)
+	manager.Configure(primary, nil)
 
-	if _, _, ok, err := CheckRead(filepath.Join(sessionRoot, "note.md")); err != nil || !ok {
+	if _, _, ok, err := manager.CheckRead(filepath.Join(sessionRoot, "note.md")); err != nil || !ok {
 		t.Fatalf("session root should survive Configure: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestSessionRootsAreIsolated(t *testing.T) {
+	manager := New(t.TempDir(), nil)
+	extra := t.TempDir()
+	manager.SetSession("one")
+	if _, err := manager.AddSessionRoot(extra, AccessReadOnly); err != nil {
+		t.Fatal(err)
+	}
+	manager.SetSession("two")
+	if _, _, ok, err := manager.CheckRead(filepath.Join(extra, "note.md")); err != nil || ok {
+		t.Fatalf("session root leaked: ok=%v err=%v", ok, err)
+	}
+	manager.SetSession("one")
+	if _, _, ok, err := manager.CheckRead(filepath.Join(extra, "note.md")); err != nil || !ok {
+		t.Fatalf("session root was not restored: ok=%v err=%v", ok, err)
+	}
+	manager.DropSession("one")
+	manager.SetSession("one")
+	if _, _, ok, err := manager.CheckRead(filepath.Join(extra, "note.md")); err != nil || ok {
+		t.Fatalf("dropped session root remained authorized: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestManagersDoNotShareAuthority(t *testing.T) {
+	primary := t.TempDir()
+	extra := t.TempDir()
+	one := New(primary, nil)
+	two := New(primary, nil)
+	if _, err := one.AddSessionRoot(extra, AccessReadWrite); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok, err := two.CheckWrite(filepath.Join(extra, "private.txt")); err != nil || ok {
+		t.Fatalf("workspace authority leaked between managers: ok=%v err=%v", ok, err)
 	}
 }
 

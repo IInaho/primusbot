@@ -19,8 +19,9 @@ import (
 	"nekocode/bot/tools/builtin/web"
 )
 
-func RegisterAll(r *tools.Registry, imageGenModels []config.ImageGenConfig) {
-	r.Register(&shell.ShellTool{})
+func registerAll(r *tools.Registry, imageGenModels []config.ImageGenConfig, shellTool *shell.ShellTool) {
+	r.Register(shellTool)
+	r.Register(shell.NewProcessTool(shellTool))
 	r.Register(&read.ReadTool{})
 	r.Register(&write.WriteTool{})
 	r.Register(&list.ListTool{})
@@ -39,4 +40,5 @@ func RegisterAll(r *tools.Registry, imageGenModels []config.ImageGenConfig) {
 	if len(imageGenModels) > 0 {
 		r.Register(media.NewImageGenTool(imageGenModels))
 	}
+	r.AllowInPlan("read", "grep", "glob", "list", "tree", "web_search", "web_fetch")
 }

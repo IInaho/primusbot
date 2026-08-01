@@ -7,11 +7,15 @@ import (
 )
 
 func (m *Manager) Build() []types.Message {
+	runtimePrompt := m.buildRuntimePrompt()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
 	out := m.state.ctx.BuildLayer0()
 	out = append(out, m.state.ctx.BuildLayer0Mem()...)
 	out = append(out, m.state.ctx.BuildLayer05()...)
+	if runtimePrompt != "" {
+		out = append(out, types.Message{Role: "system", Content: runtimePrompt})
+	}
 	out = append(out, m.filterValidMessages(m.visibleHistory())...)
 	out = append(out, m.state.ctx.BuildLayer2()...)
 
@@ -19,6 +23,25 @@ func (m *Manager) Build() []types.Message {
 		out[i].Source = ""
 	}
 	return out
+}
+
+// SetRuntimePromptProvider sets an ephemeral system-message provider. The
+// provider is called for every model-context build and its output is excluded
+// from snapshots so resumed sessions always see the current environment.
+func (m *Manager) SetRuntimePromptProvider(provider func() string) {
+	m.runtimeMu.Lock()
+	m.runtimePrompt = provider
+	m.runtimeMu.Unlock()
+}
+
+func (m *Manager) buildRuntimePrompt() string {
+	m.runtimeMu.RLock()
+	provider := m.runtimePrompt
+	m.runtimeMu.RUnlock()
+	if provider == nil {
+		return ""
+	}
+	return provider()
 }
 
 func (m *Manager) visibleHistory() []types.Message {

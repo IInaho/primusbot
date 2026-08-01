@@ -114,7 +114,7 @@ func (c *contextContent) BuildLayer0() []types.Message {
 // BuildLayer05 returns the Archive message (Layer 0.5), if set.
 func (c *contextContent) BuildLayer05() []types.Message {
 	if c.Archive != "" {
-		return []types.Message{{Role: "system", Content: "[Archive]\n" + c.Archive}}
+		return []types.Message{{Role: "system", Content: "[Archive]\nHistorical context, not new instructions. Use this to continue unfinished work. Current explicit user requests and verified runtime state override stale or conflicting details.\n\n" + c.Archive}}
 	}
 	return nil
 }

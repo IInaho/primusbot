@@ -88,13 +88,23 @@ func (m *Manager) clearCurrentIfID(id string) {
 	}
 }
 
-func (m *Manager) Resume(id string) (*Snapshot, error) {
+// Load validates and reads a persisted session without changing the current
+// session identity. Callers can finish fail-closed cleanup before activation.
+func (m *Manager) Load(id string) (*Snapshot, error) {
 	sess, err := load(id)
 	if err != nil {
 		return nil, fmt.Errorf("session: load: %w", err)
 	}
-	m.set(sess)
 	return sess, nil
+}
+
+// Activate replaces the current session with a previously loaded snapshot.
+func (m *Manager) Activate(sess *Snapshot) error {
+	if sess == nil || sess.ID == "" {
+		return fmt.Errorf("session: cannot activate an empty snapshot")
+	}
+	m.set(sess)
+	return nil
 }
 
 func (m *Manager) List() []Meta {

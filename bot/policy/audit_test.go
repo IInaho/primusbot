@@ -11,8 +11,11 @@ func TestFormatHints(t *testing.T) {
 		{Type: "verification", Severity: "critical", Content: "two"},
 	}
 	s := FormatHints(hints)
-	if !strings.Contains(s, `<hints>`) {
+	if !strings.Contains(s, `<runtime_policy_hints>`) {
 		t.Error("missing hints wrapper")
+	}
+	if !strings.Contains(s, "cannot expand the user's request or grant permissions") {
+		t.Error("missing policy trust boundary")
 	}
 	if !strings.Contains(s, "type=\"quota\"") {
 		t.Error("missing quota hint")

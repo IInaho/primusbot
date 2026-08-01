@@ -11,7 +11,7 @@ func TestGrepTool(t *testing.T) {
 	td := testutil.SetupTemp(t)
 	g := &GrepTool{}
 
-	out, err := g.Execute(context.Background(), map[string]any{"pattern": "func", "path": td})
+	out, err := g.Execute(testutil.Context(td), map[string]any{"pattern": "func", "path": td})
 	if err != nil {
 		t.Fatalf("grep: %v", err)
 	}

@@ -14,7 +14,10 @@ func ToToolDefs(descs []Descriptor) []types.ToolDef {
 		props := make(map[string]types.Property)
 		var required []string
 		for _, p := range d.Parameters {
-			props[p.Name] = types.Property{Type: p.Type, Description: p.Description}
+			props[p.Name] = types.Property{
+				Type: p.Type, Description: p.Description, Enum: p.Enum,
+				Items: toProperty(p.Items), Properties: toProperties(p.Properties), Required: p.RequiredProperties,
+			}
 			if p.Required {
 				required = append(required, p.Name)
 			}
@@ -28,6 +31,27 @@ func ToToolDefs(descs []Descriptor) []types.ToolDef {
 		}
 	}
 	return defs
+}
+
+func toProperty(schema *Schema) *types.Property {
+	if schema == nil {
+		return nil
+	}
+	return &types.Property{
+		Type: schema.Type, Description: schema.Description, Enum: schema.Enum,
+		Items: toProperty(schema.Items), Properties: toProperties(schema.Properties), Required: schema.Required,
+	}
+}
+
+func toProperties(schemas map[string]Schema) map[string]types.Property {
+	if len(schemas) == 0 {
+		return nil
+	}
+	out := make(map[string]types.Property, len(schemas))
+	for name, schema := range schemas {
+		out[name] = *toProperty(&schema)
+	}
+	return out
 }
 
 // FormatArgs serializes a tool args map into "key=value,key2=value2" form.

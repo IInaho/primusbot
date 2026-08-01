@@ -31,7 +31,7 @@ func (r *toolRunner) executeAndFeedback(calls []core.ToolCallItem, textContent s
 	}
 
 	filtered := r.filterToolCalls(calls)
-	r.agent.deps.toolExecutor.PreparePreviews(filtered.Allowed)
+	r.agent.deps.toolExecutor.PreparePreviewsContext(r.agent.getCtx(), filtered.Allowed)
 	emitStartCallbacks(calls, filtered.Blocked, callback)
 
 	cleanupSubagents := r.prepareSubagentCallbacks(filtered.Allowed, callback)

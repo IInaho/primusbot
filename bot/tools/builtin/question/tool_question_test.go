@@ -10,6 +10,10 @@ import (
 
 func TestQuestionToolExecutesWithAnswers(t *testing.T) {
 	tool := NewTool()
+	params := tool.Parameters()
+	if len(params) != 1 || params[0].Items == nil || params[0].Items.Properties["options"].Items == nil {
+		t.Fatalf("question schema does not describe nested questions: %+v", params)
+	}
 	tool.SetQuestionFunc(func(req protocol.QuestionRequest) protocol.QuestionReply {
 		if len(req.Questions) != 1 {
 			t.Fatalf("expected one question, got %d", len(req.Questions))

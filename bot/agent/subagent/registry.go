@@ -8,6 +8,7 @@ import (
 	goyaml "gopkg.in/yaml.v3"
 
 	"nekocode/bot/policy"
+	"nekocode/bot/prompt"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/protocol"
 	"nekocode/util/registry"
@@ -42,15 +43,17 @@ type ToolCallEvent struct {
 type RunConfig struct {
 	Prompt        string
 	AgentType     AgentType
-	Cwd           string
 	Thoroughness  string
 	ContextWindow int
 	OnPhase       func(phase string)
 	AddTokens     func(prompt, compl int)
 	ConfirmFn     protocol.ConfirmFunc
-	Handoff       string                 // injected into system prompt for cross-agent context
+	Handoff       string                 // unverified prior-agent evidence prepended to the delegated task
 	OnToolCall    func(ev ToolCallEvent) // sub-agent tool execution callback
 	ToolState     *execution.ExecutionState
+	// Environment, when non-nil, is evaluated for every model call so roots
+	// approved while the parent run is active become visible immediately.
+	Environment prompt.EnvironmentProvider
 	// Policy, when non-nil, is the main agent's shared governance handle:
 	// sub-agent tool calls are recorded into the same ledger and
 	// exploration budget.
@@ -67,11 +70,11 @@ func register(a AgentType) { builtins.Register(a) }
 func init() {
 	register(AgentType{
 		Name: "executor", SystemPrompt: executorPrompt,
-		Tools: []string{"read", "write", "edit", "shell", "grep", "glob", "list"},
+		Tools: []string{"read", "write", "edit", "shell", "process", "grep", "glob", "list"},
 	})
 	register(AgentType{
 		Name: "verify", SystemPrompt: verifyPrompt,
-		Tools: []string{"read", "grep", "glob", "list", "shell"},
+		Tools: []string{"read", "grep", "glob", "list", "shell", "process"},
 	})
 	register(AgentType{
 		Name: "researcher", SystemPrompt: researcherPrompt,

@@ -184,6 +184,37 @@ func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
 	}
 }
 
+func TestManagerNormalizesToolOutput(t *testing.T) {
+	bot := &testBot{}
+	bot.run = func(_ string, host RunHost) (string, error) {
+		host.Tool(ToolEvent{
+			Kind: ToolEventCompleted, Name: "shell",
+			Output: "vite\n\rtransforming...",
+		})
+		return "done", nil
+	}
+	rt := newTestRuntime(bot)
+
+	runID, err := rt.StartRun(context.Background(), Input{
+		Source: SourceRef{Kind: "test"}, Text: "build",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+	for _, event := range rt.events.History(EventFilter{RunID: runID}) {
+		if event.Type != EventToolCompleted {
+			continue
+		}
+		payload, ok := event.Payload.(ToolPayload)
+		if !ok || payload.Output != "vite\ntransforming..." {
+			t.Fatalf("tool payload = %#v, want normalized output", event.Payload)
+		}
+		return
+	}
+	t.Fatal("tool completed event not found")
+}
+
 func TestManagerCustomRuntimeCommand(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
 	rt.registerCommand("hello", func(_ context.Context, args []string) (string, error) {

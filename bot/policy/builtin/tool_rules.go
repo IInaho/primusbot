@@ -24,7 +24,7 @@ func ToolResultGuardrailHook() policy.Hook {
 			return &policy.Result{Hint: &policy.Hint{
 				Type:     "tool_results",
 				Severity: "warning",
-				Content:  fmt.Sprintf("%d tool results accumulated. Check for unfinished sub-tasks - if any, continue with task. If all done, call task(verify) to validate, then report results.", count),
+				Content:  fmt.Sprintf("%d tool results have accumulated. Reconcile them with the user's goal, continue only unfinished work, then run proportionate verification and report. Delegate verification only when it adds independent value.", count),
 			}}
 		},
 		DescribeTrigger: func(s policy.State) string {

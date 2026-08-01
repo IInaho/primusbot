@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"nekocode/bot/provider/types"
 	"nekocode/util/url"
@@ -171,8 +172,15 @@ func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stre
 }
 
 func toAPIMessages(messages []types.Message) []apiMessage {
+	var system []string
 	out := make([]apiMessage, 0, len(messages))
 	for _, m := range messages {
+		if m.Role == "system" {
+			if m.Content != "" {
+				system = append(system, m.Content)
+			}
+			continue
+		}
 		out = append(out, apiMessage{
 			Role:             m.Role,
 			Content:          m.Content,
@@ -181,6 +189,9 @@ func toAPIMessages(messages []types.Message) []apiMessage {
 			ToolCalls:        m.ToolCalls,
 			ToolCallID:       m.ToolCallID,
 		})
+	}
+	if len(system) > 0 {
+		out = append([]apiMessage{{Role: "system", Content: strings.Join(system, "\n\n")}}, out...)
 	}
 	return out
 }

@@ -11,6 +11,8 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+const toolOutputEdgeLines = 5
+
 func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 	summary := b.ToolArgs
 	if b.Content != "" {
@@ -32,17 +34,19 @@ func renderToolLine(b ContentBlock, width int, sty *styles.Styles) string {
 }
 
 func toolDisplayName(b ContentBlock) string {
-	if b.ToolName == "shell" {
+	if b.ToolName == "process" {
 		switch strings.ToLower(strings.TrimSpace(b.ToolAction)) {
 		case "list":
 			return "Listed"
 		case "wait":
 			return "Waited"
-		case "poll", "logs":
-			return "Polled"
+		case "watch":
+			return "Watched"
 		case "stop":
 			return "Stopped"
 		}
+	}
+	if b.ToolName == "shell" {
 		return "Ran"
 	}
 	return b.ToolName
@@ -93,9 +97,9 @@ func renderSummary(summary string, sty *styles.Styles) string {
 	}
 	if strings.Contains(summary, "(+") {
 		idx := strings.LastIndex(summary, "(+")
-		return sty.Muted.Render(summary[:idx]) + " " + sty.Yellow.Render(summary[idx:])
+		return sty.Base.Render(summary[:idx]) + " " + sty.Yellow.Render(summary[idx:])
 	}
-	return sty.Muted.Render(summary)
+	return sty.Base.Render(summary)
 }
 
 func wrapPlainForWidths(s string, firstW, restW int) []string {
@@ -430,22 +434,23 @@ func renderToolContent(b ContentBlock, contentW int, sty *styles.Styles) string 
 			return renderEditPreview(b.Content, contentW, sty)
 		}
 		return sty.Muted.MaxWidth(contentW).Render(b.Content)
-	case "shell":
+	case "shell", "process":
 		if strings.TrimSpace(b.Content) == "" {
 			return sty.Subtle.Render("(No output)")
 		}
-		if strings.TrimSpace(b.Content) == "(no shell sessions)" {
-			return sty.Subtle.Render("No active shell sessions")
+		if strings.TrimSpace(b.Content) == "(no managed processes)" {
+			return sty.Subtle.Render("No managed processes")
 		}
 		c := strings.TrimRight(b.Content, "\r\n")
 		lines := strings.Split(c, "\n")
-		if len(lines) <= 6 {
+		visibleLines := toolOutputEdgeLines * 2
+		if len(lines) <= visibleLines {
 			return sty.Muted.MaxWidth(contentW).Render(c)
 		}
-		head := strings.Join(lines[:3], "\n")
-		tail := strings.Join(lines[len(lines)-3:], "\n")
-		marker := sty.Subtle.Render(fmt.Sprintf("\n... (%d lines truncated) ...\n", len(lines)-6))
-		return sty.Muted.MaxWidth(contentW).Render(head) + marker + sty.Muted.MaxWidth(contentW).Render(tail)
+		head := strings.Join(lines[:toolOutputEdgeLines], "\n")
+		tail := strings.Join(lines[len(lines)-toolOutputEdgeLines:], "\n")
+		marker := sty.Subtle.Render(fmt.Sprintf("... (%d lines truncated) ...", len(lines)-visibleLines))
+		return sty.Muted.MaxWidth(contentW).Render(head) + "\n" + marker + "\n" + sty.Muted.MaxWidth(contentW).Render(tail)
 	default:
 		return sty.Muted.MaxWidth(contentW).Render(b.Content)
 	}

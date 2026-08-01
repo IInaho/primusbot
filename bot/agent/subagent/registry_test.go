@@ -3,8 +3,33 @@ package subagent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestBuiltinPromptsDefineRoleSpecificEvidence(t *testing.T) {
+	tests := []struct {
+		name string
+		want []string
+	}{
+		{"executor", []string{"源文件与生成产物", "合法空状态", "修改前取得复现证据", "编译成功不能替代"}},
+		{"researcher", []string{"已确认缺陷", "具体风险", "可选改进", "事实与推断"}},
+		{"verify", []string{"可观察契约", "原复现路径", "真实退出状态", "VERDICT: PASS"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agentType, ok := Get(tt.name)
+			if !ok {
+				t.Fatalf("builtin agent %q not found", tt.name)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(agentType.SystemPrompt, want) {
+					t.Errorf("prompt missing %q", want)
+				}
+			}
+		})
+	}
+}
 
 func TestRegisterPluginAgent(t *testing.T) {
 	def := AgentDef{

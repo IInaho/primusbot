@@ -27,6 +27,25 @@ func TestDisplayMessagesKeepsPersistentToolBlocks(t *testing.T) {
 	}
 }
 
+func TestDisplayMessagesNormalizesLegacyTerminalOutput(t *testing.T) {
+	msgs := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.ToolCall{
+				{ID: "shell-call", Function: types.FunctionCall{Name: "shell"}},
+			},
+		},
+		{Role: "tool", ToolCallID: "shell-call", Content: "vite\n\rtransforming..."},
+	}
+	got := DisplayMessages(msgs, 0)
+	if len(got) != 1 || len(got[0].Blocks) != 1 {
+		t.Fatalf("display messages = %+v, want one shell block", got)
+	}
+	if content := got[0].Blocks[0].Content; content != "vite\ntransforming..." {
+		t.Fatalf("content = %q, want normalized terminal output", content)
+	}
+}
+
 func TestDisplayMessagesCoalescesAssistantToolTurn(t *testing.T) {
 	msgs := []types.Message{
 		{Role: "user", Content: "commit README"},
@@ -89,6 +108,25 @@ func TestDisplayMessagesKeepsDiffToolBlock(t *testing.T) {
 	}
 	if got[0].Blocks[0].ToolName != "diff" || got[0].Blocks[0].Args != `{"source":"/tmp/a.go"}` {
 		t.Fatalf("block = %+v, want diff args preserved", got[0].Blocks[0])
+	}
+}
+
+func TestDisplayMessagesKeepsProcessToolBlock(t *testing.T) {
+	msgs := []types.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []types.ToolCall{
+				{ID: "process-call", Function: types.FunctionCall{Name: "process", Arguments: `{"action":"wait","task":"server"}`}},
+			},
+		},
+		{Role: "tool", ToolCallID: "process-call", Content: "status: done\nexit_code: 0"},
+	}
+	got := DisplayMessages(msgs, 0)
+	if len(got) != 1 || len(got[0].Blocks) != 1 {
+		t.Fatalf("display messages = %+v, want process block", got)
+	}
+	if got[0].Blocks[0].ToolName != "process" || got[0].Blocks[0].Args != `{"action":"wait","task":"server"}` {
+		t.Fatalf("block = %+v, want process args preserved", got[0].Blocks[0])
 	}
 }
 

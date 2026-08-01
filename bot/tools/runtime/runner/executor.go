@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"nekocode/protocol"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"nekocode/bot/tools/runtime/core"
 	"nekocode/bot/tools/runtime/execution"
 	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/tools/runtime/workspace"
 )
 
 // ToolRegistry is the minimal registry contract required by the executor.
@@ -18,18 +20,34 @@ type ToolRegistry interface {
 	Get(name string) (core.Tool, error)
 }
 
+type workspaceProvider interface {
+	Workspace() *workspace.Manager
+}
+
+type planPolicy interface {
+	PlanAllows(string) bool
+}
+
 // Previewer is an optional interface for tools that can generate a preview
 // before execution.
 type Previewer interface {
-	Preview(args map[string]any) string
+	Preview(map[string]any) string
+}
+
+// ContextPreviewer receives the same request-scoped authority as Execute.
+type ContextPreviewer interface {
+	PreviewContext(context.Context, map[string]any) string
 }
 
 type Executor struct {
 	registry  ToolRegistry
+	plan      planPolicy
+	workspace *workspace.Manager
 	state     *execution.ExecutionState
 	confirmFn protocol.ConfirmFunc
 	phaseFn   protocol.PhaseFunc
 	planMode  bool
+	planTools map[string]struct{}
 	previewFn func(toolName string, args map[string]any, preview string)
 	permStore *permission.Store
 	fnMu      sync.RWMutex
@@ -68,8 +86,15 @@ type sessionGrant struct {
 
 func NewExecutor(r ToolRegistry) *Executor {
 	root, _ := os.Getwd()
+	manager := workspace.New(root, nil)
+	if provider, ok := r.(workspaceProvider); ok && provider.Workspace() != nil {
+		manager = provider.Workspace()
+	}
+	plan, _ := r.(planPolicy)
 	e := &Executor{
 		registry:           r,
+		plan:               plan,
+		workspace:          manager,
 		state:              execution.NewExecutionState(),
 		permStore:          permission.NewStore(root),
 		escalationApproved: make(map[string]escalationApproval),
@@ -102,6 +127,31 @@ func (e *Executor) SetPlanMode(on bool) {
 	e.fnMu.Lock()
 	e.planMode = on
 	e.fnMu.Unlock()
+}
+
+// SetPlanTools replaces the tools allowed while plan mode is active. Registry
+// declarations are used when this method is not called.
+func (e *Executor) SetPlanTools(names ...string) {
+	allowed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name != "" {
+			allowed[name] = struct{}{}
+		}
+	}
+	e.fnMu.Lock()
+	e.planTools = allowed
+	e.fnMu.Unlock()
+}
+
+func (e *Executor) planAllows(name string) bool {
+	e.fnMu.RLock()
+	allowed := e.planTools
+	_, configured := allowed[name]
+	e.fnMu.RUnlock()
+	if allowed != nil {
+		return configured
+	}
+	return e.plan != nil && e.plan.PlanAllows(name)
 }
 
 func (e *Executor) SetPreviewFn(fn func(string, map[string]any, string)) {

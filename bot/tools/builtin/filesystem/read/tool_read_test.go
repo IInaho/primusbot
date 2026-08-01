@@ -21,7 +21,7 @@ func TestReadTool(t *testing.T) {
 		t.Error("expected error for missing path")
 	}
 
-	out, err := r.Execute(context.Background(), map[string]any{
+	out, err := r.Execute(testutil.Context(td), map[string]any{
 		"path": p, "startLine": float64(1), "endLine": float64(5),
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestReadToolRecordsSnapshotInExecutionState(t *testing.T) {
 	r := &ReadTool{}
 	p := filepath.Join(td, "a.go")
 	state := execution.NewExecutionState()
-	ctx := execution.WithExecutionState(context.Background(), state)
+	ctx := execution.WithExecutionState(testutil.Context(td), state)
 
 	_, err := r.Execute(ctx, map[string]any{
 		"path": p, "startLine": float64(1), "endLine": float64(5),
@@ -57,7 +57,7 @@ func TestReadToolDoesNotEmitEditViewMetadata(t *testing.T) {
 	r := &ReadTool{}
 	p := filepath.Join(td, "a.go")
 
-	out, err := r.Execute(context.Background(), map[string]any{
+	out, err := r.Execute(testutil.Context(td), map[string]any{
 		"path": p, "startLine": float64(1), "endLine": float64(3),
 	})
 	if err != nil {

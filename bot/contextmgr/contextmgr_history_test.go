@@ -3,6 +3,7 @@ package contextmgr
 import (
 	"testing"
 
+	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider/types"
 )
 
@@ -117,9 +118,15 @@ func TestClear(t *testing.T) {
 	m := newHistoryManager()
 	m.Add("user", "hello")
 	m.Add("assistant", "world")
+	m.state.ctx.Archive = "old summary"
+	m.state.ctx.Hints = "old hints"
 	m.Clear()
-	if n := len(m.Snapshot().Messages); n != 0 {
+	snapshot := m.Snapshot()
+	if n := len(snapshot.Messages); n != 0 {
 		t.Errorf("after Clear: len = %d, want 0", n)
+	}
+	if snapshot.Archive != "" || snapshot.Hints != "" || snapshot.Tracker != (token.State{}) {
+		t.Fatalf("Clear retained conversation state: %#v", snapshot)
 	}
 }
 

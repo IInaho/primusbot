@@ -27,6 +27,10 @@ description: A test skill
 	if tool.Name() != "skill" {
 		t.Errorf("Name() = %q", tool.Name())
 	}
+	params := tool.Parameters()
+	if len(params) != 1 || len(params[0].Enum) != 1 || params[0].Enum[0] != "test-skill" {
+		t.Fatalf("skill schema does not expose available names: %+v", params)
+	}
 
 	out, err := tool.Execute(context.Background(), map[string]any{"name": "test-skill"})
 	if err != nil {
@@ -50,11 +54,16 @@ description: A test skill
 
 	// Already loaded.
 	reg.MarkLoaded("test-skill")
+	loadCalls := 0
+	tool.SetOnLoad(func(string) { loadCalls++ })
 	out, err = tool.Execute(context.Background(), map[string]any{"name": "test-skill"})
 	if err != nil {
 		t.Fatalf("already loaded should not error: %v", err)
 	}
-	if !strings.Contains(out, "already loaded") {
-		t.Errorf("expected 'already loaded' message: %s", out)
+	if !strings.Contains(out, "<skill_content") || !strings.Contains(out, "# Test Body") {
+		t.Errorf("loaded skill should be recoverable after compaction: %s", out)
+	}
+	if loadCalls != 0 {
+		t.Errorf("reloading content should not repeat loaded-state callback: %d", loadCalls)
 	}
 }

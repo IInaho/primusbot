@@ -86,8 +86,10 @@ func (b *Bot) Close() error {
 	if b.ext != nil {
 		b.ext.Close()
 	}
-	b.toolbox.Shutdown()
-	return nil
+	if b.toolbox == nil {
+		return nil
+	}
+	return b.toolbox.Close()
 }
 
 func (b *Bot) initConfig() error {
@@ -97,11 +99,12 @@ func (b *Bot) initConfig() error {
 	}
 	b.cfg = cfg
 	b.promptBuilder = prompt.New(b.cwd)
+	b.promptBuilder.SetEnvironmentProvider(b.environment)
 	return nil
 }
 
 func (b *Bot) initCtxMgr() error {
-	systemPrompt := b.promptBuilder.Build()
+	systemPrompt := b.promptBuilder.BuildStatic()
 	memFile, err := memory.Load(memory.DefaultPath())
 	if err != nil {
 		return fmt.Errorf("bot: load memory: %w", err)
@@ -111,6 +114,7 @@ func (b *Bot) initCtxMgr() error {
 		ContextWindow: b.cfg.ContextWindow,
 		Memory:        memFile,
 	})
+	b.ctxMgr.SetRuntimePromptProvider(b.promptBuilder.BuildEnvironment)
 	return nil
 }
 
@@ -124,10 +128,7 @@ func (b *Bot) rebuildRuntime() error {
 	b.initToolRegistry()
 	b.initPolicy()
 
-	if err := os.Setenv("NEKOCODE_WORKSPACE", b.cwd); err != nil {
-		return fmt.Errorf("bot: configure workspace: %w", err)
-	}
-	workspace.Configure(b.cwd, b.configuredWorkspaceRoots())
+	b.toolbox.Workspace().Configure(b.cwd, b.configuredWorkspaceRoots())
 	if b.ctxMgr != nil && b.cfg != nil && b.cfg.ContextWindow > 0 {
 		b.ctxMgr.SetContextWindow(b.cfg.ContextWindow)
 	}
@@ -165,9 +166,7 @@ func (b *Bot) initToolRegistry() {
 
 func (b *Bot) initPolicy() {
 	b.policy = policy.New()
-	if b.sess != nil {
-		b.policy.SetSessionID(b.sess.CurrentID())
-	}
+	b.syncPolicySessionID()
 	builtin.Register(b.policy)
 }
 
@@ -215,14 +214,15 @@ func (b *Bot) initAgent() {
 
 func (b *Bot) initCommands() {
 	deps := command.Deps{
-		CtxMgr:       b.ctxMgr,
-		Ag:           func() command.PlanModeController { return b.getAgent().Executor() },
-		Skills:       b.ext,
-		ToolRegistry: b.toolbox.Registry,
-		Policy:       b.policy,
-		GetConfigFn:  b.model,
-		ListModelsFn: b.cfg.AllModelNames,
-		SwitchModel:  b.SwitchModel,
+		CtxMgr:            b.ctxMgr,
+		Ag:                func() command.PlanModeController { return b.getAgent().Executor() },
+		Skills:            b.ext,
+		ToolRegistry:      b.toolbox.Registry,
+		BaseSystemPrompt:  b.promptBuilder.BuildStatic,
+		GetConfigFn:       b.model,
+		ListModelsFn:      b.cfg.AllModelNames,
+		SwitchModel:       b.SwitchModel,
+		ResetConversation: b.resetConversation,
 	}
 	if b.cmd == nil {
 		b.cmd = command.New(deps)
