@@ -1,0 +1,343 @@
+# NekoCode 使用指南
+
+本文档面向使用者，介绍如何安装、配置和日常使用 NekoCode，包括连接 Telegram / 飞书 / QQ 机器人、安装技能（Skill）与插件（Plugin)、配置 MCP 服务等内容。
+
+---
+
+## 一、安装
+
+### 一键安装（推荐）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
+```
+
+脚本会自动识别系统（Linux / macOS）和架构，下载最新版本并安装到 `~/.local/bin`（无需 sudo)。安装完成后运行：
+
+```bash
+nekocode-tui
+```
+
+如果提示找不到命令，请把 `~/.local/bin` 加入你的 `PATH`。
+
+其他安装方式：
+
+- 指定版本：`curl -fsSL ... | sh -s -- --version v0.5.0`
+- 指定目录：`curl -fsSL ... | sh -s -- --dir /你的/目录`
+- 源码编译（需要 Go 环境）:`go build -o nekocode-tui ./cmd/tui`
+- Windows 用户：请通过 WSL 运行
+
+## 二、首次配置：接入模型
+
+NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前，创建配置文件 `~/.nekocode/config.json`:
+
+```json
+{
+  "active": "deepseek",
+  "models": [
+    {
+      "name": "deepseek",
+      "provider": "deepseek",
+      "api_key": "你的 API Key",
+      "model": "deepseek-v4-flash",
+      "base_url": "https://api.deepseek.com/v1",
+      "protocol": "openai"
+    }
+  ]
+}
+```
+
+- `active`：默认使用的模型名（必须能在 `models` 列表里找到）
+- `protocol`：填 `openai` 或 `anthropic`，绝大多数 OpenAI 兼容服务（DeepSeek、通义、Kimi 等）都填 `openai`
+- 可以配置多个模型，用 `/model` 命令随时切换
+
+配置好后运行 `nekocode-tui`，在输入框打字、回车，就开始对话了。
+
+## 三、日常使用
+
+### 基本操作
+
+- **开始任务**：直接输入需求，回车发送。比如"帮我给这个项目加个登录接口"
+- **停止任务**：任务运行中按 `Esc`
+- **边跑边补充**：任务运行中可以继续输入，回车后作为追加指示插入当前任务
+- **审批操作**：当 AI 要执行有风险的操作（运行命令、修改文件等）时，底部会弹出确认框：
+  - **仅本次允许**：只放行这一次
+  - **始终允许**：以后同类操作不再询问（规则保存在项目的 `.nekocode/permissions.json`)
+  - **拒绝**：阻止本次操作
+- **回答提问**：AI 需要你补充信息时会弹出选项框，方向键选择、空格勾选、回车提交
+
+### 斜杠命令
+
+在输入框输入 `/` 会弹出命令菜单，Tab 键循环选择：
+
+| 命令 | 作用 |
+|---|---|
+| `/help` | 显示帮助 |
+| `/new` | 开始新对话（自动带上前一段对话的摘要） |
+| `/clear` | 清空全部对话历史 |
+| `/context` | 查看上下文用量和明细 |
+| `/summarize` | 立即压缩上下文（对话太长时用） |
+| `/model` | 列出所有模型；`/model <名字>` 切换模型 |
+| `/config` | 显示当前使用的服务商和模型 |
+| `/plan <任务>` | 让 AI 先出方案，你确认后再动手 |
+| `/sessions` | 列出历史会话；`/sessions <id>` 恢复某个会话 |
+| `/export` | 导出当前对话到文件 |
+| `/plugin` | 管理插件（见「插件」一节） |
+| `/connect` | 连接 IM 平台（见下一节） |
+| `/disconnect <平台>` | 断开某个 IM 平台 |
+| `/devices` | 查看各平台已配对的设备 |
+| `$<技能名>` | 使用技能（见「技能」一节） |
+
+### 快捷键
+
+| 按键 | 作用 |
+|---|---|
+| `Enter` | 发送消息 / 确认选项 |
+| `Alt+Enter` | 输入框内换行 |
+| `Esc` | 停止任务 / 关闭弹窗 |
+| `Ctrl+C` | 退出程序 |
+| `↑` / `↓` | 翻历史输入；弹窗中移动选项 |
+| `Tab` / `Shift+Tab` | 循环命令补全候选 |
+| `PgUp` / `PgDown` | 滚动聊天记录 |
+| `End` | 跳到最新消息 |
+| `y` / `n` | 审批弹窗中确认 / 拒绝 |
+
+## 四、连接 IM 平台
+
+连接后，你可以不在电脑前，通过手机上的 Telegram / 飞书 / QQ 给 NekoCode 派任务、收结果、批审批。三个平台的凭证都保存在 `~/.nekocode/connect.json`（由命令自动管理，无需手改）。
+
+### Telegram
+
+1. 在 Telegram 里找 **@BotFather**，发送 `/newbot` 创建一个机器人，得到一串 token（形如 `123456:ABC-DEF...`)
+2. 在 NekoCode 里执行：
+
+   ```
+   /connect telegram add <你的token>
+   ```
+
+3. 执行 `/connect telegram pair`，终端会显示一个配对链接和二维码
+4. 用手机点开链接（或扫码），自动跳转到你的机器人，点击「开始」即完成绑定
+
+之后直接在 Telegram 里给机器人发消息就能用。审批请求会带按钮，点一下就能批准或拒绝。
+
+其他常用命令：
+
+- `/connect telegram profiles` — 查看已添加的机器人（支持多个）
+- `/connect telegram use <名字>` — 切换当前使用的机器人
+- `/connect telegram unpair` — 解除绑定
+- `/connect telegram status` — 查看连接状态
+
+Telegram 聊天内额外支持：`/status`（查看任务状态）、`/last`（最近一次任务结果）、`/diff`（查看代码改动）。
+
+### 飞书
+
+1. 登录 [飞书开放平台](https://open.feishu.cn)，创建一个企业自建应用，记录 **App ID** 和 **App Secret**
+2. 在应用后台启用「机器人」能力，订阅 `im.message.receive_v1` 事件，并开启长连接模式
+3. 在 NekoCode 里执行：
+
+   ```
+   /connect feishu add <App ID> <App Secret>
+   ```
+
+4. 执行 `/connect feishu pair`，得到一串配对码
+5. 在飞书里**私聊你的机器人**，把配对码发给它，即完成绑定
+
+之后私聊机器人即可派任务。审批会以卡片形式出现，点按钮即可处理。
+
+### QQ 机器人
+
+1. 登录 [QQ 机器人开放平台](https://q.qq.com)，创建机器人，记录 **AppID** 和 **AppSecret**
+2. 在 NekoCode 里执行：
+
+   ```
+   /connect qqbot add <AppID> <AppSecret>
+   ```
+
+   保存后会自动连接，无需配对。
+
+3. 群聊中 @机器人 或私聊机器人即可使用
+
+注意：QQ 机器人的访问控制由平台侧管理（沙箱环境用 `/connect qqbot sandbox on` 切换），请通过平台后台控制谁能触达你的机器人。
+
+### IM 聊天内通用命令
+
+三个平台在聊天里都支持：
+
+| 命令 | 作用 |
+|---|---|
+| `/stop` | 停止当前任务 |
+| `/approve <id>` | 批准一次操作 |
+| `/always <id>` | 批准并永久允许 |
+| `/reject <id>` | 拒绝操作 |
+| `/answer <内容>` | 回答 AI 的提问 |
+| `/dismiss` | 忽略 AI 的提问 |
+| `/help` | 显示帮助 |
+
+除命令外，发送的任何文字都会作为任务提交给当前会话。
+
+## 五、技能（Skill)
+
+技能是给 AI 的「专项能力包」，比如「按我们团队的规范写提交信息」「把周报整理成固定格式」。格式与 Claude Code 的技能兼容。
+
+### 使用技能
+
+- **自动触发**:AI 会根据技能描述自动判断何时使用
+- **手动触发**：输入 `$技能名`（如 `$commit`)，带参数则直接执行，如 `$commit 修复登录问题`
+
+### 安装技能
+
+技能就是一个包含 `SKILL.md` 文件的目录，放在以下任一位置即可被发现：
+
+- 项目级：`<项目目录>/.nekocode/skills/<技能名>/SKILL.md`（只在这个项目生效）
+- 用户级：`~/.nekocode/skills/<技能名>/SKILL.md`（所有项目生效）
+
+`SKILL.md` 的写法：
+
+```markdown
+---
+name: commit
+description: 按团队规范生成提交信息。当用户要求提交代码、写 commit 时使用。
+---
+
+你是一个提交信息助手。请遵循以下规范：
+1. 第一行不超过 50 字……
+2. ……
+```
+
+`name` 和 `description` 必填；`description` 写清楚「什么时候该用这个技能」,AI 靠它自动触发。
+
+> 💡 偷懒技巧：NekoCode 内置了 `skill-creator` 技能，直接对它说"帮我写一个做 XX 的技能"，它会帮你生成并放到正确的位置。
+
+## 六、插件（Plugin)
+
+插件是「打包好的能力组合」，可以一次携带技能、子代理、钩子、MCP 服务等多项内容，格式兼容 Claude Code 插件。
+
+```bash
+/plugin install <来源>      # 安装（GitHub 地址、user/repo、本地路径均可）
+/plugin list                # 查看已安装
+/plugin info <名字>         # 查看详情
+/plugin disable <名字>      # 临时禁用
+/plugin enable <名字>       # 重新启用
+/plugin uninstall <名字>    # 卸载
+```
+
+示例：
+
+```bash
+/plugin install anthropics/claude-code-plugins
+/plugin install ./my-local-plugin
+```
+
+远程安装前会显示插件内容预览，确认后才安装（加 `--yes` 跳过确认）。插件安装到 `~/.nekocode/plugins/`，其中的技能会自动可用。
+
+## 七、MCP 服务
+
+MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数据库、内部系统等）。在 `~/.nekocode/config.json` 中添加 `mcp_servers` 字段：
+
+```json
+{
+  "mcp_servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+- 每个服务需要一个启动命令（`command`)，可以带 `args`（参数）和 `env`（环境变量）
+- `enabled` 设为 `false` 可临时停用而不删除配置
+- 目前支持 stdio 方式（本地进程）的 MCP 服务
+- 配置后重启 NekoCode 生效，服务提供的工具会自动出现在 AI 的工具箱里
+
+## 八、配置文件一览
+
+| 文件 | 用途 | 需要手改吗 |
+|---|---|---|
+| `~/.nekocode/config.json` | 主配置：模型、MCP、权限、工作区 | ✅ 需要（至少配一次模型） |
+| `~/.nekocode/connect.json` | IM 平台凭证和配对状态 | ❌ 由 `/connect` 命令自动管理 |
+| `<项目>/.nekocode/permissions.json` | 「始终允许」记录的授权规则 | ❌ 审批时自动写入 |
+| `~/.nekocode/memory.md` | 长期记忆，自由书写的 Markdown,AI 每轮都会参考 | ✅ 可选 |
+| `~/.nekocode/sessions/` | 会话存档 | ❌ 自动管理 |
+| `~/.nekocode/exports/` | `/export` 导出的对话 | ❌ 自动管理 |
+
+### config.json 完整示例
+
+```json
+{
+  "active": "deepseek",
+  "models": [
+    {
+      "name": "deepseek",
+      "provider": "deepseek",
+      "api_key": "sk-xxx",
+      "model": "deepseek-v4-flash",
+      "base_url": "https://api.deepseek.com/v1",
+      "protocol": "openai"
+    },
+    {
+      "name": "claude",
+      "provider": "anthropic",
+      "api_key": "sk-ant-xxx",
+      "model": "claude-sonnet-4-5",
+      "base_url": "https://api.anthropic.com",
+      "protocol": "anthropic"
+    }
+  ],
+  "mcp_servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "enabled": true
+    }
+  },
+  "permissions": {
+    "allow": ["Bash(npm run *)", "Read"],
+    "deny": ["Bash(rm -rf *)"]
+  },
+  "workspaces": [
+    {"path": "/home/me/other-project", "access": "read-only"}
+  ]
+}
+```
+
+主要字段说明：
+
+- `active` / `models`：模型配置（见「首次配置」)
+- `context_window`：上下文窗口大小。**这是模型的属性，通常不用填**——NekoCode 内置了常见模型的对照表，会根据模型名自动确定（如 deepseek 1M、Claude 200K~1M、Gemini 1M)。需要精确控制时（比如自部署模型），在 `models[]` 里给对应模型填 `context_window`：单模型覆盖 > 内置表 > 默认 128K
+- `permissions`：权限规则（见下一节）
+- `workspaces`：允许 AI 访问的项目外目录，`access` 为 `read-only` 或 `read-write`
+
+## 九、权限与安全
+
+NekoCode 对有风险的操作默认会征求你的同意，规则按 **拒绝 > 询问 > 允许** 的优先级生效：
+
+- **内置保护**：危险命令（如 `sudo`、`dd`）直接拒绝；删除文件、推送代码等操作会先询问；未读过的文件不允许修改
+- **声明规则**：在 `config.json` 的 `permissions` 中提前声明，格式为 `工具(范围)`:
+
+  ```json
+  "permissions": {
+    "allow": ["Bash(npm run *)"],
+    "deny":  ["Bash(rm *)"]
+  }
+  ```
+
+- **审批时记住**：弹窗里选「始终允许」，同类操作以后自动放行（记录在项目 `.nekocode/permissions.json` 里，删除该文件可清空）
+
+## 十、常见问题
+
+**启动后聊天报错？**
+检查 `~/.nekocode/config.json` 里的 `api_key` 是否填写、`base_url` 是否正确、`active` 是否和 `models` 里的 `name` 对上。
+
+**改完配置没生效？**
+重启 `nekocode-tui`。
+
+**IM 平台连不上？**
+先用 `/connect <平台> status` 查看状态和错误提示；Telegram 确认 token 没复制错，飞书确认已开启长连接模式并订阅了消息事件。
+
+**配对码过期了？**
+配对码有效期 5 分钟，重新执行 `/connect <平台> pair` 获取新码。
+
+**想清空「始终允许」的记录？**
+删除项目目录下的 `.nekocode/permissions.json` 即可。

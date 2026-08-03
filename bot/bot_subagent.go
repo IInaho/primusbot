@@ -16,7 +16,7 @@ import (
 func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, ag *agentcore.Agent) {
 	registry := b.toolbox.Registry
 	ctxMgr := b.ctxMgr
-	contextWindow := b.cfg.ContextWindow
+	contextWindow := b.cfg.EffectiveContextWindow()
 
 	t, err := registry.Get("task")
 	if err != nil {

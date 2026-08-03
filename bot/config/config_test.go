@@ -18,14 +18,14 @@ func TestDefaultConfig(t *testing.T) {
 	if m.Provider != "deepseek" {
 		t.Errorf("expected Provider 'deepseek', got '%s'", m.Provider)
 	}
-	if m.Model != "deepseek-chat" {
-		t.Errorf("expected Model 'deepseek-chat', got '%s'", m.Model)
+	if m.Model != "deepseek-v4-flash" {
+		t.Errorf("expected Model 'deepseek-v4-flash', got '%s'", m.Model)
 	}
 	if m.BaseURL != "https://api.deepseek.com/v1" {
 		t.Errorf("expected BaseURL 'https://api.deepseek.com/v1', got '%s'", m.BaseURL)
 	}
-	if Default.ContextWindow != 128000 {
-		t.Errorf("expected ContextWindow 128000, got %d", Default.ContextWindow)
+	if DefaultContextWindow != 128000 {
+		t.Errorf("expected DefaultContextWindow 128000, got %d", DefaultContextWindow)
 	}
 	if Default.FlashModel != "" {
 		t.Errorf("expected FlashModel empty, got %s", Default.FlashModel)
@@ -58,9 +58,8 @@ func TestLoad_ValidConfigFile(t *testing.T) {
 	}
 
 	customCfg := Config{
-		Active:        "claude",
-		ContextWindow: 200000,
-		FlashModel:    "deepseek-flash",
+		Active:     "claude",
+		FlashModel: "deepseek-flash",
 		Models: []ModelConfig{
 			{Name: "default", Provider: "deepseek", APIKey: "sk-ds", Model: "deepseek-chat", BaseURL: "https://api.deepseek.com/v1"},
 			{Name: "claude", Provider: "anthropic", APIKey: "sk-ant", Model: "claude-3-opus", BaseURL: "https://api.anthropic.com", Protocol: "anthropic"},
@@ -90,9 +89,6 @@ func TestLoad_ValidConfigFile(t *testing.T) {
 
 	if cfg.Active != customCfg.Active {
 		t.Errorf("expected Active '%s', got '%s'", customCfg.Active, cfg.Active)
-	}
-	if cfg.ContextWindow != customCfg.ContextWindow {
-		t.Errorf("expected ContextWindow %d, got %d", customCfg.ContextWindow, cfg.ContextWindow)
 	}
 	if cfg.FlashModel != customCfg.FlashModel {
 		t.Errorf("expected FlashModel %s, got %s", customCfg.FlashModel, cfg.FlashModel)
@@ -157,16 +153,17 @@ func TestLoad_PartialConfig(t *testing.T) {
 	if cfg.Active != "gpt4" {
 		t.Errorf("expected Active 'gpt4', got '%s'", cfg.Active)
 	}
-	if cfg.ContextWindow != Default.ContextWindow {
-		t.Errorf("expected ContextWindow %d, got %d", Default.ContextWindow, cfg.ContextWindow)
+	// The effective window resolves from the built-in table
+	// (gpt-4-turbo → 128K).
+	if cfg.EffectiveContextWindow() != 128000 {
+		t.Errorf("expected effective ContextWindow 128000, got %d", cfg.EffectiveContextWindow())
 	}
 }
 
 func TestConfig_JSONRoundTrip(t *testing.T) {
 	original := Config{
-		Active:        "default",
-		ContextWindow: 64000,
-		FlashModel:    "flash",
+		Active:     "default",
+		FlashModel: "flash",
 		Models: []ModelConfig{
 			{Name: "default", Provider: "openai", APIKey: "sk-abc", Model: "gpt-4-turbo", BaseURL: "https://custom.api.com/v1"},
 		},
@@ -182,7 +179,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	if restored.Active != original.Active || restored.ContextWindow != original.ContextWindow || restored.FlashModel != original.FlashModel {
+	if restored.Active != original.Active || restored.FlashModel != original.FlashModel {
 		t.Errorf("round-trip failed: got %+v, want %+v", restored, original)
 	}
 	if len(restored.Models) != 1 || restored.Models[0].Name != "default" {
@@ -229,8 +226,7 @@ func TestSave_CreatesConfigFile(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 
 	cfg := Config{
-		Active:        "default",
-		ContextWindow: 32000,
+		Active: "default",
 		Models: []ModelConfig{
 			{Name: "default", Provider: "openai", Model: "gpt-4o-mini", Protocol: "openai"},
 		},
@@ -247,15 +243,14 @@ func TestSave_CreatesConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)
 	}
-	if loaded.Active != "default" || loaded.ContextWindow != 32000 {
+	if loaded.Active != "default" {
 		t.Fatalf("unexpected saved config: %+v", loaded)
 	}
 }
 
 func TestValidate_DuplicateModelName(t *testing.T) {
 	cfg := Config{
-		Active:        "default",
-		ContextWindow: 32000,
+		Active: "default",
 		Models: []ModelConfig{
 			{Name: "default", Provider: "openai", Model: "gpt-4o-mini"},
 			{Name: "default", Provider: "anthropic", Model: "claude-sonnet-4-5"},

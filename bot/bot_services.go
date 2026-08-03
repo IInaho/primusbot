@@ -46,6 +46,9 @@ func (b *Bot) SwitchModel(name string) error {
 	oldPrompt, oldCompletion := b.ag.TokenUsage()
 	b.initAgent()
 	b.ag.AddTokens(oldPrompt, oldCompletion)
+	if b.ctxMgr != nil {
+		b.ctxMgr.SetContextWindow(b.cfg.EffectiveContextWindow())
+	}
 	b.ctxMgr.ResetCache()
 	return nil
 }

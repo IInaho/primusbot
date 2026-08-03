@@ -11,7 +11,7 @@ import (
 func (b *Bot) initExtensions() {
 	b.ext = extension.New(extension.Config{
 		Context: b.ctxMgr, Tools: b.toolbox.Registry,
-		Policy: b.policy, ContextWindow: b.cfg.ContextWindow,
+		Policy: b.policy, ContextWindow: b.cfg.EffectiveContextWindow(),
 	})
 
 	b.initConfigMCPServers()

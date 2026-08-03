@@ -12,12 +12,13 @@ func modelConfigsToView(in []config.ModelConfig) []controlruntime.ModelConfig {
 	out := make([]controlruntime.ModelConfig, 0, len(in))
 	for _, m := range in {
 		out = append(out, controlruntime.ModelConfig{
-			Name:     m.Name,
-			Provider: m.Provider,
-			APIKey:   m.APIKey,
-			Model:    m.Model,
-			BaseURL:  m.BaseURL,
-			Protocol: m.Protocol,
+			Name:          m.Name,
+			Provider:      m.Provider,
+			APIKey:        m.APIKey,
+			Model:         m.Model,
+			BaseURL:       m.BaseURL,
+			Protocol:      m.Protocol,
+			ContextWindow: m.ContextWindow,
 		})
 	}
 	return out
@@ -30,12 +31,13 @@ func modelConfigsFromView(in []controlruntime.ModelConfig) []config.ModelConfig 
 	out := make([]config.ModelConfig, 0, len(in))
 	for _, m := range in {
 		out = append(out, config.ModelConfig{
-			Name:     m.Name,
-			Provider: m.Provider,
-			APIKey:   m.APIKey,
-			Model:    m.Model,
-			BaseURL:  m.BaseURL,
-			Protocol: m.Protocol,
+			Name:          m.Name,
+			Provider:      m.Provider,
+			APIKey:        m.APIKey,
+			Model:         m.Model,
+			BaseURL:       m.BaseURL,
+			Protocol:      m.Protocol,
+			ContextWindow: m.ContextWindow,
 		})
 	}
 	return out

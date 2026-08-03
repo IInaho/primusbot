@@ -18,7 +18,7 @@ func Config(cfg config.Config) controlruntime.ConfigView {
 		Path:           config.Path(),
 		Exists:         config.Exists(),
 		Active:         cfg.Active,
-		ContextWindow:  cfg.ContextWindow,
+		ContextWindow:  cfg.EffectiveContextWindow(),
 		FlashModel:     cfg.FlashModel,
 		Models:         modelConfigsToView(cfg.Models),
 		ImageGenModels: imageGenConfigsToView(cfg.ImageGenModels),
@@ -29,9 +29,10 @@ func Config(cfg config.Config) controlruntime.ConfigView {
 }
 
 func ToConfig(view controlruntime.ConfigView) config.Config {
+	// The view's top-level ContextWindow is display-only (the resolved
+	// effective window); per-model overrides travel in view.Models.
 	return config.Config{
 		Active:         view.Active,
-		ContextWindow:  view.ContextWindow,
 		FlashModel:     view.FlashModel,
 		Models:         modelConfigsFromView(view.Models),
 		ImageGenModels: imageGenConfigsFromView(view.ImageGenModels),

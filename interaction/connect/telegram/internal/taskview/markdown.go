@@ -200,28 +200,36 @@ func inlineMarkdown(s string) string {
 	for i < len(s) {
 		if s[i] == '`' {
 			if end := strings.IndexByte(s[i+1:], '`'); end > 0 {
-				b.WriteString("<code>" + HTMLEscape(s[i+1:i+1+end]) + "</code>")
+				b.WriteString("<code>")
+				b.WriteString(HTMLEscape(s[i+1 : i+1+end]))
+				b.WriteString("</code>")
 				i += end + 2
 				continue
 			}
 		}
 		if strings.HasPrefix(s[i:], "***") {
 			if end := strings.Index(s[i+3:], "***"); end > 0 {
-				b.WriteString("<b><i>" + inlineMarkdown(s[i+3:i+3+end]) + "</i></b>")
+				b.WriteString("<b><i>")
+				b.WriteString(inlineMarkdown(s[i+3 : i+3+end]))
+				b.WriteString("</i></b>")
 				i += end + 6
 				continue
 			}
 		}
 		if strings.HasPrefix(s[i:], "**") {
 			if end := strings.Index(s[i+2:], "**"); end > 0 {
-				b.WriteString("<b>" + inlineMarkdown(s[i+2:i+2+end]) + "</b>")
+				b.WriteString("<b>")
+				b.WriteString(inlineMarkdown(s[i+2 : i+2+end]))
+				b.WriteString("</b>")
 				i += end + 4
 				continue
 			}
 		}
 		if strings.HasPrefix(s[i:], "~~") {
 			if end := strings.Index(s[i+2:], "~~"); end > 0 {
-				b.WriteString("<s>" + inlineMarkdown(s[i+2:i+2+end]) + "</s>")
+				b.WriteString("<s>")
+				b.WriteString(inlineMarkdown(s[i+2 : i+2+end]))
+				b.WriteString("</s>")
 				i += end + 4
 				continue
 			}
@@ -234,7 +242,11 @@ func inlineMarkdown(s string) string {
 					if alt == "" {
 						alt = "图片"
 					}
-					b.WriteString(`<a href="` + HTMLEscape(url) + `">🖼 ` + inlineMarkdown(alt) + `</a>`)
+					b.WriteString(`<a href="`)
+					b.WriteString(HTMLEscape(url))
+					b.WriteString(`">🖼 `)
+					b.WriteString(inlineMarkdown(alt))
+					b.WriteString(`</a>`)
 					i += mid + 2 + close + 1
 					continue
 				}
@@ -245,7 +257,11 @@ func inlineMarkdown(s string) string {
 				if close := strings.IndexByte(s[i+mid+2:], ')'); close >= 0 {
 					text := s[i+1 : i+mid]
 					url := s[i+mid+2 : i+mid+2+close]
-					b.WriteString(`<a href="` + HTMLEscape(url) + `">` + inlineMarkdown(text) + `</a>`)
+					b.WriteString(`<a href="`)
+					b.WriteString(HTMLEscape(url))
+					b.WriteString(`">`)
+					b.WriteString(inlineMarkdown(text))
+					b.WriteString(`</a>`)
 					i += mid + 2 + close + 1
 					continue
 				}

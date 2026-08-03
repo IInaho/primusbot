@@ -178,12 +178,13 @@ type ConfigView struct {
 }
 
 type ModelConfig struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	BaseURL  string `json:"base_url,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
+	Name          string `json:"name"`
+	Provider      string `json:"provider"`
+	APIKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	BaseURL       string `json:"base_url,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"`
 }
 
 type ImageGenConfig struct {

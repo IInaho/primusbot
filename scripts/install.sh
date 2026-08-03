@@ -8,7 +8,7 @@
 #   curl -fsSL ... | sh -s -- --dir /custom/path  # 安装到自定义目录
 #
 # 支持平台: Linux / macOS (amd64 / arm64)
-# 安装位置: 优先 ~/.local/bin，无法写入时尝试 /usr/local/bin（可能需要 sudo）
+# 安装位置: ~/.local/bin（免 sudo），可用 --dir 指定其他目录
 
 set -eu
 
@@ -90,26 +90,6 @@ resolve_version() {
     ver="${tag#v}"
 }
 
-# ---------- 确定安装目录 ----------
-resolve_install_dir() {
-    if [ -n "$install_dir" ]; then
-        mkdir -p "$install_dir" 2>/dev/null || true
-        echo "$install_dir"
-        return
-    fi
-
-    # 优先用户目录，无需 sudo
-    user_bin="$HOME/.local/bin"
-    if [ -d "$HOME/.local" ] && [ -w "$HOME/.local" ]; then
-        mkdir -p "$user_bin"
-        echo "$user_bin"
-        return
-    fi
-
-    # 兜底系统目录
-    echo "/usr/local/bin"
-}
-
 # ---------- 下载并安装 ----------
 install_binary() {
     asset="nekocode-tui-$os-$arch"
@@ -144,11 +124,14 @@ verify_binary() {
 
 # ---------- 主流程 ----------
 resolve_version
-install_dir="$(resolve_install_dir)"
 
-if [ -n "$install_dir" ] && [ ! -w "$install_dir" ]; then
-    echo "提示: 目录 $install_dir 需要写权限，请手动运行:" >&2
-    echo "  sudo $0 $*" >&2
+# 安装目录: 默认 ~/.local/bin（免 sudo），目录不可写时提示用户处理。
+[ -n "$install_dir" ] || install_dir="$HOME/.local/bin"
+mkdir -p "$install_dir" 2>/dev/null || true
+if [ ! -d "$install_dir" ] || [ ! -w "$install_dir" ]; then
+    echo "错误: 目录 $install_dir 不存在或不可写。" >&2
+    echo "请检查权限，或用 --dir 指定其他目录:" >&2
+    echo "  curl -fsSL https://raw.githubusercontent.com/$REPO/master/scripts/install.sh | sh -s -- --dir /你的/目录" >&2
     exit 1
 fi
 
@@ -156,4 +139,7 @@ install_binary "$install_dir"
 verify_binary "$install_dir"
 
 echo ""
-echo "将 $install_dir 加入 PATH 后，运行: nekocode-tui" >&2
+case ":$PATH:" in
+    *":$install_dir:"*) echo "运行 nekocode-tui 即可启动。" >&2 ;;
+    *) echo "将 $install_dir 加入 PATH 后，运行 nekocode-tui 即可启动。" >&2 ;;
+esac

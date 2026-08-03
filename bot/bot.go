@@ -111,7 +111,7 @@ func (b *Bot) initCtxMgr() error {
 	}
 	b.ctxMgr = ctxmgr.New(ctxmgr.Config{
 		SystemPrompt:  systemPrompt,
-		ContextWindow: b.cfg.ContextWindow,
+		ContextWindow: b.cfg.EffectiveContextWindow(),
 		Memory:        memFile,
 	})
 	b.ctxMgr.SetRuntimePromptProvider(b.promptBuilder.BuildEnvironment)
@@ -129,8 +129,8 @@ func (b *Bot) rebuildRuntime() error {
 	b.initPolicy()
 
 	b.toolbox.Workspace().Configure(b.cwd, b.configuredWorkspaceRoots())
-	if b.ctxMgr != nil && b.cfg != nil && b.cfg.ContextWindow > 0 {
-		b.ctxMgr.SetContextWindow(b.cfg.ContextWindow)
+	if b.ctxMgr != nil && b.cfg != nil {
+		b.ctxMgr.SetContextWindow(b.cfg.EffectiveContextWindow())
 	}
 
 	b.initExtensions()

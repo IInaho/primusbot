@@ -27,6 +27,10 @@ type ModelConfig struct {
 	Model    string `json:"model"`
 	BaseURL  string `json:"base_url,omitempty"`
 	Protocol string `json:"protocol,omitempty"`
+	// ContextWindow overrides the context window for this model. When 0,
+	// the window is resolved from the global context_window, then the
+	// built-in table (KnownContextWindow), then Default.
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 type ImageGenConfig struct {
@@ -65,7 +69,6 @@ type WorkspaceConfig struct {
 
 type Config struct {
 	Active         string                     `json:"active"` // name of the active model
-	ContextWindow  int                        `json:"context_window"`
 	FlashModel     string                     `json:"flash_model,omitempty"` // optional lightweight model; empty uses the active model
 	Models         []ModelConfig              `json:"models"`
 	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models
@@ -74,14 +77,17 @@ type Config struct {
 	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
 }
 
+// DefaultContextWindow is the final fallback context window for models the
+// built-in table does not know and no config value overrides.
+const DefaultContextWindow = 128000
+
 var Default = Config{
-	Active:        "default",
-	ContextWindow: 128000,
+	Active: "default",
 	Models: []ModelConfig{
 		{
 			Name:     "default",
 			Provider: "deepseek",
-			Model:    "deepseek-chat",
+			Model:    "deepseek-v4-flash",
 			BaseURL:  "https://api.deepseek.com/v1",
 		},
 	},
@@ -125,13 +131,22 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Apply defaults for zero-valued fields so a hand-edited config with
-	// context_window: 0 (or missing the field in older files) still works.
-	if cfg.ContextWindow <= 0 {
-		cfg.ContextWindow = Default.ContextWindow
-	}
-
 	return &cfg, nil
+}
+
+// EffectiveContextWindow resolves the context window for the active model:
+// the per-model override wins, then the built-in model table, and finally
+// DefaultContextWindow (128000). The window is a model property, so it is
+// resolved on read rather than stored.
+func (c *Config) EffectiveContextWindow() int {
+	m := c.ActiveModelConfig()
+	if m.ContextWindow > 0 {
+		return m.ContextWindow
+	}
+	if w, ok := KnownContextWindow(m.Model); ok {
+		return w
+	}
+	return DefaultContextWindow
 }
 
 // Clone returns an independently mutable configuration value.
@@ -193,9 +208,6 @@ func Validate(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	if cfg.ContextWindow <= 0 {
-		cfg.ContextWindow = Default.ContextWindow
-	}
 	if len(cfg.Models) == 0 {
 		return fmt.Errorf("at least one model is required")
 	}
@@ -225,6 +237,9 @@ func Validate(cfg *Config) error {
 		}
 		if m.Protocol != "" && m.Protocol != "openai" && m.Protocol != "anthropic" {
 			return fmt.Errorf("model %q protocol must be openai or anthropic", m.Name)
+		}
+		if m.ContextWindow < 0 {
+			return fmt.Errorf("model %q context_window must not be negative", m.Name)
 		}
 	}
 
