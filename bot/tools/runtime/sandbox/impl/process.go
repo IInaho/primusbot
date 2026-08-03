@@ -18,9 +18,11 @@ type Process struct {
 	cancel   context.CancelFunc
 	stopKill func() bool
 
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-	done   chan struct{}
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
+	stdoutW io.Closer
+	stderrW io.Closer
+	done    chan struct{}
 
 	doneOnce    sync.Once
 	cleanupOnce sync.Once
@@ -45,7 +47,14 @@ func (p *Process) Wait() error {
 	if p == nil || p.cmd == nil {
 		return fmt.Errorf("process not started")
 	}
+	// cmd.Stdout/Stderr are io.Writers, so Wait blocks until the process
+	// exits AND all output has been copied to the pipes — no final output
+	// can be lost (unlike StdoutPipe, where Wait may close the pipe while
+	// a reader still has unread data in flight).
 	err := p.cmd.Wait()
+	// Signal EOF to the drain readers only after the copy completed.
+	_ = p.stdoutW.Close()
+	_ = p.stderrW.Close()
 	p.doneOnce.Do(func() { close(p.done) })
 	p.finish()
 	return err
@@ -103,22 +112,15 @@ func startCommand(ctx context.Context, name string, args []string, env []string,
 	cmd.Dir = dir
 	cmd.SysProcAttr = sysproc
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		if cleanup != nil {
-			cleanup()
-		}
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		if cleanup != nil {
-			cleanup()
-		}
-		return nil, err
-	}
+	// Wire output through io.Pipe writers: exec copies process output into
+	// them and Wait() blocks until the copy completes, so the final bytes
+	// written just before exit are never lost (StdoutPipe would let Wait
+	// close the pipe ahead of the drain readers — a documented misuse).
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
+
 	if err := cmd.Start(); err != nil {
 		cancel()
 		if cleanup != nil {
@@ -126,7 +128,11 @@ func startCommand(ctx context.Context, name string, args []string, env []string,
 		}
 		return nil, err
 	}
-	p := &Process{cmd: cmd, cancel: cancel, stdout: stdout, stderr: stderr, done: make(chan struct{}), cleanup: cleanup}
+	p := &Process{
+		cmd: cmd, cancel: cancel,
+		stdout: stdoutR, stderr: stderrR, stdoutW: stdoutW, stderrW: stderrW,
+		done: make(chan struct{}), cleanup: cleanup,
+	}
 	p.stopKill = context.AfterFunc(cmdCtx, func() {
 		if cmd.Process != nil && runtime.GOOS != "windows" {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
