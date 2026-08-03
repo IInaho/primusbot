@@ -31,9 +31,8 @@ NekoCode 目前的定位是 **AI 编程助手**，你只需要 **像聊天一样
 - **兼容 Claude Code 生态** — 插件和技能格式与 Claude Code 兼容，不需要额外适配成本
 - **二次开发** — 精简的bot核心， bot->runtime->ui层层解耦， 可以集成到任意系统中
 
-它不锁死任何一家大模型——Anthropic、DeepSeek、Kimi、GLM 等，只要是 OpenAI 或 Anthropic 协议都能用
+它不锁死任何一家大模型——Anthropic、DeepSeek、Kimi、GLM 等，只要是 OpenAI 或 Anthropic 协议都能用。
 
----
 
 ## 快速开始
 
@@ -42,9 +41,9 @@ NekoCode 目前的定位是 **AI 编程助手**，你只需要 **像聊天一样
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
 ```
-脚本自动识别系统（Linux / macOS）和架构，安装到 `~/.local/bin`（无需 sudo)。
 
-> 💡 Windows 用户：请通过 [WSL](https://learn.microsoft.com/windows/wsl/install) 运行
+> 脚本自动识别系统（Linux / macOS）和架构，安装到 `~/.local/bin`。
+> Windows 用户：请通过 [WSL](https://learn.microsoft.com/windows/wsl/install) 运行
 
 <details>
 <summary>其他安装方式（手动下载 / 源码编译）</summary>
@@ -88,14 +87,10 @@ EOF
 nekocode-tui
 ```
 
-输入需求回车即可。输入 `/` 弹出命令菜单；任务运行中按 `Esc` 停止；有风险的操作会弹出确认框等你批准。
-
-> ✨ 想换模型？在 `models` 数组里加一个条目，聊天里输入 `/model 名字` 切换。
-
 ## 了解更多
 
-- 📖 [用户使用指南](docs/USER_GUIDE.md) — 全部命令与快捷键、连接 Telegram / 飞书 / QQ、技能（Skill）与插件（Plugin)、MCP 配置、配置文件详解、权限与安全、常见问题
-- 🖥️ 桌面窗口版（GUI）暂未随 Release 发布，目前尚不完善，提前体验需源码编译：`wails build`（需要 Node/npm 和 [Wails](https://wails.io/)）
+- 详细使用、配置指南，可以参考文档 [用户使用指南](docs/USER_GUIDE.md)
+- 桌面窗口版（GUI）暂未随 Release 发布，目前尚不完善，还在开发中
 
 ## 给开发者
 
