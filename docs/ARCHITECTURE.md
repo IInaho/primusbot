@@ -58,8 +58,6 @@ nekocode/
 ├── cmd/
 │   ├── tui/
 │   │   └── main.go                 # TUI 程序入口
-│   ├── tui_snapshot/
-│   │   └── main.go                 # TUI 快照调试入口
 │   └── daemon/
 │       └── main.go                 # HTTP API daemon 入口
 ├── interaction/gui/app/            # Wails 后端桥接实现
@@ -82,7 +80,7 @@ nekocode/
 │           └── build_icns.js        #     任意平台生成 ICNS 的脚本
 ├── protocol/                       # Bot/runtime 共用的中立运行契约
 ├── logger/                         # 项目诊断日志
-├── util/                           # 通用工具包（duration / fs / http / registry / sse / text / url / yaml）
+├── util/                           # 通用工具包（duration / fs / http / registry / sse / text / url / yaml / version / tui_snapshot）
 ├── runtime/                        # 交互控制层（TUI/GUI/HTTP/connector 的统一入口）
 │   ├── runtime.go                  #   入口：Manager + New(Runner)
 │   ├── runner.go                   #   必需 Runner/RunHost 执行协议

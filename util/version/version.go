@@ -2,7 +2,7 @@
 //
 // 版本号由构建时通过 -ldflags 注入，例如：
 //
-//	go build -ldflags "-X 'nekocode/internal/version.Version=v0.5.0'" ./cmd/tui
+//	go build -ldflags "-X 'nekocode/util/version.Version=v0.5.0'" ./cmd/tui
 //
 // release.yml 在打 tag 发布时自动注入 tag 名。本地直接 go build
 // 不注入时，Version 保持默认值 "dev"，便于区分正式发布与本地构建。

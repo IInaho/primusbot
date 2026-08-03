@@ -1,5 +1,5 @@
 // tui_snapshot renders all key TUI components with realistic data into plain-text files.
-// Run: go run ./cmd/tui_snapshot
+// Run: go run ./util/tui_snapshot
 package main
 
 import (

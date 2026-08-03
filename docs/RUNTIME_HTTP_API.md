@@ -15,6 +15,43 @@ Server-Sent Events. It does not expose bot implementations directly.
   capability is absent. `/capabilities` is the authoritative discovery
   response.
 
+## Headless connector bootstrap
+
+The daemon can configure and start IM connectors without a TUI or an HTTP
+management client. Select one or more transports with a comma-separated
+service variable:
+
+```text
+NEKOCODE_CONNECTORS=feishu,telegram
+```
+
+Provide credentials for the selected transports on first boot:
+
+```text
+NEKOCODE_FEISHU_APP_ID=cli_xxx
+NEKOCODE_FEISHU_APP_SECRET=xxx
+NEKOCODE_TELEGRAM_BOT_TOKEN=123456:xxx
+NEKOCODE_QQBOT_APP_ID=xxx
+NEKOCODE_QQBOT_APP_SECRET=xxx
+NEKOCODE_QQBOT_SANDBOX=false
+```
+
+If `NEKOCODE_CONNECTORS` is omitted, transports are inferred from credential
+variables for backward-compatible first boot. Setting it explicitly is
+recommended because it also starts connectors from persisted configuration
+when credentials are no longer present in the environment. Use `none` to
+disable all connector bootstrap.
+
+For Feishu and Telegram, the first boot logs a short-lived pairing code or
+link. Complete that action in a direct message to the bot. Pairing and
+credentials are persisted in `~/.nekocode/connect.json`; later daemon restarts
+restore the selected connections. Keep the service user's `HOME` stable across
+restarts. Changing the Feishu app ID clears the old owner binding and starts a
+new pairing flow.
+
+`NEKOCODE_DAEMON_TOKEN` is independent of connector credentials. It protects
+the daemon's HTTP management API and is not needed by IM connectors.
+
 ## Endpoints
 
 | Method | Path | Description |

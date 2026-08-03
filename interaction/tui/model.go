@@ -9,7 +9,7 @@ import (
 
 	"nekocode/interaction/tui/components"
 	"nekocode/interaction/tui/styles"
-	"nekocode/internal/version"
+	"nekocode/util/version"
 	controlruntime "nekocode/runtime"
 
 	"charm.land/bubbles/v2/spinner"

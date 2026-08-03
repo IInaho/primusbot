@@ -60,7 +60,11 @@ func (c *Connector) addApp(args []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cfg.AppID = strings.TrimSpace(args[0])
+	nextAppID := strings.TrimSpace(args[0])
+	if cfg.AppID != "" && cfg.AppID != nextAppID {
+		cfg.unpair()
+	}
+	cfg.AppID = nextAppID
 	cfg.AppSecret = strings.TrimSpace(args[1])
 	if err := saveConfig(cfg); err != nil {
 		return "", err
