@@ -113,6 +113,7 @@ export namespace runtime {
 	    model: string;
 	    base_url?: string;
 	    protocol?: string;
+	    context_window?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelConfig(source);
@@ -126,6 +127,7 @@ export namespace runtime {
 	        this.model = source["model"];
 	        this.base_url = source["base_url"];
 	        this.protocol = source["protocol"];
+	        this.context_window = source["context_window"];
 	    }
 	}
 	export class ConfigView {
