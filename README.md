@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" width="70%" alt="NekoCode 演示">
+  <img src="docs/images/demo.gif" width="90%" alt="NekoCode 演示">
 </p>
 
 ---
