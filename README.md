@@ -60,7 +60,7 @@ go build -o nekocode-tui ./cmd/tui
 
 </details>
 
-### 第二步：填上模型 API Key（只填一次）
+### 第二步：配置 API Key
 
 ```bash
 mkdir -p ~/.nekocode
@@ -87,15 +87,19 @@ EOF
 nekocode-tui
 ```
 
+然后你就可以愉快的使用了~
+
 ## 了解更多
 
 - 详细使用、配置指南，可以参考文档 [用户使用指南](docs/USER_GUIDE.md)
 - 桌面窗口版（GUI）暂未随 Release 发布，目前尚不完善，还在开发中
 
+目前nekocode项目还处于测试阶段，功能尚不完善，没有经过大规模测试和推广，如果您有幸看到这个项目，可以给个star支持一下~
+如果您想了解具体的技术细节，包括工具设计、prefix-cache设计、上下文压缩、治理策略等等，可以看下面的开发者文档。
+
 ## 给开发者
 
-- [USER_GUIDE.md](docs/USER_GUIDE.md) — 用户使用指南：命令、IM 连接、技能/插件/MCP、配置文件
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 整体架构、Agent 循环、工具系统
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 整体架构、Agent 循环、工具系统、技术细节
 - [RUNTIME_APP_GUIDE.md](docs/RUNTIME_APP_GUIDE.md) — 基于底座组装上层 AI 应用
 - [RUNTIME_HTTP_API.md](docs/RUNTIME_HTTP_API.md) — Runtime HTTP/SSE 协议
 
