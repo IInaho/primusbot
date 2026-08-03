@@ -3,15 +3,17 @@ package catalog
 import (
 	"nekocode/bot/config"
 	"nekocode/bot/tools"
+	"nekocode/bot/tools/builtin/lsp"
 	"nekocode/bot/tools/builtin/shell"
 	"nekocode/bot/tools/runtime/workspace"
 )
 
-// Toolbox owns the builtin registry and the stateful shell runtime shared by
-// shell and process across registry rebuilds.
+// Toolbox owns the builtin registry and the stateful runtimes shared by tools
+// across registry rebuilds: the shell process registry and the LSP server pool.
 type Toolbox struct {
 	Registry  *tools.Registry
 	shell     *shell.ShellTool
+	lsp       *lsp.LSPTool
 	workspace *workspace.Manager
 }
 
@@ -22,18 +24,21 @@ func NewToolbox(imageGen []config.ImageGenConfig) *Toolbox {
 	return e
 }
 
-// RebuildRegistry keeps the shell runtime alive while replacing tool schemas
-// and configuration-dependent tools.
+// RebuildRegistry keeps the shell and LSP runtimes alive while replacing tool
+// schemas and configuration-dependent tools.
 func (e *Toolbox) RebuildRegistry(imageGen []config.ImageGenConfig) {
 	if e.shell == nil {
 		e.shell = &shell.ShellTool{}
+	}
+	if e.lsp == nil {
+		e.lsp = lsp.NewLSPTool()
 	}
 	if e.workspace == nil {
 		e.workspace = workspace.New("", nil)
 	}
 	e.Registry = tools.New()
 	e.Registry.SetWorkspace(e.workspace)
-	registerAll(e.Registry, imageGen, e.shell)
+	registerAll(e.Registry, imageGen, e.shell, e.lsp)
 }
 
 func (e *Toolbox) Workspace() *workspace.Manager { return e.workspace }
@@ -70,16 +75,19 @@ func (e *Toolbox) CloseSession(id string) error {
 	return nil
 }
 
-// Close shuts down the stateful shell tool. It is nil-safe and
+// Close shuts down the stateful shell tool and LSP servers. It is nil-safe and
 // idempotent: a second call is a no-op.
 func (e *Toolbox) Close() error {
-	if e.shell == nil {
-		return nil
+	if e.shell != nil {
+		if err := e.shell.Shutdown(); err != nil {
+			return err
+		}
+		e.shell = nil
 	}
-	if err := e.shell.Shutdown(); err != nil {
-		return err
+	if e.lsp != nil {
+		e.lsp.Close()
+		e.lsp = nil
 	}
-	e.shell = nil
 	return nil
 }
 

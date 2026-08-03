@@ -11,6 +11,7 @@ import (
 	"nekocode/bot/tools/builtin/filesystem/tree"
 	"nekocode/bot/tools/builtin/filesystem/write"
 	"nekocode/bot/tools/builtin/index"
+	"nekocode/bot/tools/builtin/lsp"
 	"nekocode/bot/tools/builtin/media"
 	"nekocode/bot/tools/builtin/question"
 	"nekocode/bot/tools/builtin/shell"
@@ -19,7 +20,7 @@ import (
 	"nekocode/bot/tools/builtin/web"
 )
 
-func registerAll(r *tools.Registry, imageGenModels []config.ImageGenConfig, shellTool *shell.ShellTool) {
+func registerAll(r *tools.Registry, imageGenModels []config.ImageGenConfig, shellTool *shell.ShellTool, lspTool *lsp.LSPTool) {
 	r.Register(shellTool)
 	r.Register(shell.NewProcessTool(shellTool))
 	r.Register(&read.ReadTool{})
@@ -36,9 +37,13 @@ func registerAll(r *tools.Registry, imageGenModels []config.ImageGenConfig, shel
 	r.Register(task.NewTaskTool())
 	r.Register(diff.NewTool())
 	r.Register(index.NewIndexTool())
+	for _, t := range lspTool.Tools() {
+		r.Register(t)
+	}
 
 	if len(imageGenModels) > 0 {
 		r.Register(media.NewImageGenTool(imageGenModels))
 	}
-	r.AllowInPlan("read", "grep", "glob", "list", "tree", "web_search", "web_fetch")
+	r.AllowInPlan("read", "grep", "glob", "list", "tree", "web_search", "web_fetch",
+		"lsp_definition", "lsp_references", "lsp_hover", "lsp_diagnostics")
 }

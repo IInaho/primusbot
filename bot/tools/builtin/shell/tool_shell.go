@@ -81,7 +81,8 @@ func (t *ShellTool) Description() string {
 		"Commands that finish quickly return their output directly; commands still running after a short runtime-controlled observation return a task name and continue under process management. " +
 		"Use the process tool only when you need to wait for, watch, list, or stop such a task. " +
 		"A non-zero exit is reported as status: failed with exit_code; judge verification by that status, not by trailing success text. Pipelines use normal shell semantics, so preserve upstream failures with pipefail or separate commands when they matter. " +
-		"Network, extra writable roots, and host execution require the corresponding minimal permission request."
+		"Network, extra writable roots, and host execution require the corresponding minimal permission request. " +
+		"By default commands run in an isolated workspace-write sandbox; the host global environment (e.g. npm global installs) is not visible. Use sandbox_mode=host when host access is needed."
 }
 
 func (t *ShellTool) Parameters() []core.Parameter {

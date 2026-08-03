@@ -74,7 +74,7 @@ func init() {
 	})
 	register(AgentType{
 		Name: "verify", SystemPrompt: verifyPrompt,
-		Tools: []string{"read", "grep", "glob", "list", "shell", "process"},
+		Tools: []string{"read", "grep", "glob", "list", "shell", "process", "web_search", "web_fetch"},
 	})
 	register(AgentType{
 		Name: "researcher", SystemPrompt: researcherPrompt,
