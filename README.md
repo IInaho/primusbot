@@ -26,15 +26,14 @@ NekoCode 是一个装在终端里的 **AI 编程助手**，把你的代码项目
 - 🔍 **查资料** — 联网搜索、抓取网页，不懂的知识现查现用
 - 🎨 **生成图片** — 需要示意图、封面图，直接让 AI 画一张
 
-不锁死任何一家大模型：Anthropic、DeepSeek、Kimi、GLM 等，只要是 OpenAI 或 Anthropic 兼容接口都能用，聊天里 `/model` 随时切换。还能连接 Telegram / 飞书 / QQ，在手机上远程派任务。
+它不锁死任何一家大模型——Anthropic、DeepSeek、Kimi、GLM 等，只要是 OpenAI 或 Anthropic 兼容接口都能用，聊天里 `/model` 随时切换。
 
-## 为什么选 NekoCode？
+**为什么选它？**
 
 - 📱 **手机上也能干活** — 连接 Telegram / 飞书 / QQ，不在电脑前也能派任务、收结果、点按钮批审批
-- 🧹 **上下文干净** — 不乱往对话里塞数据：技能按需加载、记忆由你手写维护，token 花在刀刃上，不为杂物买单
+- 🧹 **上下文干净** — 不乱往对话里塞数据：技能按需加载、记忆由你手写维护，token 花在刀刃上
 - 📦 **一个文件，零负担** — 单二进制零依赖；不用注册、没有账号体系，API Key 是你自己的，数据不经过任何第三方
 - 🧩 **兼容 Claude Code 生态** — 插件和技能格式与 Claude Code 兼容，现成的社区生态直接装，也可以只用 Skill 不装插件
-- 🆓 **模型随便换** — 任意 OpenAI / Anthropic 兼容接口都能接入，`/model` 秒切，不被任何一家绑定
 
 ---
 
@@ -45,11 +44,8 @@ NekoCode 是一个装在终端里的 **AI 编程助手**，把你的代码项目
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
 ```
-
 脚本自动识别系统（Linux / macOS）和架构，安装到 `~/.local/bin`（无需 sudo)。
 
-> 💡 想装特定版本？ `curl -fsSL ... | sh -s -- --version v0.5.0`
-> 💡 想装到别的位置？ `curl -fsSL ... | sh -s -- --dir /你的/目录`
 > 💡 Windows 用户：请通过 [WSL](https://learn.microsoft.com/windows/wsl/install) 运行
 
 <details>
