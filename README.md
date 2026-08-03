@@ -23,7 +23,7 @@ NekoCode 目前的定位是 **AI 编程助手**，你只需要 **像聊天一样
 - 🖥️ **跑命令** — 执行构建、测试等命令，替你盯着输出
 - 🔍 **查资料** — 联网搜索、抓取网页，不懂的知识现查现用
 - 🎨 **生成图片** — 需要示意图、封面图，直接让 AI 画一张
-- 
+
 **为什么选它？**
 
 - **手机上也能干活** — 连接 Telegram / 飞书 / QQ，未来可支持更多IM平台，不在电脑前也能派任务、收结果
@@ -97,13 +97,13 @@ nekocode-tui
 - 📖 [用户使用指南](docs/USER_GUIDE.md) — 全部命令与快捷键、连接 Telegram / 飞书 / QQ、技能（Skill）与插件（Plugin)、MCP 配置、配置文件详解、权限与安全、常见问题
 - 🖥️ 桌面窗口版（GUI）暂未随 Release 发布，目前尚不完善，提前体验需源码编译：`wails build`（需要 Node/npm 和 [Wails](https://wails.io/)）
 
-## 开源
-
-NekoCode 使用 **MIT 许可证**，完全开源，随意使用、修改、分发。
-
 ## 给开发者
 
 - [USER_GUIDE.md](docs/USER_GUIDE.md) — 用户使用指南：命令、IM 连接、技能/插件/MCP、配置文件
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 整体架构、Agent 循环、工具系统
 - [RUNTIME_APP_GUIDE.md](docs/RUNTIME_APP_GUIDE.md) — 基于底座组装上层 AI 应用
 - [RUNTIME_HTTP_API.md](docs/RUNTIME_HTTP_API.md) — Runtime HTTP/SSE 协议
+
+## 开源
+
+NekoCode 使用 **MIT 许可证**，完全开源，随意使用、修改、分发。
