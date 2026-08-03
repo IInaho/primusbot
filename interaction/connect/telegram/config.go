@@ -54,8 +54,7 @@ func loadConfig() (Config, error) {
 }
 
 func saveConfig(cfg Config) error {
-	cfg.normalize()
-	cfg.clearLegacy()
+	cfg.normalize() // includes clearLegacy
 	return connect.DefaultFileStore().Save(section, cfg)
 }
 

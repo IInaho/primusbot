@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"nekocode/interaction/connect"
 )
 
 const (
@@ -72,7 +74,7 @@ func (c *apiClient) accessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("getAppAccessToken: status %d: %s", resp.StatusCode, truncateRunes(string(data), 200))
+		return "", fmt.Errorf("getAppAccessToken: status %d: %s", resp.StatusCode, connect.TruncateRunes(string(data), 200))
 	}
 	var out struct {
 		AccessToken string      `json:"access_token"`
@@ -123,7 +125,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, url string, body, out an
 		return err
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s: status %d: %s", method, url, resp.StatusCode, truncateRunes(string(data), 200))
+		return fmt.Errorf("%s %s: status %d: %s", method, url, resp.StatusCode, connect.TruncateRunes(string(data), 200))
 	}
 	if out == nil {
 		return nil

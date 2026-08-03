@@ -4,48 +4,42 @@ import (
 	"fmt"
 	"strings"
 
+	"nekocode/interaction/connect"
 	controlruntime "nekocode/runtime"
 )
 
-func renderDiffPreview(preview string) string {
-	path := diffPath(preview)
-	clean := cleanDiffPreview(preview)
-	if strings.TrimSpace(clean) == "" {
-		return ""
-	}
-	if path == "" {
-		path = diffPath(clean)
-	}
-	add, del := diffLineCounts(clean)
-	title := "差异"
-	var meta []string
-	if path != "" {
-		meta = append(meta, path)
-	}
-	if add > 0 || del > 0 {
-		meta = append(meta, fmt.Sprintf("+%d -%d", add, del))
-	}
-	if len(meta) > 0 {
-		return compactMessage(htmlTitle(title), htmlCode(strings.Join(meta, "  ")), htmlPre(truncateRunes(clean, 2600)))
-	}
-	return compactMessage(htmlTitle(title), htmlPre(truncateRunes(clean, 2600)))
+// ApprovalMessage renders the pending-approval push (tool summary); the
+// decision itself travels on the inline keyboard built from intent actions.
+func ApprovalMessage(p controlruntime.ApprovalView) string {
+	return compactMessage(htmlTitle("需要审批"), approvalSummary(p))
+}
+
+// QuestionMessage renders the pending-question push; free-form and
+// multi-part questions include the /answer and /dismiss instructions.
+func QuestionMessage(p controlruntime.QuestionView) string {
+	return compactMessage(htmlTitle("提问"), questionSummary(p))
+}
+
+// StoppedMessage is the push text for a cancelled run.
+func StoppedMessage() string {
+	return htmlTitle("已停止")
 }
 
 func (t *Tracker) doneReplyLocked(card *taskCard) string {
 	if card.Status == statusFailed {
 		lines := []string{htmlTitle("失败")}
 		if card.Error != "" {
-			lines = append(lines, "", htmlTitle("错误"), htmlPre(truncateRunes(card.Error, 1400)))
+			lines = append(lines, "", htmlTitle("错误"), htmlPre(connect.TruncateRunes(card.Error, 1400)))
 		}
 		if strings.TrimSpace(card.Result) != "" {
-			lines = append(lines, "", htmlTitle("结果"), htmlBody(card.Result, 1600))
+			lines = append(lines, "", htmlTitle("结果"), markdownBody(card.Result, 1600))
 		}
 		return compactMessage(lines...)
 	}
 
 	lines := make([]string, 0, 3)
 	if strings.TrimSpace(card.Result) != "" {
-		lines = append(lines, htmlBody(card.Result, 1800))
+		lines = append(lines, markdownBody(card.Result, 1800))
 	}
 	lines = appendDiffShortcut(lines, card, true)
 	return compactMessage(lines...)
@@ -59,10 +53,10 @@ func (t *Tracker) lastSummaryLocked(card *taskCard) string {
 	lines := []string{htmlTitle(title)}
 	lines = append(lines, HTMLEscape(compactCounts(card)))
 	if card.Error != "" {
-		lines = append(lines, "", htmlTitle("错误"), htmlPre(truncateRunes(card.Error, 1400)))
+		lines = append(lines, "", htmlTitle("错误"), htmlPre(connect.TruncateRunes(card.Error, 1400)))
 	}
 	if strings.TrimSpace(card.Result) != "" {
-		lines = append(lines, "", htmlTitle("结果"), htmlBody(card.Result, 1600))
+		lines = append(lines, "", htmlTitle("结果"), markdownBody(card.Result, 1600))
 	}
 	lines = appendDiffShortcut(lines, card, true)
 	return compactMessage(lines...)
@@ -155,18 +149,18 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 	}
 	if cmd, ok := stringArg(p.Args, "command"); ok && cmd != "" {
 		fmt.Fprintf(&b, "\n%s", labelText("命令", ""))
-		fmt.Fprintf(&b, "\n%s", htmlPre(truncateRunes(cmd, 900)))
+		fmt.Fprintf(&b, "\n%s", htmlPre(connect.TruncateRunes(cmd, 900)))
 		return b.String()
 	}
 	if path, ok := stringArg(p.Args, "path"); ok && path != "" {
 		fmt.Fprintf(&b, "\n%s", labelCode("路径", path))
 	}
 	if summary, ok := stringArg(p.Args, "summary"); ok && summary != "" {
-		fmt.Fprintf(&b, "\n%s", HTMLEscape(truncateRunes(summary, 900)))
+		fmt.Fprintf(&b, "\n%s", HTMLEscape(connect.TruncateRunes(summary, 900)))
 	}
 	if preview, ok := stringArg(p.Args, "_preview"); ok && preview != "" {
 		fmt.Fprintf(&b, "\n%s", labelText("预览", ""))
-		fmt.Fprintf(&b, "\n%s", htmlPre(truncateRunes(preview, 1600)))
+		fmt.Fprintf(&b, "\n%s", htmlPre(connect.TruncateRunes(preview, 1600)))
 	}
 	return b.String()
 }

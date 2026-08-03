@@ -6,49 +6,37 @@ import (
 
 	larkcallback "github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
+	"nekocode/interaction/connect"
 	controlruntime "nekocode/runtime"
 )
 
-// Approval card actions: the button value carries exactly these two fields
-// (the approval ID passes through verbatim; nothing user-supplied is ever
-// concatenated into it).
+// Approval card action values carry exactly these two fields (the approval
+// ID passes through verbatim; nothing user-supplied is ever concatenated
+// into it). The decision is a canonical connect.Action* ID, shared with the
+// slash commands and the other channels.
 const (
-	decisionApprove  = "approve"  // allow once
-	decisionRemember = "remember" // allow and remember (TUI: always allow)
-	decisionReject   = "reject"   // deny
-	decisionEscalate = "escalate" // allow and pre-authorize permission escalation
-	valueKeyID       = "approval_id"
-	valueKeyAction   = "decision"
+	valueKeyID     = "approval_id"
+	valueKeyAction = "decision"
 )
 
-// approvalDecisionFor maps a card decision to the runtime decision model.
-func approvalDecisionFor(decision string) (controlruntime.ApprovalDecision, error) {
-	switch decision {
-	case decisionApprove:
-		return controlruntime.ApprovalDecision{Allowed: true}, nil
-	case decisionRemember:
-		return controlruntime.ApprovalDecision{Allowed: true, Remember: true}, nil
-	case decisionReject:
-		return controlruntime.ApprovalDecision{Allowed: false}, nil
-	case decisionEscalate:
-		return controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}, nil
-	default:
-		return controlruntime.ApprovalDecision{}, fmt.Errorf("unknown decision %q", decision)
-	}
-}
+// maxMarkdownRunes bounds markdown card content. The documented card size
+// limit is 30 KB for the whole payload; at up to 4 bytes per rune in JSON,
+// 6000 runes stays safely below it with room for the card envelope.
+const maxMarkdownRunes = 6000
 
-// verdict renders the post-decision verdict text and header template for
-// each of the four decision semantics.
-func verdict(decision string) (text, template string) {
-	switch decision {
-	case decisionRemember:
-		return "已永久允许", "green"
-	case decisionReject:
-		return "已拒绝", "red"
-	case decisionEscalate:
-		return "已批准并授权", "green"
-	default:
-		return "已批准", "green"
+// markdownCard builds a card JSON 2.0 message around a single markdown
+// component, which renders close to GFM (headings, lists, tables, code
+// blocks) — run results are LLM-produced markdown and would lose all
+// formatting as a plain text message.
+func markdownCard(content string) map[string]any {
+	return map[string]any{
+		"schema": "2.0",
+		"config": map[string]any{"wide_screen_mode": true},
+		"body": map[string]any{
+			"elements": []any{
+				map[string]any{"tag": "markdown", "content": content},
+			},
+		},
 	}
 }
 
@@ -59,12 +47,12 @@ func verdict(decision string) (text, template string) {
 // permission escalation.
 func approvalCard(p controlruntime.ApprovalView) map[string]any {
 	buttons := []any{
-		cardButton("批准一次", "default", p.ID, decisionApprove),
-		cardButton("永久允许", "primary", p.ID, decisionRemember),
-		cardButton("拒绝", "danger", p.ID, decisionReject),
+		cardButton("批准一次", "default", p.ID, connect.ActionOnce),
+		cardButton("永久允许", "primary", p.ID, connect.ActionAlways),
+		cardButton("拒绝", "danger", p.ID, connect.ActionReject),
 	}
 	if p.CanEscalatePermission {
-		buttons = append(buttons, cardButton("允许并授权", "primary", p.ID, decisionEscalate))
+		buttons = append(buttons, cardButton("允许并授权", "primary", p.ID, connect.ActionEscalate))
 	}
 	return map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
@@ -97,12 +85,15 @@ func cardButton(text, style, approvalID, decision string) map[string]any {
 // resolvedCard renders the post-decision replacement card: same summary, a
 // verdict line, and no buttons (prevents repeat clicks).
 func resolvedCard(p controlruntime.ApprovalView, decision string) map[string]any {
-	text, template := verdict(decision)
+	template := "green"
+	if decision == connect.ActionReject {
+		template = "red"
+	}
 	return map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
 		"header": map[string]any{
 			"template": template,
-			"title":    map[string]any{"tag": "plain_text", "content": text + ": " + p.ToolName},
+			"title":    map[string]any{"tag": "plain_text", "content": connect.VerdictForAction(decision) + ": " + p.ToolName},
 		},
 		"elements": []any{
 			map[string]any{
@@ -114,7 +105,7 @@ func resolvedCard(p controlruntime.ApprovalView, decision string) map[string]any
 }
 
 // approvalSummary renders the one-block tool detail, mirroring the plain
-// text approval rendering in render.go.
+// text approval rendering (connect.ApprovalText).
 func approvalSummary(p controlruntime.ApprovalView) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "**工具**：%s", p.ToolName)
@@ -122,14 +113,14 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 		fmt.Fprintf(&b, "\n**类型**：%s", p.Kind)
 	}
 	if cmd, ok := p.Args["command"].(string); ok && cmd != "" {
-		fmt.Fprintf(&b, "\n**命令**：\n```\n%s\n```", truncateRunes(cmd, 600))
+		fmt.Fprintf(&b, "\n**命令**：\n```\n%s\n```", connect.TruncateRunes(cmd, 600))
 		return b.String()
 	}
 	if path, ok := p.Args["path"].(string); ok && path != "" {
 		fmt.Fprintf(&b, "\n**路径**：`%s`", path)
 	}
 	if preview, ok := p.Args["_preview"].(string); ok && preview != "" {
-		fmt.Fprintf(&b, "\n**预览**：\n```\n%s\n```", truncateRunes(preview, 900))
+		fmt.Fprintf(&b, "\n**预览**：\n```\n%s\n```", connect.TruncateRunes(preview, 900))
 	}
 	return b.String()
 }
@@ -147,7 +138,7 @@ func decodeCardActionValue(value map[string]interface{}) (approvalID, decision s
 		return "", "", fmt.Errorf("card action missing %q", valueKeyID)
 	}
 	dec, _ := value[valueKeyAction].(string)
-	if _, err := approvalDecisionFor(dec); err != nil {
+	if _, err := connect.ApprovalDecisionFor(dec); err != nil {
 		return "", "", fmt.Errorf("card action has unknown decision %q", dec)
 	}
 	return id, dec, nil
@@ -158,14 +149,4 @@ func toastResponse(toastType, content string) *larkcallback.CardActionTriggerRes
 	return &larkcallback.CardActionTriggerResponse{
 		Toast: &larkcallback.Toast{Type: toastType, Content: content},
 	}
-}
-
-// isAlreadyResolvedErr reports whether an Approve error means the approval
-// was already decided (double click, or handled via the text command).
-func isAlreadyResolvedErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "already resolved") || strings.Contains(msg, "not pending")
 }

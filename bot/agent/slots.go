@@ -9,7 +9,6 @@ const maxSubSlots = 8
 
 type slotManager struct {
 	mu     sync.Mutex
-	cond   *sync.Cond
 	slots  [maxSubSlots]*subSlot
 	active int
 }
@@ -20,19 +19,20 @@ type subSlot struct {
 }
 
 func newSlotManager() *slotManager {
-	m := &slotManager{}
-	m.cond = sync.NewCond(&m.mu)
-	return m
+	return &slotManager{}
 }
 
+// Acquire reserves a sub-agent slot for TUI coloring/accounting. It never
+// blocks: if all slots are taken it returns ok=false so the caller can fail
+// the task fast instead of deadlocking the main goroutine (releases happen
+// only after the whole tool batch finishes).
 func (m *slotManager) Acquire(id, subType string) (colorIdx int, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for m.active >= maxSubSlots {
-		m.cond.Wait()
+	if m.active >= maxSubSlots {
+		return -1, false
 	}
-
 	for i := range m.slots {
 		if m.slots[i] == nil {
 			m.slots[i] = &subSlot{id: id, subType: subType}
@@ -51,7 +51,6 @@ func (m *slotManager) Release(id string) {
 		if m.slots[i] != nil && m.slots[i].id == id {
 			m.slots[i] = nil
 			m.active--
-			m.cond.Signal()
 			return
 		}
 	}

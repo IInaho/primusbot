@@ -67,7 +67,7 @@ func (p *previewTracker) flush(ctx context.Context) {
 		}
 		p.msgIDs = make(map[int64]int, len(p.chatIDs()))
 		for _, chatID := range p.chatIDs() {
-			if id, err := p.sender.sendMessageID(ctx, chatID, taskview.HTMLEscape(string(p.buf))); err == nil {
+			if id, err := p.sender.sendMessageID(ctx, chatID, taskview.MarkdownToHTML(string(p.buf))); err == nil {
 				p.msgIDs[chatID] = id
 			}
 		}
@@ -80,7 +80,7 @@ func (p *previewTracker) flush(ctx context.Context) {
 		return
 	}
 	for chatID, id := range p.msgIDs {
-		_ = p.sender.editMessageText(ctx, chatID, id, taskview.HTMLEscape(string(p.buf)))
+		_ = p.sender.editMessageText(ctx, chatID, id, taskview.MarkdownToHTML(string(p.buf)))
 	}
 	p.sentLen = len(p.buf)
 	p.lastFlush = p.now()
@@ -101,9 +101,9 @@ func (p *previewTracker) finalize(ctx context.Context, runID controlruntime.RunI
 		chunks = []string{""}
 	}
 	for chatID, id := range p.msgIDs {
-		_ = p.sender.editMessageText(ctx, chatID, id, taskview.HTMLEscape(chunks[0]))
+		_ = p.sender.editMessageText(ctx, chatID, id, taskview.MarkdownToHTML(chunks[0]))
 		for _, chunk := range chunks[1:] {
-			_ = p.sender.sendMessage(ctx, chatID, taskview.HTMLEscape(chunk))
+			_ = p.sender.sendMessage(ctx, chatID, taskview.MarkdownToHTML(chunk))
 		}
 	}
 	p.reset(runID)

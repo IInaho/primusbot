@@ -15,14 +15,18 @@ import (
 )
 
 // Connector bridges feishu (Lark) and the control runtime: inbound DM
-// messages become runtime inputs, outbound runtime events are rendered to
-// the paired chat. The run-state machine, pairing primitives, shared
-// commands, and stream throttle come from the shared connect package.
+// messages become runtime inputs, outbound runtime events go through the
+// connect protocol layer (Translate → Intent → Sink) to the paired chat.
+// Feishu cannot edit messages, so the capability set excludes EditMessages:
+// no streaming preview (multi-message "streaming" is spam), and no
+// event-driven card replacement — approval cards are replaced in the button
+// callback instead. The run-state machine, pairing primitives, and shared
+// commands come from the shared connect package.
 type Connector struct {
 	rt   controlruntime.ConnectorRuntime
 	base *connect.Base
 
-	stream *connect.StreamBuffer
+	questions *connect.QuestionTracker
 
 	// approvals tracks cards in flight (approval ID → view) so button
 	// callbacks can render the resolved replacement card.
@@ -31,9 +35,9 @@ type Connector struct {
 
 func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
-		rt:     rt,
-		base:   connect.NewBase(rt, "feishu", "Feishu"),
-		stream: &connect.StreamBuffer{},
+		rt:        rt,
+		base:      connect.NewBase(rt, "feishu", "Feishu"),
+		questions: connect.NewQuestionTracker(),
 	}
 }
 
@@ -61,6 +65,25 @@ func (c *Connector) Start(ctx context.Context) error {
 
 func (c *Connector) Stop() error {
 	return c.base.Stop()
+}
+
+func (c *Connector) ConnectorStatusView() controlruntime.ConnectorView {
+	cfg, err := loadConfig()
+	view := connect.StatusView("feishu", c.base.IsRunning())
+	if err != nil {
+		view.Status = "error"
+		view.Message = err.Error()
+		return view
+	}
+	view.Configured = cfg.configured()
+	if cfg.AppID != "" {
+		view.Metadata["app_id"] = cfg.AppID
+	}
+	if !view.Configured {
+		view.Status = "unconfigured"
+		view.Message = "Run /connect feishu add <app-id> <app-secret> first."
+	}
+	return view
 }
 
 // wsLoop runs the SDK websocket with a reconnect backoff: the SDK
@@ -121,8 +144,8 @@ func (c *Connector) handleMessage(ctx context.Context, client *feishuClient, ev 
 	cfg.touchOwner(openID, chatID)
 	_ = saveConfig(cfg)
 
-	// Shared commands (/stop /help /approve /reject), then chat.
-	cmds := connect.CommandHandler{RT: c.rt, Help: helpText()}
+	// Shared commands (/stop /help /approve /reject /answer /dismiss), then chat.
+	cmds := connect.CommandHandler{RT: c.rt, Help: helpText(), Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		_ = client.sendText(ctx, chatID, reply)
 		return
@@ -137,27 +160,86 @@ func (c *Connector) handleMessage(ctx context.Context, client *feishuClient, ev 
 	}
 }
 
-// eventLoop subscribes to the runtime broadcast and delivers rendered
-// events to the paired owner's chat.
+// eventLoop delivers runtime events to the paired owner's chat through the
+// connect protocol layer.
 func (c *Connector) eventLoop(ctx context.Context, client *feishuClient) {
-	_ = connect.DispatchEvents(ctx, c.rt, c.renderOutbound, func(sendCtx context.Context, ev controlruntime.Event, text string) {
+	_ = connect.Dispatch(ctx, c.rt, eventSink{c: c, client: client})
+}
+
+// messageSender is the outbound subset of feishuClient the event sink uses;
+// feishuClient satisfies it, and tests substitute a fake.
+type messageSender interface {
+	sendText(ctx context.Context, chatID, text string) error
+	sendCard(ctx context.Context, chatID string, card map[string]any) error
+}
+
+// eventSink is feishu's connect.Sink implementation: cards and buttons are
+// available, but messages cannot be edited (EditMessages=false), so the
+// dispatcher drops preview intents and feishu never streams. Question
+// intents also feed the pending-question tracker so /answer can omit the
+// question ID.
+type eventSink struct {
+	c      *Connector
+	client messageSender
+}
+
+func (s eventSink) Caps() connect.Capabilities {
+	return connect.Capabilities{Buttons: true, RichCards: true}
+}
+
+func (s eventSink) Post(ctx context.Context, in connect.Intent) error {
+	switch in.Kind {
+	case connect.IntentApproval:
 		// Approval requests go out as interactive cards; on any card
-		// failure the rendered plain text (with /approve commands) is the
-		// fallback (降级).
-		if ev.Type == controlruntime.EventApprovalRequested {
-			if p, ok := ev.Payload.(controlruntime.ApprovalView); ok && p.ID != "" {
-				if err := c.sendApprovalCard(sendCtx, client, p); err == nil {
-					return
-				}
+		// failure the plain text (with /approve commands) is the fallback (降级).
+		if in.Approval != nil && in.Approval.ID != "" {
+			if err := s.c.sendApprovalCard(ctx, s.client, *in.Approval); err == nil {
+				return nil
 			}
 		}
-		c.sendToOwner(sendCtx, client, text)
-	})
+		s.c.sendToOwner(ctx, s.client, in.Text)
+	case connect.IntentQuestion:
+		if in.Question != nil {
+			s.c.questions.Add(*in.Question)
+		}
+		s.c.sendToOwner(ctx, s.client, in.Text)
+	case connect.IntentQuestionResolved:
+		s.c.questions.Remove(in.ID)
+	case connect.IntentApprovalResolved:
+		// Feishu does not replace cards from events — the resolved card is
+		// rendered in the button callback. Nothing to push.
+	case connect.IntentResult, connect.IntentFailed:
+		s.sendResult(ctx, in.Text)
+	case connect.IntentStopped:
+		s.c.sendToOwner(ctx, s.client, in.Text)
+	}
+	return nil
+}
+
+// sendResult delivers a run outcome as a markdown card (card JSON 2.0): the
+// text is LLM-produced markdown and the 2.0 markdown component renders it
+// (headings, lists, tables, code blocks) where plain text would lose it.
+// Overlong content is truncated to a conservative size first.
+func (s eventSink) sendResult(ctx context.Context, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return
+	}
+	card := markdownCard(connect.TruncateRunes(text, maxMarkdownRunes))
+	for _, chatID := range cfg.pairedChatIDs() {
+		// 卡片发送失败时降级为原始纯文本(与审批卡片同一降级模式)。
+		if err := s.client.sendCard(ctx, chatID, card); err != nil {
+			_ = s.client.sendText(ctx, chatID, text)
+		}
+	}
 }
 
 // sendApprovalCard delivers the approval card to the paired chat and
 // remembers the view so the button callback can render the resolved card.
-func (c *Connector) sendApprovalCard(ctx context.Context, client *feishuClient, p controlruntime.ApprovalView) error {
+func (c *Connector) sendApprovalCard(ctx context.Context, client messageSender, p controlruntime.ApprovalView) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -192,12 +274,12 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 		return toastResponse("error", "只有已配对的用户才能执行审批"), nil
 	}
 
-	runtimeDecision, err := approvalDecisionFor(decision)
+	runtimeDecision, err := connect.ApprovalDecisionFor(decision)
 	if err != nil {
 		return toastResponse("error", "无法识别的卡片操作"), nil
 	}
 	if err := c.rt.DecideApproval(ctx, approvalID, runtimeDecision); err != nil {
-		if isAlreadyResolvedErr(err) {
+		if connect.IsResolvedErr(err) {
 			// Double click, or already handled via the /approve text
 			// command — not an error worth alarming about.
 			c.approvals.Delete(approvalID)
@@ -206,8 +288,7 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 		return toastResponse("error", "审批失败: "+err.Error()), nil
 	}
 
-	verdictText, _ := verdict(decision)
-	resp := toastResponse("success", verdictText)
+	resp := toastResponse("success", connect.VerdictForAction(decision))
 	if v, ok := c.approvals.LoadAndDelete(approvalID); ok {
 		if view, ok := v.(controlruntime.ApprovalView); ok {
 			resp.Card = &larkcallback.Card{Type: "raw", Data: resolvedCard(view, decision)}
@@ -216,50 +297,7 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 	return resp, nil
 }
 
-// renderOutbound converts one event into zero or more outbound texts,
-// merging assistant/reasoning deltas through the stream buffer.
-func (c *Connector) renderOutbound(ev controlruntime.Event) []string {
-	switch ev.Type {
-	case controlruntime.EventRunStarted:
-		c.stream.Reset()
-		return nil
-	case controlruntime.EventAssistantDelta, controlruntime.EventReasoningDelta:
-		p, ok := ev.Payload.(controlruntime.DeltaPayload)
-		if !ok {
-			return nil
-		}
-		var out []string
-		if chunk := c.stream.Add(p.Delta, time.Now()); chunk != "" {
-			out = append(out, chunk)
-		}
-		if p.Done {
-			if chunk := c.stream.Drain(); chunk != "" {
-				out = append(out, chunk)
-			}
-		}
-		return out
-	case controlruntime.EventRunDone:
-		// The streamed text already covered the final answer; only send the
-		// output when nothing was streamed (non-streaming provider path).
-		var out []string
-		if chunk := c.stream.Drain(); chunk != "" {
-			out = append(out, chunk)
-		}
-		if !c.stream.StreamedAny() {
-			if p, ok := ev.Payload.(controlruntime.RunResult); ok && strings.TrimSpace(p.Output) != "" {
-				out = append(out, p.Output)
-			}
-		}
-		return out
-	default:
-		if text := renderEvent(ev); text != "" {
-			return []string{text}
-		}
-		return nil
-	}
-}
-
-func (c *Connector) sendToOwner(ctx context.Context, client *feishuClient, text string) {
+func (c *Connector) sendToOwner(ctx context.Context, client messageSender, text string) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return
@@ -270,14 +308,5 @@ func (c *Connector) sendToOwner(ctx context.Context, client *feishuClient, text 
 }
 
 func helpText() string {
-	return strings.Join([]string{
-		"Commands:",
-		"  /stop          Stop the current run",
-		"  /approve <id>  Approve a pending tool call once",
-		"  /always <id>   Approve and remember (always allow)",
-		"  /reject <id>   Reject a pending tool call",
-		"  /help          Show this help",
-		"",
-		"Send any other text to chat with the current session.",
-	}, "\n")
+	return connect.SharedHelp("", "Send any other text to chat with the current session.")
 }

@@ -25,6 +25,10 @@ type Connector struct {
 	rt   controlruntime.ConnectorRuntime
 	base *connect.Base
 
+	// questions tracks pending questions (fed by the sink's question
+	// intents) so /answer //dismiss and button callbacks can resolve them.
+	questions *connect.QuestionTracker
+
 	mu          sync.Mutex
 	active      string
 	taskTracker *taskview.Tracker
@@ -38,6 +42,7 @@ func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
 		rt:            rt,
 		base:          connect.NewBase(rt, "telegram", "Telegram"),
+		questions:     connect.NewQuestionTracker(),
 		taskTracker:   taskview.NewTracker(),
 		pendingMsgs:   make(map[string]msgRef),
 		pendingSelect: make(map[string]map[int]bool),
@@ -48,19 +53,7 @@ func (c *Connector) Name() string { return "telegram" }
 
 func (c *Connector) ConnectorStatusView() controlruntime.ConnectorView {
 	cfg, err := loadConfig()
-	running := c.base.IsRunning()
-
-	view := controlruntime.ConnectorView{
-		Name:        "telegram",
-		Registered:  true,
-		Initialized: true,
-		Running:     running,
-		Status:      "stopped",
-		Metadata:    make(map[string]any),
-	}
-	if running {
-		view.Status = "running"
-	}
+	view := connect.StatusView("telegram", c.base.IsRunning())
 	if err != nil {
 		view.Status = "error"
 		view.Message = err.Error()
@@ -116,7 +109,7 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	c.base.PublishStatus("running", "")
 	go c.pollLoop(runCtx, client, generation)
-	go c.eventLoop(runCtx, client)
+	go c.dispatchLoop(runCtx, client)
 	return nil
 }
 
@@ -178,7 +171,7 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 		return
 	}
 	if nonce, ok := parseStartPayload(text); ok {
-		if nonce != "" && nonce == profile.Nonce && time.Now().Unix() <= profile.Expires {
+		if profile.Valid(nonce, time.Now().Unix()) {
 			if profile.Owner != nil && profile.Owner.UserID != msg.From.ID {
 				_ = client.sendMessage(ctx, msg.Chat.ID, "Pairing failed: this Telegram profile is already paired. Run /connect telegram unpair in NekoCode first.")
 				return
@@ -200,29 +193,15 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 	}
 	profile.touchOwner(msg.From.ID, msg.From.Username, msg.Chat.ID)
 
-	// Shared commands (/stop /help /approve /reject) come from the connector
-	// core; telegram-specific commands follow below.
-	cmds := connect.CommandHandler{RT: c.rt, Help: taskview.Help()}
+	// Shared commands (/stop /help /approve /reject /answer /dismiss) come
+	// from the connector core; telegram-specific commands follow below.
+	cmds := connect.CommandHandler{RT: c.rt, Help: taskview.Help(), Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		_ = client.sendMessage(ctx, msg.Chat.ID, taskview.HTMLEscape(reply))
 		return
 	}
 
 	switch {
-	case text == "/answer" || strings.HasPrefix(text, "/answer "):
-		id, answer := parseAnswerCommand(text)
-		reply, resolvedID, err := c.tracker().BuildQuestionReply(id, answer)
-		if err == nil {
-			err = c.rt.AnswerQuestion(ctx, resolvedID, reply)
-		}
-		c.replyErr(ctx, client, msg.Chat.ID, "答案已发送。", err)
-	case text == "/dismiss" || strings.HasPrefix(text, "/dismiss "):
-		id := strings.TrimSpace(strings.TrimPrefix(text, "/dismiss"))
-		resolvedID, err := c.tracker().RejectQuestion(id)
-		if err == nil {
-			err = c.rt.AnswerQuestion(ctx, resolvedID, controlruntime.QuestionReply{Rejected: true})
-		}
-		c.replyErr(ctx, client, msg.Chat.ID, "已忽略。", err)
 	case text == "/last":
 		_ = client.sendMessage(ctx, msg.Chat.ID, c.tracker().LastSummary())
 	case text == "/diff" || strings.HasPrefix(text, "/diff "):
@@ -241,7 +220,7 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 			Text: text,
 		})
 		if err != nil {
-			c.replyErr(ctx, client, msg.Chat.ID, "", err)
+			_ = client.sendMessage(ctx, msg.Chat.ID, taskview.HTMLEscape("Error: "+err.Error()))
 		}
 	}
 }
@@ -297,37 +276,31 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 	}
 	action, id := parts[0], parts[1]
 
-	verdicts := map[string]controlruntime.ApprovalDecision{
-		"approve":  {Allowed: true},
-		"remember": {Allowed: true, Remember: true},
-		"escalate": {Allowed: true, AllowWithPermission: true},
-		"reject":   {},
-	}
-	verdictText := map[string]string{
-		"approve": "已批准", "remember": "已永久允许", "escalate": "已批准并授权", "reject": "已拒绝",
-	}
-
 	switch action {
-	case "approve", "remember", "escalate", "reject":
-		err := c.rt.DecideApproval(ctx, id, verdicts[action])
+	case connect.ActionOnce, connect.ActionAlways, connect.ActionEscalate, connect.ActionReject:
+		verdict := connect.VerdictForAction(action)
+		decision, err := connect.ApprovalDecisionFor(action)
+		if err == nil {
+			err = c.rt.DecideApproval(ctx, id, decision)
+		}
 		if err != nil {
-			if isStaleRequest(err) {
-				c.terminalize(ctx, client, id, verdictText[action])
+			if connect.IsResolvedErr(err) {
+				c.terminalize(ctx, client, id, verdict)
 				_ = client.answerCallbackQuery(ctx, cb.ID, "该请求已处理")
 				return
 			}
 			_ = client.answerCallbackQuery(ctx, cb.ID, "错误: "+err.Error())
 			return
 		}
-		c.terminalize(ctx, client, id, verdictText[action])
-		_ = client.answerCallbackQuery(ctx, cb.ID, verdictText[action])
-	case "dismiss":
-		_, err := c.tracker().RejectQuestion(id)
+		c.terminalize(ctx, client, id, verdict)
+		_ = client.answerCallbackQuery(ctx, cb.ID, verdict)
+	case connect.ActionDismiss:
+		_, err := c.questions.Reject(id)
 		if err == nil {
 			err = c.rt.AnswerQuestion(ctx, id, controlruntime.QuestionReply{Rejected: true})
 		}
 		if err != nil {
-			if isStaleRequest(err) {
+			if connect.IsResolvedErr(err) {
 				c.terminalize(ctx, client, id, "已忽略")
 				_ = client.answerCallbackQuery(ctx, cb.ID, "该请求已处理")
 				return
@@ -335,6 +308,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 			_ = client.answerCallbackQuery(ctx, cb.ID, "错误: "+err.Error())
 			return
 		}
+		c.questions.Remove(id)
 		c.terminalize(ctx, client, id, "已忽略")
 		_ = client.answerCallbackQuery(ctx, cb.ID, "已忽略")
 	case "answer":
@@ -354,7 +328,7 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 	}
 
 	// Confirm submits the accumulated multi-selection.
-	if rest[0] == "confirm" {
+	if rest[0] == connect.ActionConfirm {
 		c.mu.Lock()
 		selected := c.pendingSelect[id]
 		c.mu.Unlock()
@@ -364,12 +338,12 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 				indices = append(indices, idx)
 			}
 		}
-		reply, resolvedID, err := c.tracker().BuildQuestionMultiOptionReply(id, indices)
+		reply, resolvedID, err := c.questions.BuildMultiOptionReply(id, indices)
 		if err == nil {
 			err = c.rt.AnswerQuestion(ctx, resolvedID, reply)
 		}
 		if err != nil {
-			if isStaleRequest(err) {
+			if connect.IsResolvedErr(err) {
 				c.terminalize(ctx, client, id, "已回答")
 				_ = client.answerCallbackQuery(ctx, cb.ID, "该请求已处理")
 				return
@@ -377,6 +351,7 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 			_ = client.answerCallbackQuery(ctx, cb.ID, "错误: "+err.Error())
 			return
 		}
+		c.questions.Remove(resolvedID)
 		c.terminalize(ctx, client, id, "已回答")
 		_ = client.answerCallbackQuery(ctx, cb.ID, "已回答")
 		return
@@ -389,7 +364,7 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 	}
 
 	// Multi-select: toggle the option and redraw the keyboard in place.
-	if view, ok := c.tracker().PendingQuestion(id); ok && len(view.Questions) == 1 && view.Questions[0].Multiple {
+	if view, ok := c.questions.View(id); ok && len(view.Questions) == 1 && view.Questions[0].Multiple {
 		if idx < 0 || idx >= len(view.Questions[0].Options) {
 			_ = client.answerCallbackQuery(ctx, cb.ID, "未知选项。")
 			return
@@ -404,20 +379,22 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 		ref, hasRef := c.pendingMsgs[id]
 		c.mu.Unlock()
 		if hasRef {
-			keyboard, _ := c.eventKeyboard(controlruntime.Event{Type: controlruntime.EventQuestionRequested, Payload: view})
-			_ = client.editMessage(ctx, ref.chatID, ref.messageID, ref.text, &keyboard)
+			keyboardIn := connect.Intent{ID: id, Question: &view, Actions: connect.QuestionActions(view)}
+			if keyboard, ok := c.questionKeyboard(keyboardIn); ok {
+				_ = client.editMessage(ctx, ref.chatID, ref.messageID, ref.text, &keyboard)
+			}
 		}
 		_ = client.answerCallbackQuery(ctx, cb.ID, "")
 		return
 	}
 
 	// Single-select: submit immediately.
-	reply, resolvedID, err := c.tracker().BuildQuestionOptionReply(id, idx)
+	reply, resolvedID, err := c.questions.BuildOptionReply(id, idx)
 	if err == nil {
 		err = c.rt.AnswerQuestion(ctx, resolvedID, reply)
 	}
 	if err != nil {
-		if isStaleRequest(err) {
+		if connect.IsResolvedErr(err) {
 			c.terminalize(ctx, client, id, "已回答")
 			_ = client.answerCallbackQuery(ctx, cb.ID, "该请求已处理")
 			return
@@ -425,82 +402,168 @@ func (c *Connector) handleAnswerCallback(ctx context.Context, client *apiClient,
 		_ = client.answerCallbackQuery(ctx, cb.ID, "错误: "+err.Error())
 		return
 	}
+	c.questions.Remove(resolvedID)
 	c.terminalize(ctx, client, id, "已回答")
 	_ = client.answerCallbackQuery(ctx, cb.ID, "已回答")
 }
 
-// isStaleRequest reports whether err means the approval/question was already
-// resolved (here or on another surface) — i.e. terminalize rather than error.
-func isStaleRequest(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "not pending") ||
-		strings.Contains(msg, "already resolved") ||
-		strings.Contains(msg, "not found")
+// dispatchLoop 通过 connect 协议层把 runtime 事件投递到配对会话;事件过滤、
+// 顺序保证与 run 卡片记账(connect.Tracker)都在 Dispatch 里,这里只挂 sink。
+func (c *Connector) dispatchLoop(ctx context.Context, client *apiClient) {
+	_ = connect.Dispatch(ctx, c.rt, newEventSink(c, client))
 }
 
-func (c *Connector) eventLoop(ctx context.Context, client *apiClient) {
-	events, err := c.rt.Events(ctx, controlruntime.EventFilter{})
-	if err != nil {
+// eventSink 是 Telegram 的 connect.Sink 实现:能力最全(原地编辑 + 按钮),
+// 持有流式预览跟踪器,交互消息记录进 pendingMsgs 以便 terminalize。
+type eventSink struct {
+	c       *Connector
+	client  *apiClient
+	preview *previewTracker
+}
+
+func newEventSink(c *Connector, client *apiClient) *eventSink {
+	return &eventSink{c: c, client: client, preview: newPreviewTracker(client, c.pairedChats)}
+}
+
+func (s *eventSink) Caps() connect.Capabilities {
+	return connect.Capabilities{EditMessages: true, Buttons: true}
+}
+
+// FlushInterval/Flush 实现 connect.Flusher:Dispatch 的 ticker 以此间隔
+// 推动预览的原地编辑节流。
+func (s *eventSink) FlushInterval() time.Duration { return previewEditInterval / 2 }
+
+func (s *eventSink) Flush(ctx context.Context) { s.preview.flush(ctx) }
+
+// Track 实现 connect.Tracker:Dispatch 在同一 goroutine 里按事件顺序同步
+// 记账到 run 卡片(/last /diff /status 与 DoneReply 的数据源),保证渲染
+// DoneReply 时卡片已存在——另起并行订阅会与 Dispatch 竞态,结果消息会
+// 因卡片缺失而被静默丢弃。
+func (s *eventSink) Track(ev controlruntime.Event) { s.c.tracker().Track(ev) }
+
+func (s *eventSink) Post(ctx context.Context, in connect.Intent) error {
+	switch in.Kind {
+	case connect.IntentPreview:
+		s.preview.addDelta(ctx, in.RunID, in.Text)
+	case connect.IntentResult:
+		// A settled preview already shows the final text; the done-reply
+		// would duplicate it.
+		if s.preview.finalize(ctx, in.RunID) {
+			return nil
+		}
+		text := s.c.tracker().DoneReply(in.RunID)
+		if text == "" {
+			// The tracker never saw this run (e.g. it started before the
+			// connector connected) — deliver the raw result rather than
+			// dropping the message entirely.
+			text = taskview.MarkdownToHTML(in.Text)
+		}
+		s.broadcast(ctx, text)
+	case connect.IntentFailed:
+		// Settle the preview but keep the failure card (error context).
+		s.preview.finalize(ctx, in.RunID)
+		if text := s.c.tracker().DoneReply(in.RunID); text != "" {
+			s.broadcast(ctx, text)
+		} else {
+			s.broadcast(ctx, taskview.HTMLEscape(in.Text))
+		}
+	case connect.IntentStopped:
+		s.preview.finalize(ctx, in.RunID)
+		s.broadcast(ctx, taskview.StoppedMessage())
+	case connect.IntentApproval:
+		if in.Approval == nil {
+			return nil
+		}
+		s.sendInteractive(ctx, in.ID, taskview.ApprovalMessage(*in.Approval), approvalKeyboard(in))
+	case connect.IntentApprovalResolved:
+		// Resolved on another surface (TUI, HTTP): terminalize the pending
+		// message with the canonical verdict (first-answer-wins).
+		s.c.terminalize(ctx, s.client, in.ID, in.Verdict)
+	case connect.IntentQuestion:
+		if in.Question == nil {
+			return nil
+		}
+		s.c.questions.Add(*in.Question)
+		text := taskview.QuestionMessage(*in.Question)
+		if keyboard, ok := s.c.questionKeyboard(in); ok {
+			s.sendInteractive(ctx, in.ID, text, keyboard)
+		} else {
+			s.broadcast(ctx, text)
+		}
+	case connect.IntentQuestionResolved:
+		s.c.questions.Remove(in.ID)
+		s.c.terminalize(ctx, s.client, in.ID, in.Verdict)
+	}
+	return nil
+}
+
+// broadcast 向所有配对会话投递 HTML 文本。
+func (s *eventSink) broadcast(ctx context.Context, text string) {
+	if text == "" {
 		return
 	}
-	preview := newPreviewTracker(client, c.pairedChats)
-	ticker := time.NewTicker(previewEditInterval / 2)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			preview.flush(ctx)
-		case ev, ok := <-events:
-			if !ok {
-				return
+	for _, chatID := range s.c.pairedChats() {
+		_ = s.client.sendMessage(ctx, chatID, text)
+	}
+}
+
+// sendInteractive 发带键盘的交互消息并记录 message id,供 terminalize 原地改写。
+func (s *eventSink) sendInteractive(ctx context.Context, id, text string, keyboard inlineKeyboardMarkup) {
+	for _, chatID := range s.c.pairedChats() {
+		msgID, err := s.client.sendMessageWithKeyboard(ctx, chatID, text, keyboard)
+		if err != nil || id == "" {
+			continue
+		}
+		s.c.mu.Lock()
+		s.c.pendingMsgs[id] = msgRef{chatID: chatID, messageID: msgID, text: text}
+		s.c.mu.Unlock()
+	}
+}
+
+// approvalKeyboard 把意图携带的协议层 action 渲染成单行内联键盘;
+// callback data 为 "<actionID>:<approvalID>"。
+func approvalKeyboard(in connect.Intent) inlineKeyboardMarkup {
+	row := make([]inlineKeyboardButton, 0, len(in.Actions))
+	for _, a := range in.Actions {
+		row = append(row, inlineKeyboardButton{Text: a.Label, CallbackData: a.ID + ":" + in.ID})
+	}
+	return inlineKeyboardMarkup{InlineKeyboard: [][]inlineKeyboardButton{row}}
+}
+
+// questionKeyboard 把意图携带的协议层 action 渲染成内联键盘:选项按钮
+// (多选标 ✅ 表示当前选择)加确认/忽略行;单选点按即提交。自由作答的
+// 问题不带 action,返回 false(走 /answer 文本作答)。
+func (c *Connector) questionKeyboard(in connect.Intent) (inlineKeyboardMarkup, bool) {
+	if in.Question == nil || len(in.Actions) == 0 {
+		return inlineKeyboardMarkup{}, false
+	}
+	multi := in.Question.Questions[0].Multiple
+	c.mu.Lock()
+	selected := c.pendingSelect[in.ID]
+	c.mu.Unlock()
+	rows := make([][]inlineKeyboardButton, 0, len(in.Actions))
+	var tail []inlineKeyboardButton
+	for _, a := range in.Actions {
+		switch a.ID {
+		case connect.ActionConfirm:
+			tail = append(tail, inlineKeyboardButton{Text: a.Label, CallbackData: "answer:" + in.ID + ":" + connect.ActionConfirm})
+		case connect.ActionDismiss:
+			tail = append(tail, inlineKeyboardButton{Text: a.Label, CallbackData: connect.ActionDismiss + ":" + in.ID})
+		default: // 选项,action ID 即选项下标
+			label := a.Label
+			if idx, err := strconv.Atoi(a.ID); err == nil && multi && selected[idx] {
+				label = "✅ " + label
 			}
-			// Assistant text deltas feed the streaming preview instead of
-			// becoming individual messages.
-			if ev.Type == controlruntime.EventAssistantDelta {
-				if p, ok := ev.Payload.(controlruntime.DeltaPayload); ok {
-					preview.addDelta(ctx, ev.RunID, p.Delta)
-				}
-				continue
-			}
-			skipDoneReply := false
-			switch ev.Type {
-			case controlruntime.EventRunDone:
-				// A settled preview already shows the final text; the tracker's
-				// done-reply would duplicate it.
-				skipDoneReply = preview.finalize(ctx, ev.RunID)
-			case controlruntime.EventRunFailed, controlruntime.EventRunCancelled:
-				// Settle the preview but keep the done-reply (error context).
-				preview.finalize(ctx, ev.RunID)
-			case controlruntime.EventApprovalResolved:
-				// Resolved on another surface (TUI, HTTP): terminalize the
-				// pending message with the canonical verdict (first-answer-wins).
-				if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
-					status := "已处理"
-					switch p.Status {
-					case controlruntime.ApprovalApproved:
-						status = "已批准"
-					case controlruntime.ApprovalRejected:
-						status = "已拒绝"
-					}
-					c.terminalize(ctx, client, p.ID, status)
-				}
-			case controlruntime.EventQuestionResolved:
-				if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-					c.terminalize(ctx, client, p.ID, "已回答")
-				}
-			}
-			text := c.renderEvent(ev)
-			if text == "" || skipDoneReply {
-				continue
-			}
-			c.sendToChats(ctx, client, ev, text)
+			rows = append(rows, []inlineKeyboardButton{{
+				Text:         label,
+				CallbackData: fmt.Sprintf("answer:%s:%s", in.ID, a.ID),
+			}})
 		}
 	}
+	if len(tail) > 0 {
+		rows = append(rows, tail)
+	}
+	return inlineKeyboardMarkup{InlineKeyboard: rows}, true
 }
 
 // pairedChats returns the chats of the active profile to broadcast to.
@@ -514,38 +577,6 @@ func (c *Connector) pairedChats() []int64 {
 		return nil
 	}
 	return profile.pairedChatIDs()
-}
-
-func (c *Connector) sendToChats(ctx context.Context, client *apiClient, ev controlruntime.Event, text string) {
-	for _, chatID := range c.pairedChats() {
-		if keyboard, ok := c.eventKeyboard(ev); ok {
-			id, err := client.sendMessageWithKeyboard(ctx, chatID, text, keyboard)
-			if err == nil {
-				if pid := pendingID(ev); pid != "" {
-					c.mu.Lock()
-					c.pendingMsgs[pid] = msgRef{chatID: chatID, messageID: id, text: text}
-					c.mu.Unlock()
-				}
-			}
-		} else {
-			_ = client.sendMessage(ctx, chatID, text)
-		}
-	}
-}
-
-// pendingID returns the approval/question ID carried by an interactive event.
-func pendingID(ev controlruntime.Event) string {
-	switch ev.Type {
-	case controlruntime.EventApprovalRequested:
-		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
-			return p.ID
-		}
-	case controlruntime.EventQuestionRequested:
-		if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-			return p.ID
-		}
-	}
-	return ""
 }
 
 // terminalize rewrites an interactive message into its verdict form (status
@@ -565,97 +596,6 @@ func (c *Connector) terminalize(ctx context.Context, client *apiClient, id, stat
 	_ = client.editMessage(ctx, ref.chatID, ref.messageID, body, &emptyKeyboard)
 }
 
-func (c *Connector) renderEvent(ev controlruntime.Event) string {
-	return c.tracker().RenderEvent(ev)
-}
-
-// eventKeyboard builds the inline keyboard for interactive events. For
-// multi-select questions it renders toggle buttons (✅ marks current
-// selection) plus confirm/dismiss; single-select and approvals submit on tap.
-func (c *Connector) eventKeyboard(ev controlruntime.Event) (inlineKeyboardMarkup, bool) {
-	switch ev.Type {
-	case controlruntime.EventApprovalRequested:
-		p, ok := ev.Payload.(controlruntime.ApprovalView)
-		if !ok || p.ID == "" {
-			return inlineKeyboardMarkup{}, false
-		}
-		row := []inlineKeyboardButton{
-			{Text: "批准一次", CallbackData: "approve:" + p.ID},
-			{Text: "永久允许", CallbackData: "remember:" + p.ID},
-			{Text: "拒绝", CallbackData: "reject:" + p.ID},
-		}
-		if p.CanEscalatePermission {
-			row = append(row, inlineKeyboardButton{Text: "允许并授权", CallbackData: "escalate:" + p.ID})
-		}
-		return inlineKeyboardMarkup{InlineKeyboard: [][]inlineKeyboardButton{row}}, true
-	case controlruntime.EventQuestionRequested:
-		p, ok := ev.Payload.(controlruntime.QuestionView)
-		if !ok || !taskview.UsesQuestionButtons(p) {
-			return inlineKeyboardMarkup{}, false
-		}
-		q := p.Questions[0]
-		rows := make([][]inlineKeyboardButton, 0, len(q.Options)+1)
-		if q.Multiple {
-			c.mu.Lock()
-			selected := c.pendingSelect[p.ID]
-			c.mu.Unlock()
-			for i, opt := range q.Options {
-				label := opt.Label
-				if selected[i] {
-					label = "✅ " + label
-				}
-				rows = append(rows, []inlineKeyboardButton{{
-					Text:         label,
-					CallbackData: fmt.Sprintf("answer:%s:%d", p.ID, i),
-				}})
-			}
-			rows = append(rows, []inlineKeyboardButton{
-				{Text: "确认", CallbackData: "answer:" + p.ID + ":confirm"},
-				{Text: "忽略", CallbackData: "dismiss:" + p.ID},
-			})
-			return inlineKeyboardMarkup{InlineKeyboard: rows}, true
-		}
-		for i, opt := range q.Options {
-			rows = append(rows, []inlineKeyboardButton{{
-				Text:         opt.Label,
-				CallbackData: fmt.Sprintf("answer:%s:%d", p.ID, i),
-			}})
-		}
-		rows = append(rows, []inlineKeyboardButton{{Text: "忽略", CallbackData: "dismiss:" + p.ID}})
-		return inlineKeyboardMarkup{InlineKeyboard: rows}, true
-	default:
-		return inlineKeyboardMarkup{}, false
-	}
-}
-
 func (c *Connector) tracker() *taskview.Tracker {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.taskTracker == nil {
-		c.taskTracker = taskview.NewTracker()
-	}
 	return c.taskTracker
-}
-
-func parseAnswerCommand(text string) (questionID, answer string) {
-	rest := strings.TrimSpace(strings.TrimPrefix(text, "/answer"))
-	if rest == "" {
-		return "", ""
-	}
-	fields := strings.Fields(rest)
-	if len(fields) == 0 {
-		return "", ""
-	}
-	if strings.HasPrefix(fields[0], "q_") {
-		return fields[0], strings.TrimSpace(strings.TrimPrefix(rest, fields[0]))
-	}
-	return "", rest
-}
-
-func (c *Connector) replyErr(ctx context.Context, client *apiClient, chatID int64, ok string, err error) {
-	if err != nil {
-		_ = client.sendMessage(ctx, chatID, taskview.HTMLEscape("Error: "+err.Error()))
-		return
-	}
-	_ = client.sendMessage(ctx, chatID, taskview.HTMLEscape(ok))
 }

@@ -5,6 +5,7 @@ import (
 	"html"
 	"strings"
 
+	"nekocode/interaction/connect"
 	"nekocode/util/text"
 )
 
@@ -27,8 +28,11 @@ func htmlPre(s string) string {
 	return "<pre>" + HTMLEscape(s) + "</pre>"
 }
 
-func htmlBody(s string, max int) string {
-	return HTMLEscape(truncateRunes(strings.TrimSpace(s), max))
+// markdownBody renders LLM result text as Telegram HTML via the markdown
+// converter, truncated to max runes first (truncation may leave an unclosed
+// construct; the converter degrades those gracefully).
+func markdownBody(s string, max int) string {
+	return MarkdownToHTML(connect.TruncateRunes(strings.TrimSpace(s), max))
 }
 
 func labelText(label, value string) string {
@@ -61,7 +65,7 @@ func compactMessage(parts ...string) string {
 	if out == "" {
 		return ""
 	}
-	return truncateRunes(out, maxTelegramBody)
+	return connect.TruncateRunes(out, maxTelegramBody)
 }
 
 func firstLine(s string) string {
@@ -71,17 +75,6 @@ func firstLine(s string) string {
 	}
 	line := strings.SplitN(s, "\n", 2)[0]
 	return text.TruncateByRune(line, 120)
-}
-
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max]) + "..."
 }
 
 func stringArg(args map[string]any, key string) (string, bool) {

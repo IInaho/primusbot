@@ -2,28 +2,20 @@ package taskview
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
+	"nekocode/interaction/connect"
 	controlruntime "nekocode/runtime"
 )
 
-func UsesQuestionButtons(p controlruntime.QuestionView) bool {
-	return usesQuestionButtons(p)
-}
-
-func usesQuestionButtons(p controlruntime.QuestionView) bool {
-	if len(p.Questions) != 1 {
-		return false
-	}
-	return len(p.Questions[0].Options) > 0
-}
-
+// questionSummary renders the question body. Option questions that fit the
+// inline keyboard get a compact rendering (buttons carry the answer path);
+// free-form and multi-part questions carry the /answer //dismiss commands.
 func questionSummary(p controlruntime.QuestionView) string {
 	if len(p.Questions) == 0 {
 		return compactMessage(HTMLEscape("NekoCode 请求输入。"), labelCode("回复", "/answer "+p.ID+" <answer>"))
 	}
-	if usesQuestionButtons(p) {
+	if connect.QuestionSelectable(p) {
 		q := p.Questions[0]
 		header := strings.TrimSpace(q.Header)
 		if header == "" {
@@ -53,101 +45,8 @@ func questionSummary(p controlruntime.QuestionView) string {
 		}
 	}
 	b.WriteString("\n\n")
-	b.WriteString(labelCode("回复", answerCommand(p.ID)))
+	b.WriteString(labelCode("回复", "/answer "+p.ID+" <answer>"))
 	b.WriteString("\n")
-	b.WriteString(labelCode("忽略", dismissCommand(p.ID)))
+	b.WriteString(labelCode("忽略", "/dismiss "+p.ID))
 	return b.String()
-}
-
-func answerCommand(questionID string) string {
-	return "/answer " + questionID + " <answer>"
-}
-
-func dismissCommand(questionID string) string {
-	return "/dismiss " + questionID
-}
-
-func buildQuestionReply(qv controlruntime.QuestionView, raw string) (controlruntime.QuestionReply, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return controlruntime.QuestionReply{}, fmt.Errorf("empty answer")
-	}
-	parts := splitAnswerParts(raw, len(qv.Questions))
-	answers := make([][]string, len(qv.Questions))
-	for i, item := range qv.Questions {
-		part := ""
-		if i < len(parts) {
-			part = parts[i]
-		}
-		parsed, err := parseQuestionAnswer(item, part)
-		if err != nil {
-			return controlruntime.QuestionReply{}, fmt.Errorf("question %d: %w", i+1, err)
-		}
-		answers[i] = parsed
-	}
-	return controlruntime.QuestionReply{Answers: answers}, nil
-}
-
-func splitAnswerParts(raw string, count int) []string {
-	if count <= 1 {
-		return []string{strings.TrimSpace(raw)}
-	}
-	parts := strings.Split(raw, "|")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	return parts
-}
-
-func parseQuestionAnswer(item controlruntime.QuestionItem, raw string) ([]string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, fmt.Errorf("empty answer")
-	}
-	if len(item.Options) == 0 {
-		return []string{raw}, nil
-	}
-	var tokens []string
-	if item.Multiple {
-		tokens = strings.Split(raw, ",")
-	} else {
-		tokens = []string{raw}
-	}
-	answers := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		label, ok := matchQuestionOption(item.Options, token)
-		if !ok {
-			if item.Custom {
-				answers = append(answers, token)
-				continue
-			}
-			return nil, fmt.Errorf("unknown option %q", token)
-		}
-		answers = append(answers, label)
-	}
-	if len(answers) == 0 {
-		return nil, fmt.Errorf("empty answer")
-	}
-	return answers, nil
-}
-
-func matchQuestionOption(options []controlruntime.QuestionOption, token string) (string, bool) {
-	if idx, err := strconv.Atoi(token); err == nil {
-		idx--
-		if idx >= 0 && idx < len(options) {
-			return options[idx].Label, true
-		}
-	}
-	folded := strings.ToLower(token)
-	for _, opt := range options {
-		label := strings.ToLower(opt.Label)
-		if folded == label || strings.HasPrefix(label, folded) {
-			return opt.Label, true
-		}
-	}
-	return "", false
 }

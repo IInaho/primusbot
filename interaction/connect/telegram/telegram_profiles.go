@@ -67,8 +67,7 @@ func (c *Connector) pairProfile(ctx context.Context, args []string) (string, err
 	if err != nil {
 		return "", err
 	}
-	profile.Nonce = nonce
-	profile.Expires = time.Now().Add(pairingTTL).Unix()
+	profile.Start(nonce, time.Now(), pairingTTL)
 	if err := saveConfig(cfg); err != nil {
 		return "", err
 	}
@@ -222,8 +221,7 @@ func (c *Connector) unpairProfile(args []string) (string, error) {
 		return "", fmt.Errorf("telegram profile %q not found", name)
 	}
 	cfg.Profiles[idx].Owner = nil
-	cfg.Profiles[idx].Nonce = ""
-	cfg.Profiles[idx].Expires = 0
+	cfg.Profiles[idx].Clear()
 	if err := saveConfig(cfg); err != nil {
 		return "", err
 	}

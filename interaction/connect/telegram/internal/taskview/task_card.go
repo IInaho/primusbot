@@ -1,11 +1,11 @@
 package taskview
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 
 	"nekocode/interaction"
+	"nekocode/interaction/connect"
 	controlruntime "nekocode/runtime"
 )
 
@@ -26,16 +26,10 @@ const (
 )
 
 type Tracker struct {
-	mu               sync.Mutex
-	runs             map[controlruntime.RunID]*taskCard
-	order            []controlruntime.RunID
-	last             controlruntime.RunID
-	pendingQuestions map[string]pendingQuestion
-	lastQuestionID   string
-}
-
-type pendingQuestion struct {
-	View controlruntime.QuestionView
+	mu    sync.Mutex
+	runs  map[controlruntime.RunID]*taskCard
+	order []controlruntime.RunID
+	last  controlruntime.RunID
 }
 
 type taskCard struct {
@@ -56,12 +50,14 @@ type toolCard struct {
 
 func NewTracker() *Tracker {
 	return &Tracker{
-		runs:             make(map[controlruntime.RunID]*taskCard),
-		pendingQuestions: make(map[string]pendingQuestion),
+		runs: make(map[controlruntime.RunID]*taskCard),
 	}
 }
 
-func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
+// Track records ev into the run cards — pure bookkeeping for /last /diff
+// /status. It never produces push text: progress events are dashboard
+// state, and outbound rendering lives in the connector's sink.
+func (t *Tracker) Track(ev controlruntime.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -73,12 +69,10 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			card.Status = statusAccepted
 		}
 	case controlruntime.EventRunStarted:
-		card := t.card(ev.RunID)
-		card.Status = statusRunning
+		t.card(ev.RunID).Status = statusRunning
 	case controlruntime.EventPhaseChanged:
 		if p, ok := ev.Payload.(controlruntime.PhasePayload); ok {
-			card := t.card(ev.RunID)
-			card.LastPhase = p.Phase
+			t.card(ev.RunID).LastPhase = p.Phase
 		}
 	case controlruntime.EventToolStarted:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
@@ -88,62 +82,38 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 		}
 	case controlruntime.EventToolPreview:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
+			if strings.TrimSpace(p.Preview) == "" || !isDiffLike(p.ToolName, p.Preview) {
+				return
+			}
 			card := t.card(ev.RunID)
-			if strings.TrimSpace(p.Preview) == "" {
-				return ""
-			}
-			if isDiffLike(p.ToolName, p.Preview) {
-				clean := cleanDiffPreview(p.Preview)
-				card.Diffs = append(card.Diffs, clean)
-				return renderDiffPreview(p.Preview)
-			}
+			card.Diffs = append(card.Diffs, cleanDiffPreview(p.Preview))
 		}
 	case controlruntime.EventToolCompleted, controlruntime.EventToolBlocked:
 		if p, ok := ev.Payload.(controlruntime.ToolPayload); ok {
-			card := t.card(ev.RunID)
 			status := "done"
 			if ev.Type == controlruntime.EventToolBlocked || p.IsError {
 				status = "blocked"
 			}
-			t.finishTool(card, p, status)
-			if status == "blocked" {
-				return compactMessage(
-					htmlTitle("已阻止"),
-					labelCode("工具", strings.TrimSpace(p.ToolName+" "+interaction.ToolBrief(p.ToolName, p.Args))),
-					htmlPre(truncateRunes(p.Output, 1200)),
-				)
-			}
+			t.finishTool(t.card(ev.RunID), p, status)
 		}
 	case controlruntime.EventApprovalRequested:
-		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
-			card := t.card(ev.RunID)
-			card.Status = statusWaitingApproval
-			return compactMessage(htmlTitle("需要审批"), approvalSummary(p))
+		if _, ok := ev.Payload.(controlruntime.ApprovalView); ok {
+			t.card(ev.RunID).Status = statusWaitingApproval
 		}
 	case controlruntime.EventQuestionRequested:
-		if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-			card := t.card(ev.RunID)
-			card.Status = statusWaitingQuestion
-			t.pendingQuestions[p.ID] = pendingQuestion{View: p}
-			t.lastQuestionID = p.ID
-			return compactMessage(htmlTitle("提问"), questionSummary(p))
+		if _, ok := ev.Payload.(controlruntime.QuestionView); ok {
+			t.card(ev.RunID).Status = statusWaitingQuestion
 		}
 	case controlruntime.EventApprovalResolved, controlruntime.EventQuestionResolved:
 		card := t.card(ev.RunID)
 		if card.Status == statusWaitingApproval || card.Status == statusWaitingQuestion {
 			card.Status = statusRunning
 		}
-		if ev.Type == controlruntime.EventQuestionResolved {
-			if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-				delete(t.pendingQuestions, p.ID)
-			}
-		}
 	case controlruntime.EventRunDone:
 		if p, ok := ev.Payload.(controlruntime.RunResult); ok {
 			card := t.card(ev.RunID)
 			card.Status = statusDone
 			card.Result = p.Output
-			return t.doneReplyLocked(card)
 		}
 	case controlruntime.EventRunFailed:
 		if p, ok := ev.Payload.(controlruntime.RunResult); ok {
@@ -151,14 +121,23 @@ func (t *Tracker) RenderEvent(ev controlruntime.Event) string {
 			card.Status = statusFailed
 			card.Result = p.Output
 			card.Error = p.Error
-			return t.doneReplyLocked(card)
 		}
 	case controlruntime.EventRunCancelled:
-		card := t.card(ev.RunID)
-		card.Status = statusAborted
-		return htmlTitle("已停止")
+		t.card(ev.RunID).Status = statusAborted
 	}
-	return ""
+}
+
+// DoneReply renders the run's terminal push text: the result body (plus the
+// /diff shortcut) for a finished run, or the failure card for a failed one.
+// It returns "" when there is nothing worth sending.
+func (t *Tracker) DoneReply(runID controlruntime.RunID) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	card := t.runs[runID]
+	if card == nil {
+		return ""
+	}
+	return t.doneReplyLocked(card)
 }
 
 func (t *Tracker) Status() string {
@@ -203,89 +182,7 @@ func (t *Tracker) DiffSummary(runID controlruntime.RunID) string {
 	if len(card.Diffs) == 0 {
 		return HTMLEscape("暂无 diff 预览。")
 	}
-	return compactMessage(htmlTitle("差异"), htmlPre(truncateRunes(card.Diffs[len(card.Diffs)-1], 3000)))
-}
-
-func (t *Tracker) BuildQuestionReply(questionID, raw string) (controlruntime.QuestionReply, string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if strings.TrimSpace(questionID) == "" {
-		questionID = t.lastQuestionID
-	}
-	pending, ok := t.pendingQuestions[questionID]
-	if !ok {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not pending", questionID)
-	}
-	reply, err := buildQuestionReply(pending.View, raw)
-	if err != nil {
-		return controlruntime.QuestionReply{}, "", err
-	}
-	return reply, questionID, nil
-}
-
-func (t *Tracker) RejectQuestion(questionID string) (string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if strings.TrimSpace(questionID) == "" {
-		questionID = t.lastQuestionID
-	}
-	if _, ok := t.pendingQuestions[questionID]; !ok {
-		return "", fmt.Errorf("question %s is not pending", questionID)
-	}
-	return questionID, nil
-}
-
-func (t *Tracker) BuildQuestionOptionReply(questionID string, optionIndex int) (controlruntime.QuestionReply, string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	pending, ok := t.pendingQuestions[questionID]
-	if !ok {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not pending", questionID)
-	}
-	if len(pending.View.Questions) != 1 {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s requires text answer", questionID)
-	}
-	item := pending.View.Questions[0]
-	if item.Multiple || optionIndex < 0 || optionIndex >= len(item.Options) {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s requires text answer", questionID)
-	}
-	return controlruntime.QuestionReply{Answers: [][]string{{item.Options[optionIndex].Label}}}, questionID, nil
-}
-
-// PendingQuestion returns the pending question view for interactive
-// (button-driven) answering.
-func (t *Tracker) PendingQuestion(questionID string) (controlruntime.QuestionView, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	pending, ok := t.pendingQuestions[questionID]
-	return pending.View, ok
-}
-
-// BuildQuestionMultiOptionReply builds a reply for a Multiple question from
-// the selected option indices. At least one index is required.
-func (t *Tracker) BuildQuestionMultiOptionReply(questionID string, indices []int) (controlruntime.QuestionReply, string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	pending, ok := t.pendingQuestions[questionID]
-	if !ok {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not pending", questionID)
-	}
-	if len(pending.View.Questions) != 1 || !pending.View.Questions[0].Multiple {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("question %s is not a multi-select question", questionID)
-	}
-	item := pending.View.Questions[0]
-	var labels []string
-	for i, opt := range item.Options {
-		for _, idx := range indices {
-			if idx == i {
-				labels = append(labels, opt.Label)
-			}
-		}
-	}
-	if len(labels) == 0 {
-		return controlruntime.QuestionReply{}, "", fmt.Errorf("请至少选择一项")
-	}
-	return controlruntime.QuestionReply{Answers: [][]string{labels}}, questionID, nil
+	return compactMessage(htmlTitle("差异"), htmlPre(connect.TruncateRunes(card.Diffs[len(card.Diffs)-1], 3000)))
 }
 
 func (t *Tracker) card(id controlruntime.RunID) *taskCard {

@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -187,94 +186,59 @@ func TestResetConfigClearsProfiles(t *testing.T) {
 	}
 }
 
-func TestEventKeyboard(t *testing.T) {
-	approvalKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
-		Type: controlruntime.EventApprovalRequested,
-		Payload: controlruntime.ApprovalView{
-			ID: "apr_1",
+// The action set itself is covered by connect's Translate tests; here we
+// only assert the action → inline-button mapping (labels, callback format).
+func TestApprovalKeyboard(t *testing.T) {
+	in := connect.Intent{
+		ID: "apr_1",
+		Actions: []connect.Action{
+			{ID: connect.ActionOnce, Label: "批准一次"},
+			{ID: connect.ActionAlways, Label: "永久允许"},
+			{ID: connect.ActionReject, Label: "拒绝"},
 		},
-	})
-	if !ok {
-		t.Fatal("approval keyboard missing")
 	}
-	row := approvalKeyboard.InlineKeyboard[0]
-	if len(row) != 3 {
-		t.Fatalf("approval buttons = %d, want 3 without escalation", len(row))
+	row := approvalKeyboard(in).InlineKeyboard[0]
+	wantData := []string{"once:apr_1", "always:apr_1", "reject:apr_1"}
+	if len(row) != len(wantData) {
+		t.Fatalf("buttons = %d, want %d", len(row), len(wantData))
 	}
-	wantTexts := []string{"批准一次", "永久允许", "拒绝"}
-	wantData := []string{"approve:apr_1", "remember:apr_1", "reject:apr_1"}
 	for i, btn := range row {
-		if btn.Text != wantTexts[i] || btn.CallbackData != wantData[i] {
-			t.Fatalf("button %d = %q %q, want %q %q", i, btn.Text, btn.CallbackData, wantTexts[i], wantData[i])
+		if btn.Text != in.Actions[i].Label || btn.CallbackData != wantData[i] {
+			t.Fatalf("button %d = %q %q, want %q %q", i, btn.Text, btn.CallbackData, in.Actions[i].Label, wantData[i])
 		}
 	}
+}
 
-	escalateKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
-		Type: controlruntime.EventApprovalRequested,
-		Payload: controlruntime.ApprovalView{
-			ID:                    "apr_2",
-			CanEscalatePermission: true,
-		},
-	})
-	if !ok {
-		t.Fatal("escalation keyboard missing")
-	}
-	escRow := escalateKeyboard.InlineKeyboard[0]
-	if len(escRow) != 4 {
-		t.Fatalf("escalation buttons = %d, want 4", len(escRow))
-	}
-	if escRow[3].Text != "允许并授权" || escRow[3].CallbackData != "escalate:apr_2" {
-		t.Fatalf("escalation button = %q %q", escRow[3].Text, escRow[3].CallbackData)
-	}
+func questionIntent(view controlruntime.QuestionView) connect.Intent {
+	return connect.Intent{ID: view.ID, Question: &view, Actions: connect.QuestionActions(view)}
+}
 
-	questionKeyboard, ok := New(nil).eventKeyboard(controlruntime.Event{
-		Type: controlruntime.EventQuestionRequested,
-		Payload: controlruntime.QuestionView{
-			ID: "q_1",
-			Questions: []controlruntime.QuestionItem{{
-				Question: "Proceed?",
-				Options:  []controlruntime.QuestionOption{{Label: "Yes"}},
-			}},
-		},
-	})
-	if !ok || questionKeyboard.InlineKeyboard[0][0].CallbackData != "answer:q_1:0" {
-		t.Fatalf("question keyboard = %#v ok=%v", questionKeyboard, ok)
+func TestQuestionKeyboard(t *testing.T) {
+	keyboard, ok := New(nil).questionKeyboard(questionIntent(controlruntime.QuestionView{
+		ID: "q_1",
+		Questions: []controlruntime.QuestionItem{{
+			Question: "Proceed?",
+			Options:  []controlruntime.QuestionOption{{Label: "Yes"}},
+		}},
+	}))
+	if !ok || keyboard.InlineKeyboard[0][0].CallbackData != "answer:q_1:0" {
+		t.Fatalf("question keyboard = %#v ok=%v", keyboard, ok)
 	}
-	dismissRow := questionKeyboard.InlineKeyboard[len(questionKeyboard.InlineKeyboard)-1]
+	dismissRow := keyboard.InlineKeyboard[len(keyboard.InlineKeyboard)-1]
 	if dismissRow[0].Text != "忽略" || dismissRow[0].CallbackData != "dismiss:q_1" {
 		t.Fatalf("dismiss button = %q %q", dismissRow[0].Text, dismissRow[0].CallbackData)
 	}
-}
 
-func TestParseAnswerCommand(t *testing.T) {
-	id, answer := parseAnswerCommand("/answer q_12 yes please")
-	if id != "q_12" || answer != "yes please" {
-		t.Fatalf("parse explicit = %q %q", id, answer)
-	}
-	id, answer = parseAnswerCommand("/answer yes please")
-	if id != "" || answer != "yes please" {
-		t.Fatalf("parse implicit = %q %q", id, answer)
+	// Free-form questions get no keyboard.
+	if _, ok := New(nil).questionKeyboard(questionIntent(controlruntime.QuestionView{
+		ID:        "q_2",
+		Questions: []controlruntime.QuestionItem{{Question: "Why?"}},
+	})); ok {
+		t.Fatal("free-form question should not have a keyboard")
 	}
 }
 
-func TestMarkStoppedClearsState(t *testing.T) {
-	c := New(nil)
-	_, gen1 := c.base.Start(context.Background())
-	_, gen2 := c.base.Start(context.Background())
-
-	// A stale generation (from an older Start) must not clear the state.
-	c.base.MarkStopped(gen1)
-	if !c.base.IsRunning() {
-		t.Fatal("stale generation should not clear running state")
-	}
-
-	c.base.MarkStopped(gen2)
-	if c.base.IsRunning() {
-		t.Fatal("current generation should clear running state")
-	}
-}
-
-func TestEventKeyboardMultiSelect(t *testing.T) {
+func TestQuestionKeyboardMultiSelect(t *testing.T) {
 	view := controlruntime.QuestionView{
 		ID: "q_1",
 		Questions: []controlruntime.QuestionItem{{
@@ -284,10 +248,9 @@ func TestEventKeyboardMultiSelect(t *testing.T) {
 			},
 		}},
 	}
-	ev := controlruntime.Event{Type: controlruntime.EventQuestionRequested, Payload: view}
 
 	conn := New(nil)
-	keyboard, ok := conn.eventKeyboard(ev)
+	keyboard, ok := conn.questionKeyboard(questionIntent(view))
 	if !ok {
 		t.Fatal("multi-select keyboard missing")
 	}
@@ -304,7 +267,7 @@ func TestEventKeyboardMultiSelect(t *testing.T) {
 
 	// Toggled option gets the ✅ mark.
 	conn.pendingSelect["q_1"] = map[int]bool{1: true}
-	keyboard, _ = conn.eventKeyboard(ev)
+	keyboard, _ = conn.questionKeyboard(questionIntent(view))
 	if keyboard.InlineKeyboard[1][0].Text != "✅ 选项B" {
 		t.Fatalf("selected option = %q, want ✅ mark", keyboard.InlineKeyboard[1][0].Text)
 	}
@@ -355,21 +318,167 @@ func TestTerminalizeEditsMessageOnce(t *testing.T) {
 	}
 }
 
-func TestIsStaleRequest(t *testing.T) {
-	stale := []string{
-		"question q_1 is not pending",
-		"approval already resolved",
-		"approval not found",
+// TestEventSinkApprovalAndQuestionFlow drives the sink with translated
+// intents: interactive messages are sent with keyboards and recorded, the
+// question tracker is fed, and resolved intents terminalize in place.
+func TestEventSinkApprovalAndQuestionFlow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := saveConfig(Config{
+		ActiveProfile: "personal",
+		Profiles: []BotProfile{{
+			Name:  "personal",
+			Owner: &Device{UserID: 1, Username: "alice", ChatID: 42},
+		}},
+	}); err != nil {
+		t.Fatal(err)
 	}
-	for _, msg := range stale {
-		if !isStaleRequest(fmt.Errorf("%s", msg)) {
-			t.Fatalf("%q should be stale", msg)
+
+	var calls []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		body["_endpoint"] = r.URL.Path
+		calls = append(calls, body)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":7}}`))
+	}))
+	defer server.Close()
+
+	client := newAPIClient("token")
+	client.base = server.URL
+
+	conn := New(nil)
+	sink := newEventSink(conn, client)
+	if caps := sink.Caps(); !caps.EditMessages || !caps.Buttons {
+		t.Fatalf("caps = %#v, want edit+buttons", caps)
+	}
+	if sink.FlushInterval() != previewEditInterval/2 {
+		t.Fatalf("flush interval = %v", sink.FlushInterval())
+	}
+	ctx := context.Background()
+
+	// Approval intent: interactive message sent and recorded.
+	view := controlruntime.ApprovalView{ID: "apr_1", ToolName: "shell"}
+	for _, in := range connect.Translate(controlruntime.Event{Type: controlruntime.EventApprovalRequested, Payload: view}) {
+		if err := sink.Post(ctx, in); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if isStaleRequest(fmt.Errorf("network timeout")) {
-		t.Fatal("network error is not stale")
+	if _, ok := conn.pendingMsgs["apr_1"]; !ok {
+		t.Fatal("approval message not recorded in pendingMsgs")
 	}
-	if isStaleRequest(nil) {
-		t.Fatal("nil is not stale")
+
+	// Resolved on another surface: the message is terminalized in place.
+	resolved := view
+	resolved.Status = controlruntime.ApprovalApproved
+	for _, in := range connect.Translate(controlruntime.Event{Type: controlruntime.EventApprovalResolved, Payload: resolved}) {
+		if err := sink.Post(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := conn.pendingMsgs["apr_1"]; ok {
+		t.Fatal("resolved approval should drop pendingMsgs entry")
+	}
+
+	// Question intents feed the shared question tracker; resolved removes.
+	qview := controlruntime.QuestionView{
+		ID: "q_1",
+		Questions: []controlruntime.QuestionItem{{
+			Question: "Proceed?",
+			Options:  []controlruntime.QuestionOption{{Label: "Yes"}, {Label: "No"}},
+		}},
+	}
+	for _, in := range connect.Translate(controlruntime.Event{Type: controlruntime.EventQuestionRequested, Payload: qview}) {
+		if err := sink.Post(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if conn.questions.LastID() != "q_1" {
+		t.Fatalf("last question = %q, want q_1", conn.questions.LastID())
+	}
+	if _, ok := conn.pendingMsgs["q_1"]; !ok {
+		t.Fatal("question message not recorded in pendingMsgs")
+	}
+	for _, in := range connect.Translate(controlruntime.Event{Type: controlruntime.EventQuestionResolved, Payload: qview}) {
+		if err := sink.Post(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if conn.questions.LastID() != "" {
+		t.Fatal("resolved question should leave the tracker")
+	}
+
+	// Traffic: approval send + approval edit + question send + question edit.
+	if len(calls) != 4 {
+		t.Fatalf("api calls = %d, want 4", len(calls))
+	}
+	for i, endpoint := range []string{"sendMessage", "editMessageText", "sendMessage", "editMessageText"} {
+		if !strings.HasSuffix(calls[i]["_endpoint"].(string), endpoint) {
+			t.Fatalf("call %d endpoint = %v, want %s", i, calls[i]["_endpoint"], endpoint)
+		}
+	}
+	// The approval send carries the canonical action keyboard.
+	markup, _ := calls[0]["reply_markup"].(map[string]any)
+	rows, _ := markup["inline_keyboard"].([]any)
+	first, _ := rows[0].([]any)
+	btn, _ := first[0].(map[string]any)
+	if btn["callback_data"] != "once:apr_1" {
+		t.Fatalf("first approval button = %#v", btn)
+	}
+	// The terminalized edit appends the verdict and strips the keyboard.
+	text, _ := calls[1]["text"].(string)
+	if !strings.Contains(text, "已批准") {
+		t.Fatalf("terminalized text = %q", text)
+	}
+}
+
+// TestEventSinkResultFallsBackWhenRunUnknown is a regression test: a result
+// intent for a run the tracker never saw (race between parallel
+// subscriptions, or a run started before the connector connected) must
+// still deliver the raw result — never drop the message silently.
+func TestEventSinkResultFallsBackWhenRunUnknown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := saveConfig(Config{
+		ActiveProfile: "personal",
+		Profiles: []BotProfile{{
+			Name:  "personal",
+			Owner: &Device{UserID: 1, Username: "alice", ChatID: 42},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		calls = append(calls, body)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":7}}`))
+	}))
+	defer server.Close()
+
+	client := newAPIClient("token")
+	client.base = server.URL
+	sink := newEventSink(New(nil), client)
+
+	// The run was never tracked (no Track calls) — DoneReply would be "".
+	for _, in := range connect.Translate(controlruntime.Event{
+		Type:    controlruntime.EventRunDone,
+		RunID:   "run_unknown",
+		Payload: controlruntime.RunResult{Output: "final answer"},
+	}) {
+		if err := sink.Post(context.Background(), in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(calls) != 1 {
+		t.Fatalf("api calls = %d, want 1 (result must be delivered)", len(calls))
+	}
+	text, _ := calls[0]["text"].(string)
+	if !strings.Contains(text, "final answer") {
+		t.Fatalf("result text = %q", text)
 	}
 }

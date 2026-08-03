@@ -67,7 +67,7 @@ func (b *Base) MarkStopped(generation int) {
 	b.cancel = nil
 	b.running = false
 	b.mu.Unlock()
-	b.PublishStatus("stopped", b.displayName+" connector stopped.")
+	b.publishStopped()
 }
 
 // Stop cancels the current run and publishes the stopped status.
@@ -79,8 +79,12 @@ func (b *Base) Stop() error {
 	b.cancel = nil
 	b.running = false
 	b.mu.Unlock()
-	b.PublishStatus("stopped", b.displayName+" connector stopped.")
+	b.publishStopped()
 	return nil
+}
+
+func (b *Base) publishStopped() {
+	b.PublishStatus("stopped", b.displayName+" connector stopped.")
 }
 
 // PublishStatus feeds a connector_status event back into the runtime so
@@ -94,32 +98,4 @@ func (b *Base) PublishStatus(status, message string) {
 		Status:  status,
 		Message: message,
 	})
-}
-
-// DispatchEvents subscribes to the runtime broadcast and forwards every
-// rendered text via send until ctx ends or the subscription closes. render
-// maps an event to zero or more outbound texts; send receives the original
-// event as well so channels can attach event-specific affordances (e.g.
-// telegram inline keyboards).
-func DispatchEvents(ctx context.Context, rt controlruntime.ConnectorRuntime, render func(controlruntime.Event) []string, send func(context.Context, controlruntime.Event, string)) error {
-	events, err := rt.Events(ctx, controlruntime.EventFilter{})
-	if err != nil {
-		return err
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case ev, ok := <-events:
-			if !ok {
-				return nil
-			}
-			for _, text := range render(ev) {
-				if text == "" {
-					continue
-				}
-				send(ctx, ev, text)
-			}
-		}
-	}
 }

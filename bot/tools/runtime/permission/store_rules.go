@@ -26,30 +26,22 @@ func (s *Store) rememberRule(workspace string, rule Rule) error {
 		return err
 	}
 	rule.Source = "remembered"
-	f, err := s.load()
-	if err != nil {
-		return err
-	}
-	if f.Version == 0 {
-		f.Version = permissionStoreVersion
-	}
-	if f.Projects == nil {
-		f.Projects = map[string]permissionProject{}
-	}
-	p := f.Projects[workspace]
-	for _, existing := range p.Rules {
-		existing, err := canonicalRememberedRule(existing)
-		if err != nil {
-			continue
+	return s.mutate(func(f *permissionFile) bool {
+		p := f.Projects[workspace]
+		for _, existing := range p.Rules {
+			existing, err := canonicalRememberedRule(existing)
+			if err != nil {
+				continue
+			}
+			if existing.Tool == rule.Tool && existing.Specifier == rule.Specifier && existing.Effect == rule.Effect {
+				return false // already remembered
+			}
 		}
-		if existing.Tool == rule.Tool && existing.Specifier == rule.Specifier && existing.Effect == rule.Effect {
-			return nil // already remembered
-		}
-	}
-	rule.CreatedAt = time.Now().UTC()
-	p.Rules = append(p.Rules, rule)
-	f.Projects[workspace] = p
-	return s.save(f)
+		rule.CreatedAt = time.Now().UTC()
+		p.Rules = append(p.Rules, rule)
+		f.Projects[workspace] = p
+		return true
+	})
 }
 
 func canonicalRememberedRule(rule Rule) (Rule, error) {

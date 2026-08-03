@@ -8,8 +8,8 @@ import (
 )
 
 // CommandHandler parses the text commands shared by IM connectors
-// (/stop, /help, /approve, /always, /reject) and drives the runtime
-// accordingly.
+// (/stop, /help, /approve, /always, /reject, and — when Questions is set —
+// /answer and /dismiss) and drives the runtime accordingly.
 // Channels compose it and fall through to their own commands (or message
 // submission) when Handle reports handled=false.
 type CommandHandler struct {
@@ -17,6 +17,11 @@ type CommandHandler struct {
 
 	// Help is the channel-specific help text returned for /help.
 	Help string
+
+	// Questions enables /answer and /dismiss when set. Channels feed it
+	// from the IntentQuestion / IntentQuestionResolved intents their sink
+	// receives.
+	Questions *QuestionTracker
 }
 
 // Handle executes a shared command. handled is false when text is not one
@@ -43,6 +48,34 @@ func (h CommandHandler) Handle(ctx context.Context, text string) (reply string, 
 		id := strings.TrimSpace(strings.TrimPrefix(text, "/reject "))
 		err := h.RT.DecideApproval(ctx, id, controlruntime.ApprovalDecision{})
 		return errReply("已拒绝。", err), true
+	case h.Questions != nil && (text == "/answer" || strings.HasPrefix(text, "/answer ")):
+		id, answer := ParseAnswerCommand(text)
+		if answer == "" {
+			return "用法: /answer <回答内容>", true
+		}
+		if id == "" && h.Questions.LastID() == "" {
+			return "当前没有待回答的问题。", true
+		}
+		reply, resolvedID, err := h.Questions.BuildReply(id, answer)
+		if err == nil {
+			err = h.RT.AnswerQuestion(ctx, resolvedID, reply)
+		}
+		if err != nil {
+			return errReply("", err), true
+		}
+		h.Questions.Remove(resolvedID)
+		return "答案已发送。", true
+	case h.Questions != nil && (text == "/dismiss" || strings.HasPrefix(text, "/dismiss ")):
+		id := strings.TrimSpace(strings.TrimPrefix(text, "/dismiss"))
+		resolvedID, err := h.Questions.Reject(id)
+		if err == nil {
+			err = h.RT.AnswerQuestion(ctx, resolvedID, controlruntime.QuestionReply{Rejected: true})
+		}
+		if err != nil {
+			return errReply("", err), true
+		}
+		h.Questions.Remove(resolvedID)
+		return "已忽略。", true
 	default:
 		return "", false
 	}

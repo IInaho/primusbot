@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,22 +14,24 @@ import (
 
 // Connector 通过腾讯官方 QQ 机器人开放平台把 QQ 桥接到控制 runtime：
 // 入站消息（群 @ / C2C 私聊，平台已做触发过滤，全部受理）成为 runtime
-// 输入，出站 runtime 事件渲染为纯文本发回已知会话。QQ 不能编辑消息，
-// 因此不做流式预览。
+// 输入，出站经 connect 协议层（Translate → Intent → Sink）投递到已知会话。
+// QQ 不能编辑消息，能力集为空：不接收流式预览，交互走斜杠命令。
 type Connector struct {
 	rt   controlruntime.ConnectorRuntime
 	base *connect.Base
 
-	mu              sync.Mutex
-	chats           map[string]chatSession // 已知会话（受理入站消息时记录）
-	pendingQuestion string                 // 当前待回答的问题 ID
+	questions *connect.QuestionTracker
+
+	mu    sync.Mutex
+	chats map[string]chatSession // 已知会话（受理入站消息时记录）
 }
 
 func New(rt controlruntime.ConnectorRuntime) *Connector {
 	return &Connector{
-		rt:    rt,
-		base:  connect.NewBase(rt, "qqbot", "QQBot"),
-		chats: make(map[string]chatSession),
+		rt:        rt,
+		base:      connect.NewBase(rt, "qqbot", "QQBot"),
+		questions: connect.NewQuestionTracker(),
+		chats:     make(map[string]chatSession),
 	}
 }
 
@@ -63,19 +64,7 @@ func (c *Connector) Stop() error {
 
 func (c *Connector) ConnectorStatusView() controlruntime.ConnectorView {
 	cfg, err := loadConfig()
-	running := c.base.IsRunning()
-
-	view := controlruntime.ConnectorView{
-		Name:        "qqbot",
-		Registered:  true,
-		Initialized: true,
-		Running:     running,
-		Status:      "stopped",
-		Metadata:    make(map[string]any),
-	}
-	if running {
-		view.Status = "running"
-	}
+	view := connect.StatusView("qqbot", c.base.IsRunning())
 	if err != nil {
 		view.Status = "error"
 		view.Message = err.Error()
@@ -130,15 +119,11 @@ func (c *Connector) handleMessage(ctx context.Context, client *apiClient, msg in
 		return
 	}
 
-	// 共享命令（/stop /help /approve /always /reject），其次是 /answer，
-	// 最后作为消息提交给 runtime。
-	cmds := connect.CommandHandler{RT: c.rt, Help: helpText()}
+	// 共享命令（/stop /help /approve /always /reject /answer /dismiss），
+	// 其余文本作为消息提交给 runtime。
+	cmds := connect.CommandHandler{RT: c.rt, Help: helpText(), Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		c.reply(ctx, client, msg, reply)
-		return
-	}
-	if text == "/answer" || strings.HasPrefix(text, "/answer ") {
-		c.handleAnswer(ctx, client, msg, text)
 		return
 	}
 	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
@@ -149,34 +134,6 @@ func (c *Connector) handleMessage(ctx context.Context, client *apiClient, msg in
 	if err != nil {
 		c.reply(ctx, client, msg, "错误: "+err.Error())
 	}
-}
-
-// handleAnswer 处理 /answer [question-id] <回答>：省略 id 时回答当前待答问题。
-func (c *Connector) handleAnswer(ctx context.Context, client *apiClient, msg inboundMessage, text string) {
-	rest := strings.TrimSpace(strings.TrimPrefix(text, "/answer"))
-	id := ""
-	if fields := strings.Fields(rest); len(fields) > 0 && strings.HasPrefix(fields[0], "q_") {
-		id = fields[0]
-		rest = strings.TrimSpace(strings.TrimPrefix(rest, fields[0]))
-	}
-	if id == "" {
-		id = c.pendingQuestionID()
-	}
-	if id == "" {
-		c.reply(ctx, client, msg, "当前没有待回答的问题。")
-		return
-	}
-	if rest == "" {
-		c.reply(ctx, client, msg, "用法：/answer <回答内容>")
-		return
-	}
-	err := c.rt.AnswerQuestion(ctx, id, controlruntime.QuestionReply{Answers: [][]string{{rest}}})
-	if err != nil {
-		c.reply(ctx, client, msg, "错误: "+err.Error())
-		return
-	}
-	c.clearPendingQuestion(id)
-	c.reply(ctx, client, msg, "答案已发送。")
 }
 
 // reply 回发触发会话；入站触发的回复必带触发消息 id（被动回复窗口内）。
@@ -195,96 +152,46 @@ func sendChat(ctx context.Context, client *apiClient, kind, id, text, msgID stri
 	return client.sendC2CMessage(ctx, id, text, msgID)
 }
 
-// eventLoop 订阅 runtime 事件并渲染成文本广播到已知会话。
+// eventLoop 通过 connect 协议层把 runtime 事件投递到已知会话。
 func (c *Connector) eventLoop(ctx context.Context, client *apiClient) {
-	_ = connect.DispatchEvents(ctx, c.rt, func(ev controlruntime.Event) []string {
-		if text := renderOutboundEvent(ev); text != "" {
-			return []string{text}
+	_ = connect.Dispatch(ctx, c.rt, eventSink{c: c, client: client})
+}
+
+// eventSink 是 QQ 的 connect.Sink 实现：能力集为空（纯文本广播），
+// 问题意图顺带维护待答问题跟踪，/answer 因此可以省略 question id。
+type eventSink struct {
+	c      *Connector
+	client *apiClient
+}
+
+func (s eventSink) Caps() connect.Capabilities { return connect.Capabilities{} }
+
+func (s eventSink) Post(ctx context.Context, in connect.Intent) error {
+	switch in.Kind {
+	case connect.IntentQuestion:
+		if in.Question != nil {
+			s.c.questions.Add(*in.Question)
 		}
+	case connect.IntentQuestionResolved:
+		s.c.questions.Remove(in.ID)
+	}
+	if in.Text == "" {
 		return nil
-	}, func(sendCtx context.Context, ev controlruntime.Event, text string) {
-		// 跟踪待答问题，/answer 可以省略 question id。
-		switch ev.Type {
-		case controlruntime.EventQuestionRequested:
-			if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-				c.setPendingQuestion(p.ID)
-			}
-		case controlruntime.EventQuestionResolved:
-			if p, ok := ev.Payload.(controlruntime.QuestionView); ok {
-				c.clearPendingQuestion(p.ID)
-			}
-		}
-		c.broadcast(sendCtx, client, text)
-	})
+	}
+	s.broadcast(ctx, in.Text)
+	return nil
 }
 
 // broadcast 向所有已知会话投递文本：带被动回复窗口内的 msg_id，
 // 过期则尝试主动消息；失败写进 connector 状态。
-func (c *Connector) broadcast(ctx context.Context, client *apiClient, text string) {
+func (s eventSink) broadcast(ctx context.Context, text string) {
 	now := time.Now()
-	for _, chat := range c.knownChats() {
+	for _, chat := range s.c.knownChats() {
 		msgID := chat.freshMsgID(now)
-		if err := sendChat(ctx, client, chat.kind, chat.id, text, msgID); err != nil {
-			c.base.PublishStatus("error", fmt.Sprintf("QQBot send to %s:%s failed: %v", chat.kind, chat.id, err))
+		if err := sendChat(ctx, s.client, chat.kind, chat.id, text, msgID); err != nil {
+			s.c.base.PublishStatus("error", fmt.Sprintf("QQBot send to %s:%s failed: %v", chat.kind, chat.id, err))
 		}
 	}
-}
-
-// renderOutboundEvent 把 runtime 事件渲染为出站文本；"" 表示不产生消息。
-func renderOutboundEvent(ev controlruntime.Event) string {
-	switch ev.Type {
-	case controlruntime.EventRunDone:
-		p, ok := ev.Payload.(controlruntime.RunResult)
-		if !ok {
-			return ""
-		}
-		if out := strings.TrimSpace(p.Output); out != "" {
-			return out
-		}
-		if p.Error != "" {
-			return "Error: " + p.Error
-		}
-		return ""
-	case controlruntime.EventApprovalRequested:
-		p, ok := ev.Payload.(controlruntime.ApprovalView)
-		if !ok || p.ID == "" {
-			return ""
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "需要审批: %s", p.ToolName)
-		if cmd, ok := p.Args["command"].(string); ok && cmd != "" {
-			fmt.Fprintf(&b, "\n%s", truncateRunes(cmd, 600))
-		} else if path, ok := p.Args["path"].(string); ok && path != "" {
-			fmt.Fprintf(&b, "\n%s", path)
-		}
-		fmt.Fprintf(&b, "\n回复 /approve %s 批准一次，/always %s 永久允许，/reject %s 拒绝", p.ID, p.ID, p.ID)
-		return b.String()
-	case controlruntime.EventQuestionRequested:
-		p, ok := ev.Payload.(controlruntime.QuestionView)
-		if !ok || len(p.Questions) == 0 {
-			return ""
-		}
-		var b strings.Builder
-		b.WriteString("NekoCode 提问:")
-		for _, q := range p.Questions {
-			fmt.Fprintf(&b, "\n- %s", q.Question)
-			for _, opt := range q.Options {
-				fmt.Fprintf(&b, "\n    · %s", opt.Label)
-			}
-		}
-		b.WriteString("\n回复 /answer <回答内容> 作答")
-		return b.String()
-	default:
-		return ""
-	}
-}
-
-func truncateRunes(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
 }
 
 func (c *Connector) rememberChat(msg inboundMessage) {
@@ -304,39 +211,6 @@ func (c *Connector) knownChats() []chatSession {
 	return slices.Collect(maps.Values(c.chats))
 }
 
-func (c *Connector) setPendingQuestion(id string) {
-	if id == "" {
-		return
-	}
-	c.mu.Lock()
-	c.pendingQuestion = id
-	c.mu.Unlock()
-}
-
-func (c *Connector) pendingQuestionID() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pendingQuestion
-}
-
-func (c *Connector) clearPendingQuestion(id string) {
-	c.mu.Lock()
-	if c.pendingQuestion == id {
-		c.pendingQuestion = ""
-	}
-	c.mu.Unlock()
-}
-
 func helpText() string {
-	return strings.Join([]string{
-		"Commands:",
-		"  /stop          停止当前任务",
-		"  /approve <id>  批准一次工具调用",
-		"  /always <id>   批准并永久允许",
-		"  /reject <id>   拒绝工具调用",
-		"  /answer <内容> 回答进行中的问题",
-		"  /help          显示帮助",
-		"",
-		"群聊中需要 @机器人，私聊直接发送即可。",
-	}, "\n")
+	return connect.SharedHelp("", "群聊中需要 @机器人，私聊直接发送即可。")
 }

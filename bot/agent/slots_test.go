@@ -1,34 +1,53 @@
 package agent
 
 import (
-	"strings"
+	"fmt"
 	"testing"
 )
 
-func TestSubSlotManagerAcquireRelease(t *testing.T) {
+func TestSlotManagerAcquireUpToLimit(t *testing.T) {
 	m := newSlotManager()
-
-	color, ok := m.Acquire("sub-1", "executor")
-	if !ok {
-		t.Fatal("Acquire failed")
+	for i := 0; i < maxSubSlots; i++ {
+		idx, ok := m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+		if !ok {
+			t.Fatalf("expected slot %d to be acquired", i)
+		}
+		if idx != i {
+			t.Fatalf("expected color idx %d, got %d", i, idx)
+		}
 	}
-	if color != 0 {
-		t.Fatalf("color = %d, want first slot 0", color)
-	}
-	if s := m.String(); !strings.Contains(s, "1/8") {
-		t.Fatalf("after acquire, String = %q, want 1/8", s)
-	}
-
-	m.Release("sub-1")
-	if s := m.String(); !strings.Contains(s, "0/8") {
-		t.Fatalf("after release, String = %q, want 0/8", s)
+	if m.active != maxSubSlots {
+		t.Fatalf("expected %d active slots, got %d", maxSubSlots, m.active)
 	}
 }
 
-func TestSubSlotManagerReleaseUnknownIsNoop(t *testing.T) {
+func TestSlotManagerFullReturnsImmediately(t *testing.T) {
 	m := newSlotManager()
-	m.Release("missing")
-	if s := m.String(); !strings.Contains(s, "0/8") {
-		t.Fatalf("after noop release, String = %q, want 0/8", s)
+	for i := 0; i < maxSubSlots; i++ {
+		m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+	}
+	if _, ok := m.Acquire("overflow", "executor"); ok {
+		t.Fatal("expected acquire to fail when all slots are full")
+	}
+}
+
+func TestSlotManagerReleaseFreesSlot(t *testing.T) {
+	m := newSlotManager()
+	first := "id-0"
+	for i := 0; i < maxSubSlots; i++ {
+		m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+	}
+	m.Release(first)
+	idx, ok := m.Acquire("new", "executor")
+	if !ok {
+		t.Fatal("expected acquire after release to succeed")
+	}
+	if idx != 0 {
+		t.Fatalf("expected freed slot 0 to be reused, got %d", idx)
+	}
+	// Releasing an unknown id must not corrupt accounting.
+	m.Release("unknown")
+	if m.active != maxSubSlots {
+		t.Fatalf("expected %d active slots, got %d", maxSubSlots, m.active)
 	}
 }

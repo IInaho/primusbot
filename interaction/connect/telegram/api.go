@@ -86,7 +86,8 @@ func (c *apiClient) getUpdates(ctx context.Context, offset int, timeoutSeconds i
 }
 
 func (c *apiClient) sendMessage(ctx context.Context, chatID int64, text string) error {
-	return c.sendMessageHTML(ctx, chatID, text)
+	_, err := c.sendHTML(ctx, "sendMessage", messageBody(chatID, text, false))
+	return err
 }
 
 // messageBody builds the common sendMessage/editMessageText payload. Plain
@@ -127,14 +128,9 @@ func (c *apiClient) sendHTML(ctx context.Context, endpoint string, body map[stri
 	return requestJSON[json.RawMessage](ctx, c, http.MethodPost, endpoint, nil, body)
 }
 
-func (c *apiClient) sendMessageHTML(ctx context.Context, chatID int64, text string) error {
-	_, err := c.sendHTML(ctx, "sendMessage", messageBody(chatID, text, false))
-	return err
-}
-
-// sendMessageID sends a message and returns its ID (for later edits).
-func (c *apiClient) sendMessageID(ctx context.Context, chatID int64, text string) (int, error) {
-	result, err := c.sendHTML(ctx, "sendMessage", messageBody(chatID, text, false))
+// sendMessageRaw posts a sendMessage body and returns the new message's ID.
+func (c *apiClient) sendMessageRaw(ctx context.Context, body map[string]any) (int, error) {
+	result, err := c.sendHTML(ctx, "sendMessage", body)
 	if err != nil {
 		return 0, err
 	}
@@ -143,6 +139,11 @@ func (c *apiClient) sendMessageID(ctx context.Context, chatID int64, text string
 		return 0, err
 	}
 	return msg.MessageID, nil
+}
+
+// sendMessageID sends a message and returns its ID (for later edits).
+func (c *apiClient) sendMessageID(ctx context.Context, chatID int64, text string) (int, error) {
+	return c.sendMessageRaw(ctx, messageBody(chatID, text, false))
 }
 
 // editMessageText rewrites a previously sent message in place (used by the
@@ -168,15 +169,7 @@ type inlineKeyboardButton struct {
 func (c *apiClient) sendMessageWithKeyboard(ctx context.Context, chatID int64, text string, keyboard inlineKeyboardMarkup) (int, error) {
 	body := messageBody(chatID, text, false)
 	body["reply_markup"] = keyboard
-	result, err := c.sendHTML(ctx, "sendMessage", body)
-	if err != nil {
-		return 0, err
-	}
-	var msg Message
-	if err := json.Unmarshal(result, &msg); err != nil {
-		return 0, err
-	}
-	return msg.MessageID, nil
+	return c.sendMessageRaw(ctx, body)
 }
 
 // emptyKeyboard removes all buttons from a message when used as the reply

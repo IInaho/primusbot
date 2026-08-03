@@ -23,3 +23,20 @@ func TestBaseLifecycle(t *testing.T) {
 		t.Fatal("Stop did not cancel connector context")
 	}
 }
+
+func TestBaseGenerationGuard(t *testing.T) {
+	base := NewBase(nil, "test", "Test")
+	_, gen1 := base.Start(context.Background())
+	_, gen2 := base.Start(context.Background())
+
+	// A stale generation (from an older Start) must not clear the state.
+	base.MarkStopped(gen1)
+	if !base.IsRunning() {
+		t.Fatal("stale generation should not clear running state")
+	}
+
+	base.MarkStopped(gen2)
+	if base.IsRunning() {
+		t.Fatal("current generation should clear running state")
+	}
+}

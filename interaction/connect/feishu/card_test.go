@@ -2,13 +2,13 @@ package feishu
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	larkcallback "github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
+	"nekocode/interaction/connect"
 	controlruntime "nekocode/runtime"
 )
 
@@ -38,7 +38,7 @@ func TestApprovalCardThreeButtons(t *testing.T) {
 		t.Fatalf("buttons = %d, want 3 without escalation", len(buttons))
 	}
 	wantTexts := []string{"批准一次", "永久允许", "拒绝"}
-	wantDecisions := []string{decisionApprove, decisionRemember, decisionReject}
+	wantDecisions := []string{connect.ActionOnce, connect.ActionAlways, connect.ActionReject}
 	wantStyles := []string{"default", "primary", "danger"}
 	for i, btn := range buttons {
 		b := btn.(map[string]any)
@@ -70,29 +70,8 @@ func TestApprovalCardEscalationAddsFourthButton(t *testing.T) {
 		t.Fatalf("escalation button text = %v", got)
 	}
 	id, dec := buttonDecision(t, buttons[3])
-	if id != "ap_2" || dec != decisionEscalate {
+	if id != "ap_2" || dec != connect.ActionEscalate {
 		t.Fatalf("escalation value = %v/%v", id, dec)
-	}
-}
-
-func TestApprovalDecisionFor(t *testing.T) {
-	cases := []struct {
-		decision string
-		want     controlruntime.ApprovalDecision
-	}{
-		{decisionApprove, controlruntime.ApprovalDecision{Allowed: true}},
-		{decisionRemember, controlruntime.ApprovalDecision{Allowed: true, Remember: true}},
-		{decisionReject, controlruntime.ApprovalDecision{Allowed: false}},
-		{decisionEscalate, controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}},
-	}
-	for _, tc := range cases {
-		got, err := approvalDecisionFor(tc.decision)
-		if err != nil || got != tc.want {
-			t.Fatalf("approvalDecisionFor(%q) = %+v, %v; want %+v", tc.decision, got, err, tc.want)
-		}
-	}
-	if _, err := approvalDecisionFor("maybe"); err == nil {
-		t.Fatal("unknown decision should error")
 	}
 }
 
@@ -103,10 +82,10 @@ func TestResolvedCardVerdicts(t *testing.T) {
 		title    string
 		template string
 	}{
-		{decisionApprove, "已批准: edit", "green"},
-		{decisionRemember, "已永久允许: edit", "green"},
-		{decisionReject, "已拒绝: edit", "red"},
-		{decisionEscalate, "已批准并授权: edit", "green"},
+		{connect.ActionOnce, "已批准: edit", "green"},
+		{connect.ActionAlways, "已永久允许: edit", "green"},
+		{connect.ActionReject, "已拒绝: edit", "red"},
+		{connect.ActionEscalate, "已批准并授权: edit", "green"},
 	}
 	for _, tc := range cases {
 		card := resolvedCard(p, tc.decision)
@@ -139,32 +118,24 @@ func TestApprovalSummaryVariants(t *testing.T) {
 }
 
 func TestDecodeCardActionValue(t *testing.T) {
-	if _, _, err := decodeCardActionValue(map[string]interface{}{"decision": "approve"}); err == nil {
+	if _, _, err := decodeCardActionValue(map[string]interface{}{"decision": connect.ActionOnce}); err == nil {
 		t.Fatal("missing approval id should error")
 	}
 	if _, _, err := decodeCardActionValue(map[string]interface{}{"approval_id": "ap_1", "decision": "maybe"}); err == nil {
 		t.Fatal("unknown decision should error")
 	}
-	if _, _, err := decodeCardActionValue(map[string]interface{}{"approval_id": 42, "decision": "approve"}); err == nil {
+	if _, _, err := decodeCardActionValue(map[string]interface{}{"approval_id": 42, "decision": connect.ActionOnce}); err == nil {
 		t.Fatal("non-string approval id should error")
 	}
-	for _, dec := range []string{decisionApprove, decisionRemember, decisionReject, decisionEscalate} {
+	// Legacy pre-protocol decision values must no longer decode.
+	if _, _, err := decodeCardActionValue(map[string]interface{}{"approval_id": "ap_1", "decision": "approve"}); err == nil {
+		t.Fatal("legacy decision value should error")
+	}
+	for _, dec := range []string{connect.ActionOnce, connect.ActionAlways, connect.ActionReject, connect.ActionEscalate} {
 		id, got, err := decodeCardActionValue(map[string]interface{}{"approval_id": "ap_1", "decision": dec})
 		if err != nil || id != "ap_1" || got != dec {
 			t.Fatalf("valid decode %q = %v, %v, %v", dec, id, got, err)
 		}
-	}
-}
-
-func TestIsAlreadyResolvedErr(t *testing.T) {
-	if !isAlreadyResolvedErr(fmt.Errorf("runtime: approval ap_1 already resolved")) {
-		t.Fatal("already resolved should match")
-	}
-	if !isAlreadyResolvedErr(fmt.Errorf("runtime: approval ap_1 not pending")) {
-		t.Fatal("not pending should match")
-	}
-	if isAlreadyResolvedErr(errors.New("connection refused")) || isAlreadyResolvedErr(nil) {
-		t.Fatal("unrelated errors should not match")
 	}
 }
 
@@ -215,10 +186,10 @@ func TestHandleCardActionDecisions(t *testing.T) {
 		want     controlruntime.ApprovalDecision
 		toast    string
 	}{
-		{decisionApprove, controlruntime.ApprovalDecision{Allowed: true}, "已批准"},
-		{decisionRemember, controlruntime.ApprovalDecision{Allowed: true, Remember: true}, "已永久允许"},
-		{decisionReject, controlruntime.ApprovalDecision{Allowed: false}, "已拒绝"},
-		{decisionEscalate, controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}, "已批准并授权"},
+		{connect.ActionOnce, controlruntime.ApprovalDecision{Allowed: true}, "已批准"},
+		{connect.ActionAlways, controlruntime.ApprovalDecision{Allowed: true, Remember: true}, "已永久允许"},
+		{connect.ActionReject, controlruntime.ApprovalDecision{}, "已拒绝"},
+		{connect.ActionEscalate, controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}, "已批准并授权"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.decision, func(t *testing.T) {
@@ -253,7 +224,7 @@ func TestHandleCardActionDecisions(t *testing.T) {
 func TestHandleCardActionRejectWithoutStoredView(t *testing.T) {
 	rt := &stubRuntime{}
 	c := pairedConnector(t, rt)
-	resp, err := c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_2", decisionReject), "ou_owner"))
+	resp, err := c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_2", connect.ActionReject), "ou_owner"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +239,7 @@ func TestHandleCardActionRejectWithoutStoredView(t *testing.T) {
 func TestHandleCardActionAlreadyResolved(t *testing.T) {
 	rt := &stubRuntime{approveErr: fmt.Errorf("runtime: approval ap_1 already resolved")}
 	c := pairedConnector(t, rt)
-	resp, err := c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_1", decisionApprove), "ou_owner"))
+	resp, err := c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_1", connect.ActionOnce), "ou_owner"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +253,7 @@ func TestHandleCardActionRejectsBadValueAndNonOwner(t *testing.T) {
 	c := pairedConnector(t, rt)
 
 	// Bad value: no approval id.
-	resp, err := c.handleCardAction(context.Background(), cardEvent(map[string]interface{}{"decision": "approve"}, "ou_owner"))
+	resp, err := c.handleCardAction(context.Background(), cardEvent(map[string]interface{}{"decision": connect.ActionOnce}, "ou_owner"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +262,7 @@ func TestHandleCardActionRejectsBadValueAndNonOwner(t *testing.T) {
 	}
 
 	// Non-owner operator must not reach the runtime.
-	resp, err = c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_1", decisionApprove), "ou_stranger"))
+	resp, err = c.handleCardAction(context.Background(), cardEvent(cardActionValue("ap_1", connect.ActionOnce), "ou_stranger"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +278,7 @@ func TestHandleCardActionRejectsMissingOperatorOrConfig(t *testing.T) {
 
 		resp, err := c.handleCardAction(
 			context.Background(),
-			cardEvent(cardActionValue("ap_1", decisionApprove), ""),
+			cardEvent(cardActionValue("ap_1", connect.ActionOnce), ""),
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -324,7 +295,7 @@ func TestHandleCardActionRejectsMissingOperatorOrConfig(t *testing.T) {
 
 		resp, err := c.handleCardAction(
 			context.Background(),
-			cardEvent(cardActionValue("ap_1", decisionApprove), "ou_owner"),
+			cardEvent(cardActionValue("ap_1", connect.ActionOnce), "ou_owner"),
 		)
 		if err != nil {
 			t.Fatal(err)

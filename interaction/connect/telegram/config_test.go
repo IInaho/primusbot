@@ -16,18 +16,6 @@ func TestProfileAllowsOnlyOwner(t *testing.T) {
 	}
 }
 
-func TestSetOwnerUpdatesExisting(t *testing.T) {
-	profile := BotProfile{}
-	profile.setOwner(1, "alice", 10)
-	profile.setOwner(1, "alice2", 11)
-	if profile.Owner == nil {
-		t.Fatal("owner not set")
-	}
-	if profile.Owner.Username != "alice2" || profile.Owner.ChatID != 11 {
-		t.Fatalf("owner not updated: %#v", profile.Owner)
-	}
-}
-
 func TestLoadConfigMigratesLegacySingleBot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -2,8 +2,10 @@ package permission
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"nekocode/bot/tools/runtime/core"
@@ -157,5 +159,58 @@ func TestRememberRuleRejectsAutoBroadenedBashSpecifier(t *testing.T) {
 		if err := store.RememberRule("/repo", Rule{Tool: "bash", Specifier: spec, Effect: EffectAllow}); err == nil {
 			t.Fatalf("expected remembered bash spec %q to be rejected", spec)
 		}
+	}
+}
+
+func TestStoreConcurrentRemembersDoNotLoseRules(t *testing.T) {
+	dir := t.TempDir()
+	const n = 32
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		// Each executor owns a separate Store instance bound to the same file;
+		// parallel sub-agents can therefore remember rules concurrently.
+		store := NewStore(dir)
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			rule := Rule{
+				Tool:      "read",
+				Specifier: fmt.Sprintf("file-%d.txt", idx),
+				Effect:    EffectAllow,
+			}
+			if err := store.RememberRule(dir, rule); err != nil {
+				t.Errorf("RememberRule(%d): %v", idx, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	rules := NewStore(dir).RememberedRules(dir)
+	if len(rules) != n {
+		t.Fatalf("expected %d remembered rules, got %d", n, len(rules))
+	}
+}
+
+func TestDuplicateRememberSkipsSave(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	rule := Rule{Tool: "read", Specifier: "a.txt", Effect: EffectAllow}
+	if err := store.RememberRule(dir, rule); err != nil {
+		t.Fatalf("first RememberRule: %v", err)
+	}
+	path := filepath.Join(dir, ".nekocode", "permissions.json")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if err := store.RememberRule(dir, rule); err != nil {
+		t.Fatalf("duplicate RememberRule: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("duplicate remember rewrote the permissions file; expected save to be skipped")
 	}
 }

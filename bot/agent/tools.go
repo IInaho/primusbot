@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -31,11 +34,14 @@ func (r *toolRunner) executeAndFeedback(calls []core.ToolCallItem, textContent s
 	}
 
 	filtered := r.filterToolCalls(calls)
+
+	cleanupSubagents, deniedSubagents, kept := r.prepareSubagentCallbacks(filtered.Allowed, filtered.AllowedIdx, callback)
+	filtered.Allowed = kept
+	maps.Copy(filtered.Blocked, deniedSubagents)
+	defer cleanupSubagents()
+
 	r.agent.deps.toolExecutor.PreparePreviewsContext(r.agent.getCtx(), filtered.Allowed)
 	emitStartCallbacks(calls, filtered.Blocked, callback)
-
-	cleanupSubagents := r.prepareSubagentCallbacks(filtered.Allowed, callback)
-	defer cleanupSubagents()
 
 	execResults := r.executeAllowedTools(filtered.Allowed, callback)
 	results := mergeResults(calls, filtered.Blocked, execResults)
@@ -52,16 +58,12 @@ func (r *toolRunner) executeAndFeedback(calls []core.ToolCallItem, textContent s
 }
 
 func (r *toolRunner) applyPolicyResults(results []policy.Result) bool {
-	for _, result := range results {
-		if r.agent.applyPostToolHookResult(result) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(results, r.agent.applyPostToolHookResult)
 }
 
 type filteredCalls struct {
 	Allowed      []core.ToolCallItem
+	AllowedIdx   []int // original index in the caller's calls slice, parallel to Allowed
 	Blocked      map[int]string
 	PreToolHints []*policy.Hint
 }
@@ -79,6 +81,7 @@ func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem) filteredCalls {
 		}
 
 		out.Allowed = append(out.Allowed, c)
+		out.AllowedIdx = append(out.AllowedIdx, i)
 	}
 	return out
 }
@@ -234,10 +237,20 @@ type subSlotInfo struct {
 	colorIdx int
 }
 
-func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callback RunCallback) func() {
+var subSlotFullReason = fmt.Sprintf("task not started: subagent slot pool is full (%d/%d); retry after the current batch finishes", maxSubSlots, maxSubSlots)
+
+// prepareSubagentCallbacks reserves a sub-agent slot for each "task" call and
+// wires per-sub-agent event forwarding. When the slot pool is full (more than
+// maxSubSlots tasks in one batch) overflow tasks are denied fast — removed from
+// the returned allowed slice and reported in the denied map keyed by original
+// call index — instead of blocking the main goroutine until the batch finishes.
+func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, allowedIdx []int, callback RunCallback) (func(), map[int]string, []core.ToolCallItem) {
+	denied := make(map[int]string)
+	kept := make([]core.ToolCallItem, 0, len(allowed))
 	var taskInfos []subSlotInfo
 	for i, c := range allowed {
 		if c.Name != "task" {
+			kept = append(kept, c)
 			continue
 		}
 		subType, _ := c.Args["type"].(string)
@@ -248,6 +261,7 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callb
 		colorIdx, ok := r.agent.deps.subSlotMgr.Acquire(subID, subType)
 		if !ok {
 			logger.Log("subSlotMgr: Acquire failed for %s (all slots full)", subType)
+			denied[allowedIdx[i]] = subSlotFullReason
 			continue
 		}
 		if callback != nil {
@@ -259,7 +273,7 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callb
 		sid := subID
 		cid := colorIdx
 		taskInfos = append(taskInfos, subSlotInfo{sid, cid})
-		allowed[i].Args["_sub_callback"] = taskbridge.TaskCallbackFn(func(ev protocol.StepEvent) {
+		c.Args["_sub_callback"] = taskbridge.TaskCallbackFn(func(ev protocol.StepEvent) {
 			if callback == nil {
 				return
 			}
@@ -267,6 +281,7 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callb
 			ev.SubAgentColor = cid
 			callback(ev)
 		})
+		kept = append(kept, c)
 	}
 
 	return func() {
@@ -279,5 +294,5 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, callb
 				})
 			}
 		}
-	}
+	}, denied, kept
 }
