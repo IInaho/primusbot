@@ -6,6 +6,7 @@ package impl
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,39 @@ func TestRunNativeBash_CachePathMounted(t *testing.T) {
 	// Output should not contain "No such file" — the mount worked.
 	if strings.Contains(out, "No such file") {
 		t.Fatalf("cache path not mounted: %q", out)
+	}
+}
+
+// TestRunNativeBash_WritePathCreatedUnderHome verifies that a WritePath
+// located under a read-only top-level directory (e.g. /home) that does not
+// yet exist on the host can still be created and written inside the sandbox.
+// In the legacy hide mode /home was hidden, so MkdirAll created fresh dirs in
+// the tmpfs root; after the "restrict, don't hide" change /home is bound
+// read-only, which would make MkdirAll fail with EPERM before the writable
+// bind could be established.
+func TestRunNativeBash_WritePathCreatedUnderHome(t *testing.T) {
+	if !isNativeAvailable() {
+		t.Skip("native sandbox not available")
+	}
+
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		t.Skip("no home directory")
+	}
+
+	// A path under $HOME that does not exist on the host.
+	newDir := filepath.Join(home, ".nekocode_test_writepath_"+strconv.Itoa(os.Getpid()))
+	// Ensure it does not exist on the host before the run.
+	_ = os.RemoveAll(newDir)
+	t.Cleanup(func() { _ = os.RemoveAll(newDir) })
+
+	ws := t.TempDir()
+	_, err := runNativeBash(t.Context(), "echo data > "+newDir+"/file.txt", Profile{
+		Workspace:  ws,
+		WritePaths: []string{newDir},
+	}, 10*time.Second)
+	if err != nil {
+		t.Fatalf("write to non-existent WritePath under /home failed: %v", err)
 	}
 }
 

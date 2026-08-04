@@ -6,6 +6,7 @@ package impl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -388,7 +389,7 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 			case "proc", "sys", "dev", "run", "tmp":
 				continue
 			}
-	// Non-recursive: nested mounts (docker overlays, bind farms)
+			// Non-recursive: nested mounts (docker overlays, bind farms)
 			// stay hidden, which is fine for read visibility.
 			_ = bindHostPath(root, "/"+entry.Name(), true)
 		}
@@ -559,7 +560,22 @@ func bindHostPathWithRemountPolicy(root, src string, readOnly bool, ignoreReadOn
 	}
 	dst := filepath.Join(root, src)
 	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", src, err)
+		// The target may sit under a read-only top-level bind (e.g. a
+		// WritePath under /home after the "restrict, don't hide" change),
+		// so MkdirAll fails with EROFS/EPERM before the writable bind can
+		// be established. WritePaths are authorized writable roots, so
+		// materializing their directory on the host is acceptable and
+		// matches the caller's intent; retry after creating the source.
+		if !readOnly && (errors.Is(err, syscall.EROFS) || errors.Is(err, syscall.EPERM)) {
+			if mkErr := os.MkdirAll(src, 0o755); mkErr != nil {
+				return fmt.Errorf("mkdir %s: %w", src, mkErr)
+			}
+			if err := os.MkdirAll(dst, 0o755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", src, err)
+			}
+		} else {
+			return fmt.Errorf("mkdir %s: %w", src, err)
+		}
 	}
 	if err := unix.Mount(src, dst, "", unix.MS_BIND, ""); err != nil {
 		return fmt.Errorf("bind %s: %w", src, err)
