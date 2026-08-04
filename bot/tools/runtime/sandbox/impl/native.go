@@ -353,17 +353,56 @@ func sandboxChildSetupAndExec(profile Profile, command string) error {
 
 	// 3. Bind host paths into the new root. All sources are still reachable
 	//    here: the only thing we shadowed is the staging dir itself.
-	//    Read-only system dirs: bind, then remount read-only (a single
-	//    MS_BIND|MS_RDONLY call is not honoured by older kernels).
-	//    Note: in a user namespace, binding the *root* of a separately-mounted
-	//    filesystem (e.g. /dev, /run) fails with EINVAL, so those are handled
-	//    separately below via fresh tmpfs + entry-level binds.
-	for _, src := range []string{"/usr", "/bin", "/lib", "/lib64", "/lib32", "/etc", "/nix/store"} {
-		if _, err := os.Stat(src); err != nil {
-			continue
+	//
+	//    By default the sandbox is "restrict, don't hide": every top-level
+	//    host directory is bound read-only, so commands see the real
+	//    filesystem (ls/stat/cat return truthful results) and only writes
+	//    outside authorized roots fail (EPERM). The overlays below (/dev,
+	//    /proc, /run, /tmp) and the writable binds (workspace, WritePaths)
+	//    then stack on top of this read-only tree. Binds are best-effort:
+	//    mountpoint roots of other filesystems (e.g. /boot/efi) refuse to
+	//    bind under a user namespace, and hiding those is fine.
+	//
+	//    NEKOCODE_SANDBOX_HIDE_FS=1 restores the legacy behavior (only a
+	//    fixed set of system dirs is bound; everything else stays hidden).
+	if os.Getenv("NEKOCODE_SANDBOX_HIDE_FS") != "" {
+		for _, src := range []string{"/usr", "/bin", "/lib", "/lib64", "/lib32", "/etc", "/nix/store"} {
+			if _, err := os.Stat(src); err != nil {
+				continue
+			}
+			if err := bindHostPath(root, src, true); err != nil {
+				return err
+			}
 		}
-		if err := bindHostPath(root, src, true); err != nil {
-			return err
+	} else {
+		entries, err := os.ReadDir("/")
+		if err != nil {
+			return fmt.Errorf("list host root: %w", err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			switch entry.Name() {
+			// Handled by dedicated overlays below.
+			case "proc", "sys", "dev", "run", "tmp":
+				continue
+			}
+	// Non-recursive: nested mounts (docker overlays, bind farms)
+			// stay hidden, which is fine for read visibility.
+			_ = bindHostPath(root, "/"+entry.Name(), true)
+		}
+		// Top-level binds are non-recursive, so nested mountpoints (e.g.
+		// /nix/store on NixOS) stay hidden behind them. Re-bind the
+		// critical ones explicitly: the shell (/bin/sh is a symlink into
+		// /nix/store) and TLS certs depend on them.
+		for _, src := range []string{"/usr", "/bin", "/lib", "/lib64", "/lib32", "/etc", "/nix/store"} {
+			if _, err := os.Stat(src); err != nil {
+				continue
+			}
+			if err := bindHostPath(root, src, true); err != nil {
+				return err
+			}
 		}
 	}
 
