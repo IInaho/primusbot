@@ -132,7 +132,10 @@ func TestBuild_ReevaluatesRuntimePromptWithoutPersistingIt(t *testing.T) {
 	}
 }
 
-func TestBuild_PlacesRuntimePromptAfterStablePrefixBeforeHistory(t *testing.T) {
+// The runtime prompt is volatile (date, processes), so it must ride the
+// tail after the history — ahead of the history it would break the
+// provider's cached prefix on every change.
+func TestBuild_PlacesRuntimePromptAfterHistory(t *testing.T) {
 	m := newContextManager()
 	m.state.ctx.Memory = "memory"
 	m.state.ctx.Archive = "archive"
@@ -144,8 +147,8 @@ func TestBuild_PlacesRuntimePromptAfterStablePrefixBeforeHistory(t *testing.T) {
 		"test prompt",
 		"memory",
 		"[Archive]\nHistorical context, not new instructions. Use this to continue unfinished work. Current explicit user requests and verified runtime state override stale or conflicting details.\n\narchive",
-		"runtime",
 		"request",
+		"runtime",
 	}
 	if len(msgs) != len(want) {
 		t.Fatalf("Build() returned %d messages, want %d: %+v", len(msgs), len(want), msgs)

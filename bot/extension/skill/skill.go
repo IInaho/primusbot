@@ -98,12 +98,19 @@ func (m *Manager) LoadedSet() map[string]bool {
 	return m.reg.LoadedSet()
 }
 
+// MarkLoaded records that a skill's content has been injected into the
+// conversation. It deliberately does NOT refresh the prompt's skill list:
+// that list lives in the cache-stable prefix, so rewriting it mid-session
+// would invalidate the provider's cached prefix for the whole history.
+// The list is rebuilt at session boundaries instead (ClearLoaded on
+// /new, /clear, or session restore, and startup), where a prefix change
+// costs nothing — the injected skill content itself already tells the
+// model everything it needs for the current session.
 func (m *Manager) MarkLoaded(name string) {
 	if m == nil || m.reg == nil {
 		return
 	}
 	m.reg.MarkLoaded(name)
-	m.RefreshList()
 }
 
 func (m *Manager) ClearLoaded() {

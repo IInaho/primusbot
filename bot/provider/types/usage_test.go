@@ -7,7 +7,7 @@ import (
 
 func TestStreamUsage_OpenAI_Mimo_DeepSeek(t *testing.T) {
 	// All OpenAI-compatible APIs use prompt_tokens_details.cached_tokens.
-	// DeepSeek also includes non-standard flat fields, which are ignored.
+	// DeepSeek additionally sends flat fields; the nested field wins.
 	data := `{"prompt_tokens":100,"completion_tokens":50,"prompt_tokens_details":{"cached_tokens":80}}`
 	var u StreamUsage
 	if err := json.Unmarshal([]byte(data), &u); err != nil {
@@ -55,8 +55,27 @@ func TestStreamUsage_NoCacheDetails(t *testing.T) {
 	}
 }
 
-func TestStreamUsage_IgnoreNonStandardFlatFields(t *testing.T) {
-	// DeepSeek's non-standard flat fields are no longer parsed into CacheHit/Miss.
+func TestStreamUsage_DeepSeekFlatFieldsFallback(t *testing.T) {
+	// DeepSeek's flat fields populate CacheHit/Miss via Normalize when the
+	// standard nested field is absent (e.g. older/proxied responses).
+	data := `{"prompt_tokens":100,"completion_tokens":50,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20}`
+	var u StreamUsage
+	if err := json.Unmarshal([]byte(data), &u); err != nil {
+		t.Fatal(err)
+	}
+
+	u.Normalize()
+
+	if u.CacheHitTokens != 80 {
+		t.Errorf("CacheHitTokens = %d, want 80 (from flat field)", u.CacheHitTokens)
+	}
+	if u.CacheMissTokens != 20 {
+		t.Errorf("CacheMissTokens = %d, want 20 (from flat field)", u.CacheMissTokens)
+	}
+}
+
+func TestStreamUsage_NestedFieldWinsOverFlat(t *testing.T) {
+	// When both forms are present, the OpenAI-standard nested field wins.
 	data := `{"prompt_tokens":100,"completion_tokens":50,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20,"prompt_tokens_details":{"cached_tokens":80}}`
 	var u StreamUsage
 	if err := json.Unmarshal([]byte(data), &u); err != nil {
@@ -64,10 +83,7 @@ func TestStreamUsage_IgnoreNonStandardFlatFields(t *testing.T) {
 	}
 
 	if u.CacheHitTokens != 0 {
-		t.Errorf("CacheHitTokens before Normalize = %d, want 0 (flat field ignored)", u.CacheHitTokens)
-	}
-	if u.CacheMissTokens != 0 {
-		t.Errorf("CacheMissTokens before Normalize = %d, want 0 (flat field ignored)", u.CacheMissTokens)
+		t.Errorf("CacheHitTokens before Normalize = %d, want 0 (filled by Normalize)", u.CacheHitTokens)
 	}
 
 	u.Normalize()
@@ -94,5 +110,19 @@ func TestStreamUsage_ZeroPrompt(t *testing.T) {
 	}
 	if u.CacheMissTokens != 0 {
 		t.Errorf("CacheMissTokens = %d, want 0 (prompt=0 guard)", u.CacheMissTokens)
+	}
+}
+
+func TestStreamUsage_FlatMissWinsOverArithmetic(t *testing.T) {
+	// A provider-reported miss is trusted over prompt-hit arithmetic —
+	// the two are equal today, but the reported value is the guarantee.
+	data := `{"prompt_tokens":100,"completion_tokens":50,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":15}`
+	var u StreamUsage
+	if err := json.Unmarshal([]byte(data), &u); err != nil {
+		t.Fatal(err)
+	}
+	u.Normalize()
+	if u.CacheMissTokens != 15 {
+		t.Errorf("CacheMissTokens = %d, want 15 (reported flat value, not 100-80)", u.CacheMissTokens)
 	}
 }

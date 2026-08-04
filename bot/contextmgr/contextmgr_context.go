@@ -6,18 +6,29 @@ import (
 	"nekocode/protocol"
 )
 
+// Build assembles the full request context in cache-stability order:
+//
+//	Layer 0  system prompt + skill list (immutable within a session)
+//	Layer 1  long-term memory
+//	Layer 2  compaction archive
+//	Layer 3  message history (append-only)
+//	Layer 4  runtime environment (volatile: date, processes, roots)
+//	Layer 5  todos + hints (volatile tail)
+//
+// Layers 4-5 ride the tail: their content may change every turn, and a
+// change there only costs the tail itself, never the cached prefix.
 func (m *Manager) Build() []types.Message {
-	runtimePrompt := m.buildRuntimePrompt()
+	runtimePrompt := m.buildLayer4()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
 	out := m.state.ctx.BuildLayer0()
-	out = append(out, m.state.ctx.BuildLayer0Mem()...)
-	out = append(out, m.state.ctx.BuildLayer05()...)
+	out = append(out, m.state.ctx.BuildLayer1()...)
+	out = append(out, m.state.ctx.BuildLayer2()...)
+	out = append(out, m.buildLayer3()...)
 	if runtimePrompt != "" {
 		out = append(out, types.Message{Role: "system", Content: runtimePrompt})
 	}
-	out = append(out, m.filterValidMessages(m.visibleHistory())...)
-	out = append(out, m.state.ctx.BuildLayer2()...)
+	out = append(out, m.state.ctx.BuildLayer5()...)
 
 	for i := range out {
 		out[i].Source = ""
@@ -25,16 +36,25 @@ func (m *Manager) Build() []types.Message {
 	return out
 }
 
-// SetRuntimePromptProvider sets an ephemeral system-message provider. The
-// provider is called for every model-context build and its output is excluded
-// from snapshots so resumed sessions always see the current environment.
+// buildLayer3 returns the visible (post-compaction-boundary) history with
+// orphaned tool calls/results filtered out.
+func (m *Manager) buildLayer3() []types.Message {
+	return m.filterValidMessages(m.visibleHistory())
+}
+
+// SetRuntimePromptProvider sets the Layer 4 provider: an ephemeral
+// system-message factory called for every model-context build. Its output
+// is excluded from snapshots so resumed sessions always see the current
+// environment.
 func (m *Manager) SetRuntimePromptProvider(provider func() string) {
 	m.runtimeMu.Lock()
 	m.runtimePrompt = provider
 	m.runtimeMu.Unlock()
 }
 
-func (m *Manager) buildRuntimePrompt() string {
+// buildLayer4 renders the runtime environment block via the registered
+// provider ("" when none is set).
+func (m *Manager) buildLayer4() string {
 	m.runtimeMu.RLock()
 	provider := m.runtimePrompt
 	m.runtimeMu.RUnlock()

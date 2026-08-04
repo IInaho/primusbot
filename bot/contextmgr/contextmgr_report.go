@@ -30,7 +30,7 @@ type ContextReport struct {
 }
 
 func (m *Manager) Report() ContextReport {
-	runtimePrompt := m.buildRuntimePrompt()
+	runtimePrompt := m.buildLayer4()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
 

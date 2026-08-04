@@ -107,6 +107,10 @@ func (b *Bot) resumeSession(id string) (*session.Snapshot, error) {
 		for _, name := range snapshot.LoadedSkills {
 			b.ext.MarkSkillLoaded(name)
 		}
+		// MarkLoaded no longer refreshes the list (prefix stability), so
+		// re-render it once here — restore is a session boundary where a
+		// prefix change costs nothing.
+		b.ext.RefreshSkillList()
 	}
 	b.restoreLedger(snapshot.Ledger)
 	if b.cmd != nil {

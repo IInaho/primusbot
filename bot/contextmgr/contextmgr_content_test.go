@@ -74,10 +74,10 @@ func TestBuildLayer0_Empty(t *testing.T) {
 	}
 }
 
-func TestBuildLayer0Mem(t *testing.T) {
+func TestBuildLayer1(t *testing.T) {
 	c := newContextContent("")
 	c.Memory = "memory content"
-	msgs := c.BuildLayer0Mem()
+	msgs := c.BuildLayer1()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 msg, got %d", len(msgs))
 	}
@@ -86,18 +86,18 @@ func TestBuildLayer0Mem(t *testing.T) {
 	}
 }
 
-func TestBuildLayer0Mem_Empty(t *testing.T) {
+func TestBuildLayer1_Empty(t *testing.T) {
 	c := newContextContent("")
-	msgs := c.BuildLayer0Mem()
+	msgs := c.BuildLayer1()
 	if len(msgs) != 0 {
 		t.Error("empty memory should produce no messages")
 	}
 }
 
-func TestBuildLayer05(t *testing.T) {
+func TestBuildLayer2(t *testing.T) {
 	c := newContextContent("")
 	c.Archive = "archived summary"
-	msgs := c.BuildLayer05()
+	msgs := c.BuildLayer2()
 	if len(msgs) != 1 {
 		t.Fatal("expected 1 message")
 	}
@@ -106,29 +106,29 @@ func TestBuildLayer05(t *testing.T) {
 	}
 }
 
-func TestBuildLayer05_Empty(t *testing.T) {
+func TestBuildLayer2_Empty(t *testing.T) {
 	c := newContextContent("")
-	msgs := c.BuildLayer05()
+	msgs := c.BuildLayer2()
 	if len(msgs) != 0 {
 		t.Error("empty archive should produce no messages")
 	}
 }
 
-func TestBuildLayer2(t *testing.T) {
+func TestBuildLayer5(t *testing.T) {
 	c := newContextContent("")
 	c.LoadTodos([]protocol.TodoItem{{Content: "x", Status: "pending"}})
 	c.Hints = "<hint>"
-	msgs := c.BuildLayer2()
+	msgs := c.BuildLayer5()
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
 }
 
-func TestBuildLayer2_Empty(t *testing.T) {
+func TestBuildLayer5_Empty(t *testing.T) {
 	c := newContextContent("")
-	msgs := c.BuildLayer2()
+	msgs := c.BuildLayer5()
 	if len(msgs) != 0 {
-		t.Error("empty layer2 should produce no messages")
+		t.Error("empty layer5 should produce no messages")
 	}
 }
 

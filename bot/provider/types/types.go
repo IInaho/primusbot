@@ -84,14 +84,26 @@ type StreamUsage struct {
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details,omitempty"`
+	// DeepSeek also reports flat fields (kept for backward compatibility):
+	// prompt_cache_hit_tokens / prompt_cache_miss_tokens.
+	FlatCacheHit  *int `json:"prompt_cache_hit_tokens,omitempty"`
+	FlatCacheMiss *int `json:"prompt_cache_miss_tokens,omitempty"`
 }
 
 // Normalize extracts cache fields from protocol-specific usage formats.
+// Provider-reported values win over derived ones: the OpenAI-standard
+// nested field wins for hit, DeepSeek's flat fields fill any gap, and a
+// reported miss is trusted over the prompt-hit arithmetic.
 func (u *StreamUsage) Normalize() {
 	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > 0 {
 		u.CacheHitTokens = u.PromptTokensDetails.CachedTokens
+	} else if u.FlatCacheHit != nil {
+		u.CacheHitTokens = *u.FlatCacheHit
 	}
-	if u.CacheHitTokens > 0 && u.PromptTokens > 0 {
+	switch {
+	case u.FlatCacheMiss != nil:
+		u.CacheMissTokens = *u.FlatCacheMiss
+	case u.CacheHitTokens > 0 && u.PromptTokens > 0:
 		u.CacheMissTokens = max(0, u.PromptTokens-u.CacheHitTokens)
 	}
 }

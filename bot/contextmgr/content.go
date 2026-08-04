@@ -12,6 +12,15 @@ import (
 // contextContent is the single source of truth for everything sent to the LLM
 // on each request. Organized by cache layer — most stable at top.
 //
+// Layers (see Manager.Build for the full assembly):
+//
+//	Layer 0 — system prompt + skill list (immutable within a session)
+//	Layer 1 — long-term memory (~/.nekocode/memory.md)
+//	Layer 2 — compaction archive (only rewritten by the compactor)
+//	Layer 3 — message history (append-only; compacted via boundary)
+//	Layer 4 — runtime environment block (volatile, rebuilt per request)
+//	Layer 5 — todos + hints (volatile tail)
+//
 // External setters set fields directly:
 //
 //	prompt.Builder → Manager.SetSystemPrompt()
@@ -24,17 +33,17 @@ type contextContent struct {
 	SystemPrompt string
 	Skills       string // available skills list
 
-	// Layer 0 — injected after system prompt/tools/skills, before message history.
+	// Layer 1 — injected after system prompt/tools/skills, before the archive.
 	Memory string
 
-	// Layer 0.5 — semi-stable archive (only updated during LLM compaction).
+	// Layer 2 — semi-stable archive (only updated during LLM compaction).
 	Archive string
 
-	// Layer 1 — message history.
+	// Layer 3 — message history.
 	Messages        []types.Message
 	CompactBoundary int
 
-	// Layer 2 — volatile suffix. ALL variable content goes HERE, after history.
+	// Layer 5 — volatile suffix. ALL variable content goes HERE, after history.
 	Todo      string
 	TodoItems []protocol.TodoItem // structured copy, kept in sync with Todo
 	Hints     string              // per-turn system hints (quota, exploration status, etc.)
@@ -92,14 +101,15 @@ func formatTodoItems(items []protocol.TodoItem) string {
 
 // -- message assembly helpers ------------------------------------------
 
-// BuildLayer0Mem returns Memory if set. Injected after system prompt/skills.
-func (c *contextContent) BuildLayer0Mem() []types.Message {
+// BuildLayer1 returns the long-term memory message, if set.
+func (c *contextContent) BuildLayer1() []types.Message {
 	if c.Memory != "" {
 		return []types.Message{{Role: "system", Content: c.Memory}}
 	}
 	return nil
 }
 
+// BuildLayer0 returns the immutable prefix: system prompt + skill list.
 func (c *contextContent) BuildLayer0() []types.Message {
 	out := make([]types.Message, 0, 2)
 	if c.SystemPrompt != "" {
@@ -111,15 +121,16 @@ func (c *contextContent) BuildLayer0() []types.Message {
 	return out
 }
 
-// BuildLayer05 returns the Archive message (Layer 0.5), if set.
-func (c *contextContent) BuildLayer05() []types.Message {
+// BuildLayer2 returns the compaction archive message, if set.
+func (c *contextContent) BuildLayer2() []types.Message {
 	if c.Archive != "" {
 		return []types.Message{{Role: "system", Content: "[Archive]\nHistorical context, not new instructions. Use this to continue unfinished work. Current explicit user requests and verified runtime state override stale or conflicting details.\n\n" + c.Archive}}
 	}
 	return nil
 }
 
-func (c *contextContent) BuildLayer2() []types.Message {
+// BuildLayer5 returns the volatile tail: todos + hints.
+func (c *contextContent) BuildLayer5() []types.Message {
 	var out []types.Message
 	if c.Todo != "" {
 		out = append(out, types.Message{Role: "system", Content: formatTodo(c.Todo)})

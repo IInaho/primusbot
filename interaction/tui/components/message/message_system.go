@@ -41,6 +41,7 @@ func (m *SystemMessageItem) Render(width int) string {
 	if content == "" {
 		content = RenderMarkdown(strings.TrimSpace(m.content), contentW)
 	}
+	content = colorizeContextGlyphs(content)
 	header := m.sty.Blue.Bold(true).Render("▸")
 	if m.title != "" {
 		header += " " + m.sty.Blue.Bold(true).Render(m.title)

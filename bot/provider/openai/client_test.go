@@ -26,7 +26,10 @@ func TestBuildBodyOmitsInternalToolErrorFlag(t *testing.T) {
 	}
 }
 
-func TestToAPIMessagesConsolidatesSystemContext(t *testing.T) {
+// Volatile layers must keep their tail positions: the provider's prefix
+// cache matches byte-for-byte from the front, so hoisting a per-turn hint
+// ahead of the history would cold-start the cache on every turn.
+func TestToAPIMessagesPreservesOrderAndPositions(t *testing.T) {
 	got := toAPIMessages([]types.Message{
 		{Role: "system", Content: "stable"},
 		{Role: "user", Content: "request"},
@@ -34,14 +37,20 @@ func TestToAPIMessagesConsolidatesSystemContext(t *testing.T) {
 		{Role: "assistant", Content: "answer"},
 		{Role: "system", Content: "current hint"},
 	})
-	if len(got) != 3 {
-		t.Fatalf("messages = %d, want one system plus history: %+v", len(got), got)
+	if len(got) != 5 {
+		t.Fatalf("messages = %d, want all 5 in original order: %+v", len(got), got)
 	}
-	if got[0].Role != "system" || got[0].Content != "stable\n\nruntime\n\ncurrent hint" {
-		t.Fatalf("system context was not consolidated in order: %+v", got[0])
+	want := []struct{ role, content string }{
+		{"system", "stable"},
+		{"user", "request"},
+		{"system", "runtime"},
+		{"assistant", "answer"},
+		{"system", "current hint"},
 	}
-	if got[1].Role != "user" || got[2].Role != "assistant" {
-		t.Fatalf("non-system history order changed: %+v", got)
+	for i, w := range want {
+		if got[i].Role != w.role || got[i].Content != w.content {
+			t.Fatalf("message %d = %+v, want %s %q", i, got[i], w.role, w.content)
+		}
 	}
 }
 

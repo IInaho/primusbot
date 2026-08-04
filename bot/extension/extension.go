@@ -156,6 +156,16 @@ func (m *Manager) ClearLoadedSkills() {
 	m.skills.ClearLoaded()
 }
 
+// RefreshSkillList re-renders the prompt's skill list from the registry.
+// Only call it at session boundaries (startup, /new, /clear, restore):
+// the list lives in the cache-stable prefix, so rebuilding it mid-session
+// would invalidate the provider's cached prefix.
+func (m *Manager) RefreshSkillList() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.skills.RefreshList()
+}
+
 // SetPluginEnabled persists and applies one plugin state transition.
 func (m *Manager) SetPluginEnabled(name string, enabled bool) error {
 	_, err := m.setPluginEnabled(context.Background(), name, enabled)

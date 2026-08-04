@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"nekocode/bot/provider/types"
 	"nekocode/util/url"
@@ -171,14 +170,17 @@ func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stre
 	return body
 }
 
+// toAPIMessages converts internal messages to the wire format, preserving
+// their order and positions. The context manager deliberately places
+// volatile layers (todos, hints, environment notes) at the tail so the
+// prompt prefix stays byte-stable for the provider's prefix cache —
+// hoisting every system message to the front (the old behavior) moved
+// those volatile parts to byte ~100 and invalidated the entire cached
+// prefix on every turn.
 func toAPIMessages(messages []types.Message) []apiMessage {
-	var system []string
 	out := make([]apiMessage, 0, len(messages))
 	for _, m := range messages {
-		if m.Role == "system" {
-			if m.Content != "" {
-				system = append(system, m.Content)
-			}
+		if m.Role == "system" && m.Content == "" {
 			continue
 		}
 		out = append(out, apiMessage{
@@ -189,9 +191,6 @@ func toAPIMessages(messages []types.Message) []apiMessage {
 			ToolCalls:        m.ToolCalls,
 			ToolCallID:       m.ToolCallID,
 		})
-	}
-	if len(system) > 0 {
-		out = append([]apiMessage{{Role: "system", Content: strings.Join(system, "\n\n")}}, out...)
 	}
 	return out
 }
