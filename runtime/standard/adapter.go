@@ -37,6 +37,10 @@ func (a *adapter) ExecuteCommand(ctx context.Context, input string, host control
 	return a.bot.ExecuteCommand(ctx, input, runHost{RunHost: host})
 }
 
+func (a *adapter) ExecuteLocalCommand(ctx context.Context, input string) (string, controlruntime.LocalCommandResult) {
+	return a.bot.ExecuteLocalCommand(ctx, input)
+}
+
 func (a *adapter) CommandMenu(ctx context.Context, input string) (controlruntime.CommandMenu, bool) {
 	return a.bot.CommandMenu(ctx, input)
 }
@@ -52,6 +56,15 @@ func (a *adapter) Metrics() controlruntime.MetricsSnapshot {
 func (a *adapter) CurrentModel() controlruntime.ModelSelection {
 	config := a.bot.Configuration()
 	return viewmodel.Model(config.ActiveModelConfig())
+}
+
+// PermissionMode reports the permission mode: "full" when the full-takeover
+// mode is active, "manual" otherwise.
+func (a *adapter) PermissionMode() string {
+	if a.bot.FullAccess() {
+		return "full"
+	}
+	return "manual"
 }
 
 func (a *adapter) SwitchModel(name string) (controlruntime.ModelSelection, error) {
@@ -145,10 +158,12 @@ func (a *adapter) Close() error {
 func (a *adapter) services() controlruntime.Services {
 	return controlruntime.Services{
 		ExecuteCommand:         a.ExecuteCommand,
+		ExecuteLocalCommand:    a.ExecuteLocalCommand,
 		CommandMenu:            a.CommandMenu,
 		Steer:                  a.Steer,
 		Metrics:                a.Metrics,
 		CurrentModel:           a.CurrentModel,
+		PermissionMode:         a.PermissionMode,
 		SwitchModel:            a.SwitchModel,
 		ContextSnapshot:        a.ContextSnapshot,
 		MemoryView:             a.MemoryView,

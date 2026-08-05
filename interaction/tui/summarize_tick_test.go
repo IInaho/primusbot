@@ -28,6 +28,9 @@ func (b *tickFakeBot) StartRun(_ context.Context, input controlruntime.Input) (c
 func (*tickFakeBot) SteerRun(context.Context, controlruntime.RunID, controlruntime.Input) error {
 	return nil
 }
+func (*tickFakeBot) ExecuteLocalCommand(context.Context, string) (string, controlruntime.LocalCommandResult) {
+	return "", controlruntime.LocalCommandNotCommand
+}
 func (*tickFakeBot) CancelRun(context.Context, controlruntime.RunID) error { return nil }
 func (*tickFakeBot) DecideApproval(context.Context, string, controlruntime.ApprovalDecision) error {
 	return nil
@@ -45,6 +48,7 @@ func (*tickFakeBot) Close() error { return nil }
 func (*tickFakeBot) CurrentModel() controlruntime.ModelSelection {
 	return controlruntime.ModelSelection{Provider: "test", Model: "test"}
 }
+func (*tickFakeBot) PermissionMode() string { return "manual" }
 func (*tickFakeBot) SwitchModel(string) (controlruntime.ModelSelection, error) {
 	return controlruntime.ModelSelection{}, nil
 }

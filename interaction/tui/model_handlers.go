@@ -197,6 +197,20 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "enter":
 		value := m.Input.Value()
+		// Accept a highlighted suggestion first, mirroring the idle path:
+		// without this the popup would be visible but not selectable.
+		if m.Suggestions.Visible() {
+			if selected, ok := m.Suggestions.Accept(); ok {
+				if !selected.Submit {
+					m.Input.SetValue(selected.Value + " ")
+					m.Input.SetCursorEnd()
+					m.Suggestions.Hide()
+					m.resizeMessages()
+					return nil
+				}
+				value = selected.Value
+			}
+		}
 		if value != "" {
 			m.Suggestions.Hide()
 			m.resizeMessages()
@@ -204,6 +218,9 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.Input.Reset()
 			m.Messages.GotoBottom()
 			m.Input.SetFollow(true)
+			if m.tryLocalCommand(value) {
+				return nil
+			}
 			m.processingStart = time.Now()
 			m.processingPhase = phaseSteer
 			m.Messages.SetProcessingStatus(phaseSteer)
@@ -215,6 +232,11 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 	case "esc":
+		if m.Suggestions.Visible() {
+			m.Suggestions.Hide()
+			m.resizeMessages()
+			return nil
+		}
 		if err := m.Runtime.CancelRun(context.Background(), ""); err != nil {
 			m.Messages.AddMessage(message.ChatMessage{Role: "error", Content: err.Error()})
 		} else {
@@ -223,7 +245,7 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 	default:
 		input, cmd := m.Input.Update(msg)
 		m.Input = input
-		m.resizeMessages()
+		m.refreshSuggestions()
 		return cmd
 	}
 	return nil
@@ -416,6 +438,7 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 		}
 		selection := m.Runtime.CurrentModel()
 		m.Header.SetModel(selection.Provider, selection.Model)
+		m.Input.SetPermissionMode(m.Runtime.PermissionMode())
 	case controlruntime.EventRunStarted:
 		if m.state != stateProcessing {
 			m.transitionTo(stateProcessing)

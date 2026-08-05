@@ -14,10 +14,10 @@ import (
 // the presentation layer is unambiguous and keeps the command output plain
 // (IM surfaces receive the same text without ANSI).
 var contextGlyphStyles = map[rune]lipgloss.Style{
-	'⛁': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Blue)),      // system / tools / messages
-	'⛀': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Yellow)),    // todo / skills
-	'⛶': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.DiffGreen)), // free
-	'⛂': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Primary)),   // cache
+	'⛁': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Blue)),         // system / tools / messages
+	'⛀': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Yellow)),       // todo / skills
+	'⛶': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.DiffGreen)),    // free
+	'⛂': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Primary)),      // cache
 	'⛃': lipgloss.NewStyle().Foreground(lipgloss.Color(styles.SubColors[4])), // subagents
 }
 

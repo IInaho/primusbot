@@ -86,6 +86,12 @@ func (h *Handler) Menu(ctx context.Context, input string) (protocol.CommandMenu,
 	return h.parser.Menu(ctx, input)
 }
 
+// CommandAvailability reports whether input names a registered command and
+// whether that command may execute while a task is in progress.
+func (h *Handler) CommandAvailability(input string) (isCommand, duringTask bool) {
+	return h.parser.CommandAvailability(input)
+}
+
 // Execute parses input and runs it as a command. handled is false when
 // input is not a command — in that case any previous skill context is
 // cleared from ctxMgr.

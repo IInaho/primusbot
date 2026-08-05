@@ -34,6 +34,19 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn protoco
 		tc.Args = setToolPath(tc.Args, safePath)
 		return tc, "", true
 	}
+	// Full-takeover mode: grant session-scoped workspace access without the
+	// prompt, consistent with bypassing every other approval.
+	if e.FullAccess() {
+		rootPath, err := workspace.CandidateRoot(path)
+		if err != nil {
+			return tc, err.Error(), false
+		}
+		if _, err := e.workspace.AddSessionRoot(rootPath, access); err != nil {
+			return tc, err.Error(), false
+		}
+		tc.Args = setToolPath(tc.Args, safePath)
+		return tc, "", true
+	}
 	if confirmFn == nil {
 		return tc, fmt.Sprintf("workspace access required for %s: %s", access, safePath), false
 	}

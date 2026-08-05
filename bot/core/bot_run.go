@@ -204,3 +204,22 @@ func (b *Bot) ExecuteCommand(ctx context.Context, input string, host RunHost) (p
 	}
 	return result, nil
 }
+
+// ExecuteLocalCommand runs a during-task-safe command without a run
+// lifecycle: no run ID, no busy check, no session save (local commands do
+// not touch conversation context by definition). Commands that need the run
+// path report LocalCommandRequiresIdle so callers can route or reject them.
+func (b *Bot) ExecuteLocalCommand(ctx context.Context, input string) (string, protocol.LocalCommandResult) {
+	isCommand, duringTask := b.cmd.CommandAvailability(input)
+	if !isCommand {
+		return "", protocol.LocalCommandNotCommand
+	}
+	if !duringTask {
+		return "", protocol.LocalCommandRequiresIdle
+	}
+	out, handled := b.cmd.Execute(ctx, input, b.ctxMgr)
+	if !handled {
+		return "", protocol.LocalCommandNotCommand
+	}
+	return out, protocol.LocalCommandExecuted
+}

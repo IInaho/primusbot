@@ -47,11 +47,13 @@ func (r *modelRunner) callLLMForTool() ([]core.ToolCallItem, string, error) {
 
 	result, err := llmstream.CallLLMWithRetry(a.getCtx(), a.deps.llmClient, func() llmstream.LLMCallOptions {
 		return llmstream.LLMCallOptions{
-			Ctx:       a.getCtx(),
-			Messages:  messages,
-			ToolDefs:  toolDefs,
-			Callbacks: r.streamCallbacks(),
-			CheckDone: a.life.Finished().Load,
+			Ctx:         a.getCtx(),
+			Messages:    messages,
+			ToolDefs:    toolDefs,
+			Callbacks:   r.streamCallbacks(),
+			CheckDone:   a.life.Finished().Load,
+			Source:      "main",
+			Diagnostics: a.deps.ctxMgr.PrefixDiagnostics,
 		}
 	})
 	if err != nil {
@@ -95,9 +97,11 @@ func (r *modelRunner) streamSynthesize(ctx context.Context) (string, error) {
 	messages = append(messages, types.Message{Role: "user", Content: synthesizePrompt})
 
 	result, err := llmstream.CallLLM(a.deps.llmClient, llmstream.LLMCallOptions{
-		Ctx:       ctx,
-		Messages:  messages,
-		Callbacks: r.streamCallbacks(),
+		Ctx:         ctx,
+		Messages:    messages,
+		Callbacks:   r.streamCallbacks(),
+		Source:      "synthesize",
+		Diagnostics: a.deps.ctxMgr.PrefixDiagnostics,
 	})
 	if err != nil {
 		return "", err

@@ -62,6 +62,15 @@ type DeltaPayload = core.DeltaPayload
 type PhasePayload = core.PhasePayload
 type TodoItem = protocol.TodoItem
 
+// LocalCommandResult and its values classify ExecuteLocalCommand outcomes.
+type LocalCommandResult = protocol.LocalCommandResult
+
+const (
+	LocalCommandNotCommand   = protocol.LocalCommandNotCommand
+	LocalCommandExecuted     = protocol.LocalCommandExecuted
+	LocalCommandRequiresIdle = protocol.LocalCommandRequiresIdle
+)
+
 // MetricsSnapshot is independent from run lifecycle status.
 type MetricsSnapshot = protocol.Metrics
 type ToolPayload = core.ToolPayload

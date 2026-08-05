@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 
+	"nekocode/bot/calllog"
 	"nekocode/bot/provider/types"
 )
 
@@ -123,6 +124,26 @@ func (t *prefixTracker) TurnStats() PrefixTurnStats {
 	stats.PeakMiss = clonePrefixCall(stats.PeakMiss)
 	stats.LowestHit = clonePrefixCall(stats.LowestHit)
 	return stats
+}
+
+// Diagnostics returns the pending change classification plus the fingerprint
+// of the most recently observed request shape, for the per-call evidence
+// log. After Observe, previous holds the current request — so these hashes
+// identify this call's prefix, comparable across records.
+func (t *prefixTracker) Diagnostics() calllog.PrefixDiag {
+	diag := calllog.PrefixDiag{ChangedParts: append([]string(nil), t.pending...)}
+	if t.previous == nil {
+		return diag
+	}
+	diag.SystemHash = calllog.ShortDigest(t.previous.system)
+	diag.ToolsHash = calllog.ShortDigest(t.previous.tools)
+	diag.HistoryCount = len(t.previous.history)
+	var joined []byte
+	for _, h := range t.previous.history {
+		joined = append(joined, h[:]...)
+	}
+	diag.HistoryHash = calllog.ShortDigest(sha256.Sum256(joined))
+	return diag
 }
 
 // BeginTurn starts cache accounting for a new user conversation while keeping

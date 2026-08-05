@@ -19,14 +19,15 @@ const (
 )
 
 type Input struct {
-	textarea      textarea.Model
-	width         int
-	follow        bool
-	sending       bool
-	history       []string
-	historyIdx    int
-	savedInput    string
-	historyActive bool
+	textarea       textarea.Model
+	width          int
+	follow         bool
+	permissionMode string
+	sending        bool
+	history        []string
+	historyIdx     int
+	savedInput     string
+	historyActive  bool
 }
 
 func NewInput(width int) *Input {
@@ -131,6 +132,10 @@ func (i *Input) SetSending(sending bool) {
 
 func (i *Input) SetFollow(follow bool) { i.follow = follow }
 
+// SetPermissionMode sets the permission mode shown next to Follow in the
+// footer ("manual"/"full"; empty hides the field).
+func (i *Input) SetPermissionMode(mode string) { i.permissionMode = mode }
+
 func (i *Input) CanCursorUp() bool {
 	return i.textarea.Line() > 0 || i.textarea.LineInfo().RowOffset > 0
 }
@@ -175,6 +180,14 @@ func (i *Input) View() string {
 	footer := styles.BorderStyle.Render(styles.Vertical+" ") +
 		styles.SubtleStyle.Render("Follow:") + " " +
 		styles.TealStyle.Render(txt)
+	switch i.permissionMode {
+	case "full":
+		footer += styles.SubtleStyle.Render(" · Perm: ") + styles.YellowStyle.Bold(true).Render("FULL")
+	case "manual", "":
+		footer += styles.SubtleStyle.Render(" · Perm: Manual")
+	default:
+		footer += styles.SubtleStyle.Render(" · Perm: " + i.permissionMode)
+	}
 	pad := max(0, w-lipgloss.Width(footer)-1)
 
 	var b strings.Builder

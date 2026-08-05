@@ -47,6 +47,16 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, privileged tools
 	if e.permissionDenied(tc.Name, req) {
 		return "", false, failDeniedByRule, execErr
 	}
+	// Full-takeover mode: escalate without any dialog, including capabilities
+	// (like process.host) that manual mode never pre-approves. Deny rules
+	// above still block.
+	if e.FullAccess() {
+		out, err := privileged(e.toolContext(ctx), tc.Args, req)
+		if err == nil {
+			return out, true, 0, nil
+		}
+		return "", false, failRetryError, err
+	}
 	if e.permissionAllowed(tc.Name, req) {
 		out, err := privileged(e.toolContext(ctx), tc.Args, req)
 		if err == nil {
@@ -57,10 +67,11 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, privileged tools
 	if confirmFn == nil {
 		return "", false, failNoConfirmFn, execErr
 	}
-	if hasPreApproval {
+	if hasPreApproval && preApproved.requestCoveredBy(req) {
 		// The user pre-approved escalation in the merged confirm dialog
-		// ("仅本次允许并授权" / "始终允许并授权"). Either way we must make
-		// the grant visible to the retry path (permissionAllowed =
+		// ("仅本次允许并授权" / "始终允许并授权") and the actual request is
+		// within the predicted scope shown in that dialog. Either way we must
+		// make the grant visible to the retry path (permissionAllowed =
 		// sessionGrants + store.Match); the difference is whether it also
 		// persists to disk:
 		//   - remember=true  → session + disk (store.Allow)

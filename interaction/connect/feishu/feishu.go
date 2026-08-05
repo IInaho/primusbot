@@ -157,6 +157,14 @@ func (c *Connector) handleMessage(ctx context.Context, client *feishuClient, ev 
 		_ = client.sendText(ctx, chatID, reply)
 		return
 	}
+	// During-task-safe commands (e.g. /permission, /context) run without a
+	// run lifecycle — including while a run is in progress.
+	if out, status := c.rt.ExecuteLocalCommand(ctx, text); status == controlruntime.LocalCommandExecuted {
+		if strings.TrimSpace(out) != "" {
+			_ = client.sendText(ctx, chatID, out)
+		}
+		return
+	}
 	_, err = c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
 		Source: controlruntime.SourceRef{Kind: "feishu", ID: chatID},
 		Sender: controlruntime.SenderRef{ID: openID},
@@ -216,6 +224,10 @@ func (s eventSink) Post(ctx context.Context, in connect.Intent) error {
 		// Feishu does not replace cards from events — the resolved card is
 		// rendered in the button callback. Nothing to push.
 	case connect.IntentResult, connect.IntentFailed:
+		s.sendResult(ctx, in.Text)
+	case connect.IntentSystem:
+		// Command/system reply (e.g. /devices, /config): deliver as a
+		// result card, distinct from run terminalization.
 		s.sendResult(ctx, in.Text)
 	case connect.IntentStopped:
 		s.c.sendToOwner(ctx, s.client, in.Text)
@@ -286,6 +298,17 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 			return resp, nil
 		}
 		if result.Command != "" {
+			// Menu submissions of during-task-safe commands take the local
+			// path too — otherwise they fail with busy during a run.
+			if out, status := c.rt.ExecuteLocalCommand(ctx, result.Command); status == controlruntime.LocalCommandExecuted {
+				content := strings.TrimSpace(out)
+				if content == "" {
+					content = "已执行: " + result.Command
+				}
+				resp := toastResponse("success", "已执行")
+				resp.Card = &larkcallback.Card{Type: "raw", Data: commandMenuResultCard(content)}
+				return resp, nil
+			}
 			_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
 				Source: controlruntime.SourceRef{Kind: "feishu"},
 				Sender: controlruntime.SenderRef{ID: ev.Event.Operator.OpenID}, Text: result.Command,
@@ -346,6 +369,12 @@ func (c *Connector) sendMenuResult(ctx context.Context, client messageSender, ch
 		return
 	}
 	if result.Command == "" {
+		return
+	}
+	if out, status := c.rt.ExecuteLocalCommand(ctx, result.Command); status == controlruntime.LocalCommandExecuted {
+		if strings.TrimSpace(out) != "" {
+			_ = client.sendText(ctx, chatID, out)
+		}
 		return
 	}
 	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{

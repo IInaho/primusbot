@@ -87,6 +87,31 @@ func (r *Manager) CurrentModel() ModelSelection {
 	return service()
 }
 
+// PermissionMode reports the permission mode ("manual"/"full"); "" when the
+// runtime provides no permission service or is closed.
+func (r *Manager) PermissionMode() string {
+	r.mu.Lock()
+	service, closed := r.services.PermissionMode, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return ""
+	}
+	return service()
+}
+
+// ExecuteLocalCommand runs a during-task-safe command without a run
+// lifecycle. Unlike StartRun it never checks the busy state: local commands
+// do not touch run state by definition.
+func (r *Manager) ExecuteLocalCommand(ctx context.Context, input string) (string, LocalCommandResult) {
+	r.mu.Lock()
+	service, closed := r.services.ExecuteLocalCommand, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return "", LocalCommandNotCommand
+	}
+	return service(ctx, input)
+}
+
 func (r *Manager) ContextSnapshot() ContextSnapshot {
 	r.mu.Lock()
 	service, closed := r.services.ContextSnapshot, r.closed

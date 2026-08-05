@@ -1,6 +1,8 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	nethttp "net/http"
 	"sync"
 	"time"
@@ -32,6 +34,14 @@ type Message struct {
 }
 
 const MessageSourceVolatileTail = "volatile-tail"
+
+// HashBody returns the hex SHA-256 of a marshaled request body, recorded in
+// RequestMeta so per-call logs can prove (or disprove) byte-level prefix
+// stability across calls.
+func HashBody(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
 
 type ToolCall struct {
 	Index    int          `json:"index"`
@@ -68,6 +78,21 @@ type StreamToken struct {
 	ToolCallDelta    *ToolCallDelta
 	Usage            *StreamUsage
 	FinishReason     string
+	// Request is emitted once, as the first token of a stream: wire-level
+	// facts about the request for the per-call evidence log.
+	Request *RequestMeta
+}
+
+// RequestMeta describes the exact request a stream belongs to. BodySHA256 is
+// the byte-level proof of prompt-prefix stability across calls; Body is kept
+// so the caller can dump it when the provider cache collapses.
+type RequestMeta struct {
+	Model      string
+	Protocol   string
+	BaseURL    string
+	BodySHA256 string
+	BodyBytes  int
+	Body       []byte
 }
 
 type ToolCallDelta struct {

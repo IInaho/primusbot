@@ -15,6 +15,7 @@ import type {
   TodosPayload,
   MetricsPayload,
   ConfirmEvent,
+  SystemEvent,
 } from '../types/events'
 
 export interface AgentEventHandlers {
@@ -32,6 +33,7 @@ export interface AgentEventHandlers {
   onDone: (e: DoneEvent) => void
   onStatus: (e: StatusEvent) => void
   onConfirm?: (e: ConfirmEvent) => void
+  onSystem?: (e: SystemEvent) => void
 }
 
 export function useWailsEvents(handlers: AgentEventHandlers): void {
@@ -56,6 +58,7 @@ export function useWailsEvents(handlers: AgentEventHandlers): void {
     cleanups.push(safeEventsOn('agent:done', (e: unknown) => ref.current.onDone(e as DoneEvent)))
     cleanups.push(safeEventsOn('agent:status', (e: unknown) => ref.current.onStatus(e as StatusEvent)))
     cleanups.push(safeEventsOn('agent:confirm', (e: unknown) => ref.current.onConfirm?.(e as ConfirmEvent)))
+    cleanups.push(safeEventsOn('agent:system', (e: unknown) => ref.current.onSystem?.(e as SystemEvent)))
 
     return () => {
       cleanups.forEach((fn) => {

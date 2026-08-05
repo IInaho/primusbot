@@ -24,11 +24,11 @@ func commandMenuCard(prompt *connect.MenuPrompt) map[string]any {
 	buttons := make([]any, 0, len(prompt.Choices))
 	for _, choice := range prompt.Choices {
 		buttons = append(buttons, map[string]any{
-			"tag": "button", "text": map[string]any{"tag": "plain_text", "content": choice.Label},
+			"tag": "button", "text": map[string]any{"tag": "plain_text", "content": menuChoiceButtonText(choice)},
 			"type": "default", "value": map[string]interface{}{valueKeyCommand: choice.Token},
 		})
 	}
-	body := connect.FormatMenu(prompt)
+	body := menuCardBody(prompt)
 	return map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
 		"header": map[string]any{"template": "blue", "title": map[string]any{"tag": "plain_text", "content": prompt.Title}},
@@ -37,6 +37,31 @@ func commandMenuCard(prompt *connect.MenuPrompt) map[string]any {
 			map[string]any{"tag": "action", "actions": buttons},
 		},
 	}
+}
+
+// menuCardBody renders the card body accompanying the choice buttons. Unlike
+// connect.FormatMenu — the fallback for button-less transports — it does not
+// repeat the choices as a numbered list: the buttons already list them, and
+// descriptions ride in the button text.
+func menuCardBody(prompt *connect.MenuPrompt) string {
+	if len(prompt.Choices) > 0 {
+		return fmt.Sprintf("共 %d 项，点击下方按钮选择。", len(prompt.Choices))
+	}
+	empty := strings.TrimSpace(prompt.Empty)
+	if empty == "" {
+		empty = "没有可选项"
+	}
+	return empty
+}
+
+// menuChoiceButtonText packs label + description into one button line so the
+// buttons carry all the information the old text list did.
+func menuChoiceButtonText(choice connect.MenuChoice) string {
+	text := choice.Label
+	if choice.Description != "" {
+		text += " — " + choice.Description
+	}
+	return connect.TruncateRunes(text, 40)
 }
 
 func commandMenuResultCard(content string) map[string]any {

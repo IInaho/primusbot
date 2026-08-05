@@ -23,6 +23,16 @@ func Translate(ev controlruntime.Event) []Intent {
 		}
 		return []Intent{{Kind: IntentPreview, RunID: ev.RunID, Text: p.Delta}}
 
+	case controlruntime.EventSystemMessage:
+		// Command output (e.g. /devices, /config) is a terminal result, not
+		// a progress event — it must reach the chat. Progress events are
+		// intentionally dropped above/below; this one is the command's reply.
+		p, ok := ev.Payload.(controlruntime.MessagePayload)
+		if !ok || strings.TrimSpace(p.Content) == "" {
+			return nil
+		}
+		return []Intent{{Kind: IntentSystem, RunID: ev.RunID, Text: p.Content}}
+
 	case controlruntime.EventRunDone:
 		p, ok := ev.Payload.(controlruntime.RunResult)
 		if !ok {

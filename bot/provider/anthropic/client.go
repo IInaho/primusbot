@@ -254,6 +254,14 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 
 		body := c.buildRequest(messages, tools, true)
 		jsonBody, _ := json.Marshal(body)
+		tokenCh <- types.StreamToken{Request: &types.RequestMeta{
+			Model:      c.Model,
+			Protocol:   "anthropic",
+			BaseURL:    c.BaseURL,
+			BodySHA256: types.HashBody(jsonBody),
+			BodyBytes:  len(jsonBody),
+			Body:       jsonBody,
+		}}
 
 		req, err := c.newStreamRequest(ctx, jsonBody)
 		if err != nil {

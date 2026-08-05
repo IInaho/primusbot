@@ -48,9 +48,13 @@ type RunConfig struct {
 	OnPhase       func(phase string)
 	AddTokens     func(prompt, compl int)
 	ConfirmFn     protocol.ConfirmFunc
-	Handoff       string                 // unverified prior-agent evidence prepended to the delegated task
-	OnToolCall    func(ev ToolCallEvent) // sub-agent tool execution callback
-	ToolState     *execution.ExecutionState
+	// FullAccess, when non-nil and returning true, puts the sub-agent's tool
+	// executor into full-takeover mode (no approval prompts), mirroring the
+	// main agent's permission mode.
+	FullAccess func() bool
+	Handoff    string                 // unverified prior-agent evidence prepended to the delegated task
+	OnToolCall func(ev ToolCallEvent) // sub-agent tool execution callback
+	ToolState  *execution.ExecutionState
 	// Environment, when non-nil, is evaluated for every model call so roots
 	// approved while the parent run is active become visible immediately.
 	Environment prompt.EnvironmentProvider

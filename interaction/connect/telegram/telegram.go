@@ -243,6 +243,14 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 	case text == "/status":
 		_ = client.sendMessage(ctx, msg.Chat.ID, c.tracker().Status())
 	default:
+		// During-task-safe commands (e.g. /permission, /context) run without
+		// a run lifecycle — including while a run is in progress.
+		if out, status := c.rt.ExecuteLocalCommand(ctx, text); status == controlruntime.LocalCommandExecuted {
+			if strings.TrimSpace(out) != "" {
+				_ = client.sendMessage(ctx, msg.Chat.ID, taskview.HTMLEscape(out))
+			}
+			return
+		}
 		_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
 			Source: controlruntime.SourceRef{Kind: "telegram", ID: strconv.FormatInt(msg.Chat.ID, 10)},
 			Sender: controlruntime.SenderRef{
@@ -305,7 +313,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 		result := c.menus.Select(ctx, c.rt, strconv.FormatInt(chatID, 10), cb.Data)
 		callbackMessage := "已选择"
 		if result.Prompt != nil && cb.Message != nil {
-			text := taskview.HTMLEscape(connect.FormatMenu(result.Prompt))
+			text := taskview.HTMLEscape(menuPromptText(result.Prompt))
 			keyboard := commandMenuKeyboard(result.Prompt)
 			_ = client.editMessage(ctx, chatID, cb.Message.MessageID, text, &keyboard)
 		} else {
@@ -381,7 +389,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 
 func (c *Connector) sendMenuResult(ctx context.Context, client *apiClient, chatID int64, sender User, result connect.MenuResult) error {
 	if result.Prompt != nil {
-		text := taskview.HTMLEscape(connect.FormatMenu(result.Prompt))
+		text := taskview.HTMLEscape(menuPromptText(result.Prompt))
 		_, err := client.sendMessageWithKeyboard(ctx, chatID, text, commandMenuKeyboard(result.Prompt))
 		return err
 	}
@@ -389,6 +397,14 @@ func (c *Connector) sendMenuResult(ctx context.Context, client *apiClient, chatI
 		return client.sendMessage(ctx, chatID, taskview.HTMLEscape(result.Message))
 	}
 	if result.Command == "" {
+		return nil
+	}
+	// Menu submissions of during-task-safe commands take the local path too —
+	// otherwise picking /permission from a menu during a run fails with busy.
+	if out, status := c.rt.ExecuteLocalCommand(ctx, result.Command); status == controlruntime.LocalCommandExecuted {
+		if strings.TrimSpace(out) != "" {
+			return client.sendMessage(ctx, chatID, taskview.HTMLEscape(out))
+		}
 		return nil
 	}
 	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
@@ -407,9 +423,38 @@ func (c *Connector) sendMenuResult(ctx context.Context, client *apiClient, chatI
 func commandMenuKeyboard(prompt *connect.MenuPrompt) inlineKeyboardMarkup {
 	rows := make([][]inlineKeyboardButton, 0, len(prompt.Choices))
 	for _, choice := range prompt.Choices {
-		rows = append(rows, []inlineKeyboardButton{{Text: choice.Label, CallbackData: choice.Token}})
+		rows = append(rows, []inlineKeyboardButton{{Text: menuChoiceButtonText(choice), CallbackData: choice.Token}})
 	}
 	return inlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+// menuPromptText renders the body accompanying a menu keyboard. Unlike
+// connect.FormatMenu — the fallback for button-less transports — it does not
+// repeat the choices as a numbered list: the inline keyboard already lists
+// them, and choice descriptions ride in the button text.
+func menuPromptText(prompt *connect.MenuPrompt) string {
+	title := strings.TrimSpace(prompt.Title)
+	if title == "" {
+		title = "Commands"
+	}
+	if len(prompt.Choices) > 0 {
+		return title
+	}
+	empty := strings.TrimSpace(prompt.Empty)
+	if empty == "" {
+		empty = "No choices available"
+	}
+	return title + "\n\n" + empty
+}
+
+// menuChoiceButtonText packs label + description into one button line so the
+// keyboard carries all the information the old text list did.
+func menuChoiceButtonText(choice connect.MenuChoice) string {
+	text := choice.Label
+	if choice.Description != "" {
+		text += " — " + choice.Description
+	}
+	return connect.TruncateRunes(text, 64)
 }
 
 // handleAnswerCallback dispatches question-answer callbacks: single-select
@@ -553,6 +598,10 @@ func (s *eventSink) Post(ctx context.Context, in connect.Intent) error {
 			text = taskview.MarkdownToHTML(in.Text)
 		}
 		s.broadcast(ctx, text)
+	case connect.IntentSystem:
+		// Command/system reply (e.g. /devices, /config): deliver directly,
+		// bypassing the run-terminalization logic of IntentResult.
+		s.broadcast(ctx, taskview.MarkdownToHTML(in.Text))
 	case connect.IntentFailed:
 		// Settle the preview but keep the failure card (error context).
 		s.preview.finalize(ctx, in.RunID)

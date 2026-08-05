@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"nekocode/bot/agent"
 	"nekocode/bot/checkpoint"
@@ -22,6 +23,7 @@ import (
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider"
 	"nekocode/bot/session"
+	"nekocode/logger"
 	"nekocode/protocol"
 )
 
@@ -54,6 +56,10 @@ type Bot struct {
 	mu            sync.Mutex
 	hostMu        sync.RWMutex
 	runHost       RunHost
+	// fullAccess mirrors the executor's full-takeover permission mode as a
+	// lock-free value: command menus are resolved with b.mu held, so reading
+	// the mode through getAgent (which takes b.mu) would self-deadlock.
+	fullAccess atomic.Bool
 }
 
 // New assembles the standard bot and loads its persisted configuration,
@@ -133,6 +139,9 @@ func (b *Bot) rebuildRuntime() error {
 	b.toolbox.Workspace().Configure(b.cwd, b.configuredWorkspaceRoots())
 	b.initExtensions()
 	b.initAgent()
+	// A fresh agent means a fresh executor: the full-takeover mode does not
+	// carry over (e.g. after a model switch), so reset the lock-free mirror.
+	b.fullAccess.Store(false)
 	b.initCommands()
 	return nil
 }
@@ -215,10 +224,20 @@ func (b *Bot) initAgent() {
 	b.wireTaskTool(fm, compactionModel, b.ag)
 }
 
+// FullAccess reports the current permission mode without taking b.mu, safe
+// for status reads from menus and UI refresh paths.
+func (b *Bot) FullAccess() bool { return b.fullAccess.Load() }
+
 func (b *Bot) initCommands() {
 	deps := command.Deps{
-		CtxMgr:            b.ctxMgr,
-		SetPlanMode:       func(enabled bool) { b.getAgent().Executor().SetPlanMode(enabled) },
+		CtxMgr:      b.ctxMgr,
+		SetPlanMode: func(enabled bool) { b.getAgent().Executor().SetPlanMode(enabled) },
+		SetFullAccess: func(on bool) {
+			logger.Log("permission mode changed: full_access=%v", on)
+			b.fullAccess.Store(on)
+			b.getAgent().Executor().SetFullAccess(on)
+		},
+		GetFullAccess:     b.fullAccess.Load,
 		ToolRegistry:      b.toolbox.Registry,
 		BaseSystemPrompt:  b.promptBuilder.BuildStatic,
 		GetConfigFn:       b.model,

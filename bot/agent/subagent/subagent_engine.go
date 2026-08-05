@@ -61,6 +61,9 @@ func (e *Engine) newExecutor(cfg RunConfig) (*runner.Executor, func()) {
 	if cfg.ConfirmFn != nil {
 		executor.SetConfirmFn(cfg.ConfirmFn)
 	}
+	if cfg.FullAccess != nil && cfg.FullAccess() {
+		executor.SetFullAccess(true)
+	}
 
 	toolState := executor.ExecutionState()
 	if cfg.ToolState != nil {
@@ -172,7 +175,9 @@ func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []stri
 				},
 				RecordCache: mgr.RecordCache,
 			},
-			CheckDone: func() bool { return false },
+			CheckDone:   func() bool { return false },
+			Source:      "subagent",
+			Diagnostics: mgr.PrefixDiagnostics,
 		}
 	})
 	if err != nil {

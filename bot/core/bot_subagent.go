@@ -55,6 +55,7 @@ func buildSubagentRunConfig(
 		Thoroughness:  thoroughness,
 		ContextWindow: contextWindow,
 		ConfirmFn:     ag.ConfirmFn(),
+		FullAccess:    ag.Executor().FullAccess,
 		ToolState:     ag.ToolExecutionState(),
 		AddTokens:     ag.AddTokens,
 		Policy:        ag.Governance(),

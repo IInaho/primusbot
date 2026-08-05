@@ -22,10 +22,14 @@ type Executor struct {
 	confirmFn protocol.ConfirmFunc
 	phaseFn   protocol.PhaseFunc
 	planMode  bool
-	planTools map[string]struct{}
-	previewFn func(toolName string, args map[string]any, preview string)
-	permStore *permission.Store
-	fnMu      sync.RWMutex
+	// fullAccess is the "全接管" (full-takeover) permission mode: every tool
+	// call runs without approval prompts. Explicit deny rules still block —
+	// a deny is a hard user-configured rule, not an approval.
+	fullAccess bool
+	planTools  map[string]struct{}
+	previewFn  func(toolName string, args map[string]any, preview string)
+	permStore  *permission.Store
+	fnMu       sync.RWMutex
 	// escalationApproved tracks tool calls (keyed by ToolCallItem.ID) for
 	// which the user pre-approved permission escalation in the merged confirm
 	// dialog. Keying by call ID — not tool name — prevents a pre-approval
@@ -100,6 +104,22 @@ func (e *Executor) SetPlanMode(on bool) {
 	e.fnMu.Lock()
 	e.planMode = on
 	e.fnMu.Unlock()
+}
+
+// SetFullAccess toggles the full-takeover permission mode. When on, every
+// approval prompt (permission asks and capability escalations) is bypassed
+// and the call runs immediately; explicit deny rules still block.
+func (e *Executor) SetFullAccess(on bool) {
+	e.fnMu.Lock()
+	e.fullAccess = on
+	e.fnMu.Unlock()
+}
+
+// FullAccess reports whether the full-takeover permission mode is active.
+func (e *Executor) FullAccess() bool {
+	e.fnMu.RLock()
+	defer e.fnMu.RUnlock()
+	return e.fullAccess
 }
 
 // SetPlanTools replaces the tools allowed while plan mode is active. Registry
@@ -228,18 +248,42 @@ func (e *Executor) SandboxEngine() *permission.Engine {
 
 type escalationApproval struct {
 	remember bool
+	// predicted is the capability request shown in the confirm dialog when
+	// the user clicked "allow and authorize". The pre-approval only covers
+	// escalation requests within this scope — see requestCoveredBy.
+	predicted *core.PermissionRequest
+}
+
+// requestCoveredBy reports whether an actual escalation request stays within
+// the capabilities the user saw and approved. Without this check a tool
+// could request broader capabilities at execution time (e.g. process.host
+// when only net.outbound was predicted) and get them silently.
+func (a escalationApproval) requestCoveredBy(req core.PermissionRequest) bool {
+	if a.predicted == nil {
+		return false
+	}
+	for _, cap := range req.Capabilities {
+		if !slices.Contains(a.predicted.Capabilities, cap) {
+			return false
+		}
+	}
+	return permission.ContainsAllWritePaths(
+		permission.WritePathsFromRequest(*a.predicted),
+		permission.WritePathsFromRequest(req),
+	)
 }
 
 // preApproveEscalation marks a tool call (by its ID) as having user
 // pre-approved permission escalation in the merged confirm dialog, so
 // tryPermissionEscalation will skip the second dialog. Keying by call ID
-// prevents pre-approvals from leaking to unrelated later calls.
-func (e *Executor) preApproveEscalation(callID string, remember bool) {
+// prevents pre-approvals from leaking to unrelated later calls. The
+// predicted request bounds what the pre-approval covers.
+func (e *Executor) preApproveEscalation(callID string, remember bool, predicted *core.PermissionRequest) {
 	if callID == "" {
 		return
 	}
 	e.escalationMu.Lock()
-	e.escalationApproved[callID] = escalationApproval{remember: remember}
+	e.escalationApproved[callID] = escalationApproval{remember: remember, predicted: predicted}
 	e.escalationMu.Unlock()
 }
 

@@ -44,6 +44,18 @@ export const MessageItem = memo(function MessageItem({ msg, toggleStep }: Messag
     )
   }
 
+  // 系统消息（命令输出，如 /devices、/config）: 左侧竖条提示。
+  if (msg.role === 'system') {
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="ml-1 text-[10px] uppercase tracking-[0.18em] text-text-3">system</div>
+        <div className="min-w-0 card-radius border-l-2 border-primary/60 bg-surface-2/60 px-3.5 py-2.5 text-sm leading-relaxed text-text-2 [overflow-wrap:break-word]">
+          <MarkdownBody text={msg.text} />
+        </div>
+      </div>
+    )
+  }
+
   // assistant: 直接是 RunCard (默认带顶栏); 无 Run 元数据时回退纯文本。
   if (isRunMsg(msg)) {
     return <RunCard msg={msg} toggleStep={toggleStep} />

@@ -59,7 +59,7 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 			e.rememberAllowRule(toolName, args, dec.matchedRule)
 		}
 		if reply.AllowWithPermission && predictedReq != nil {
-			e.preApproveEscalation(tc.ID, reply.Remember)
+			e.preApproveEscalation(tc.ID, reply.Remember, predictedReq)
 		}
 	}
 
@@ -196,6 +196,11 @@ func (e *Executor) permissionDecisionForRule(dec permission.Decision, tc core.To
 		}
 		return permissionDecision{block: true, reason: reason}
 	case permission.EffectAsk:
+		// Full-takeover mode: asks become silent allows. Deny rules above
+		// still block — they are hard rules, not approvals.
+		if e.FullAccess() {
+			return permissionDecision{}
+		}
 		// Only skip the basic prompt when (a) the engine fell through to its
 		// default effect (no explicit rule matched — dec.Rule.Tool == ""),
 		// and (b) a predicted capability request is already covered by a grant.

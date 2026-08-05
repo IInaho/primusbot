@@ -237,7 +237,9 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		}
 	case controlruntime.EventPhaseChanged:
 		if p, ok := ev.Payload.(controlruntime.PhasePayload); ok {
-			wailsruntime.EventsEmit(a.ctx, "agent:phase", map[string]string{"phase": p.Phase})
+			// Frontend AgentPhase keys are lowercase; the runtime constants are
+			// capitalized ("Thinking", ...). Normalize at the emit boundary.
+			wailsruntime.EventsEmit(a.ctx, "agent:phase", map[string]string{"phase": strings.ToLower(p.Phase)})
 		}
 	case controlruntime.EventTodosUpdated:
 		wailsruntime.EventsEmit(a.ctx, "agent:todos", map[string]any{"items": ev.Payload})
@@ -251,7 +253,6 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		if metrics, ok := ev.Payload.(controlruntime.MetricsSnapshot); ok {
 			wailsruntime.EventsEmit(a.ctx, "agent:metrics", map[string]any{
 				"prompt": metrics.TurnPrompt, "completion": metrics.TurnCompletion,
-				"cacheHit": 0, "cacheMiss": 0,
 				"elapsedMs":    time.Since(a.startTime()).Milliseconds(),
 				"compactCount": metrics.CompactCount,
 			})
@@ -304,6 +305,14 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 	case controlruntime.EventRunDone:
 		payload, _ := ev.Payload.(controlruntime.RunResult)
 		a.emitRunDone(payload.Output, "")
+	case controlruntime.EventSystemMessage:
+		// Command output (e.g. /devices, /config) reaches the UI as a
+		// system message so the user sees the command's reply.
+		if p, ok := ev.Payload.(controlruntime.MessagePayload); ok && strings.TrimSpace(p.Content) != "" {
+			wailsruntime.EventsEmit(a.ctx, "agent:system", map[string]any{
+				"content": p.Content,
+			})
+		}
 	case controlruntime.EventRunFailed:
 		payload, _ := ev.Payload.(controlruntime.RunResult)
 		a.emitRunDone(payload.Output, payload.Error)

@@ -28,6 +28,24 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		return protocol.CommandMenu{Title: "Choose model", Empty: "No models configured", Items: items}, true
 	})
 
+	p.RegisterMenu("permission", func(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
+		if len(cmd.Args) != 0 {
+			return protocol.CommandMenu{}, false
+		}
+		full := b.fullAccess.Load()
+		manualDesc := "Prompt for approval on guarded commands (default)"
+		fullDesc := "Run ALL commands with no approval — DANGEROUS"
+		if full {
+			fullDesc += " · current"
+		} else {
+			manualDesc += " · current"
+		}
+		return protocol.CommandMenu{Title: "Permission mode", Items: []protocol.CommandMenuItem{
+			{Value: "/permission manual", Label: "manual", Description: manualDesc, Submit: true},
+			{Value: "/permission full", Label: "full (全接管)", Description: fullDesc, Submit: true},
+		}}, true
+	})
+
 	p.RegisterMenu("rewind", func(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
 		if len(cmd.Args) != 0 || b.checkpoints == nil || b.sess == nil {
 			return protocol.CommandMenu{}, false

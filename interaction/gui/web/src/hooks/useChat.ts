@@ -343,6 +343,16 @@ export function useChat(): UseChatReturn {
     setBusy(e.status !== 'idle')
   }, [])
 
+  // onSystem 处理命令输出（/devices、/config 等）：作为独立 system 消息展示。
+  const onSystem = useCallback((e: { content: string }) => {
+    const content = (e.content ?? '').trim()
+    if (!content) return
+    setMsgs((prev) => [
+      ...prev,
+      { id: genId(), role: 'system' as const, text: content, streaming: false },
+    ])
+  }, [])
+
   useWailsEvents({
     onDelta,
     onReasoning,
@@ -357,6 +367,7 @@ export function useChat(): UseChatReturn {
     onStep,
     onDone,
     onStatus,
+    onSystem,
   })
 
   const send = useCallback((input?: string) => {

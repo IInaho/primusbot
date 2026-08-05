@@ -139,6 +139,7 @@ type ConnectorRuntime interface {
 	DecideApproval(ctx context.Context, approvalID string, decision ApprovalDecision) error
 	AnswerQuestion(ctx context.Context, questionID string, reply protocol.QuestionReply) error
 	CommandMenu(ctx context.Context, input string) (protocol.CommandMenu, bool)
+	ExecuteLocalCommand(ctx context.Context, input string) (string, protocol.LocalCommandResult)
 	Events(ctx context.Context, filter EventFilter) (<-chan Event, error)
 	ReportConnectorStatus(payload ConnectorStatusPayload)
 }

@@ -14,6 +14,9 @@ import (
 )
 
 func (m *Model) startChat(value string) tea.Cmd {
+	if m.tryLocalCommand(value) {
+		return nil
+	}
 	m.transitionTo(stateProcessing)
 	m.Messages.SetSpinnerView(m.Spinner.View())
 	status := PhaseWaiting
@@ -38,6 +41,35 @@ func (m *Model) startChat(value string) tea.Cmd {
 
 func isSummarizeCommand(value string) bool {
 	return strings.TrimSpace(value) == "/summarize"
+}
+
+// tryLocalCommand executes during-task-safe commands immediately, without a
+// run lifecycle — the fork that keeps status queries and local toggles off
+// the prompt FIFO. It reports whether the input was fully handled: either
+// executed, or rejected because the command needs an idle runtime while a
+// task is in progress.
+func (m *Model) tryLocalCommand(value string) bool {
+	out, status := m.Runtime.ExecuteLocalCommand(context.Background(), value)
+	addSystem := func(content string) {
+		m.Messages.AddMessage(message.ChatMessage{Role: "system", Content: content, RenderedContent: content})
+		m.Messages.GotoBottom()
+	}
+	switch status {
+	case controlruntime.LocalCommandExecuted:
+		if strings.TrimSpace(out) != "" {
+			addSystem(out)
+		}
+		// Local commands emit no runtime events, so status fields they can
+		// change (e.g. the permission mode) must be refreshed here.
+		m.Input.SetPermissionMode(m.Runtime.PermissionMode())
+		return true
+	case controlruntime.LocalCommandRequiresIdle:
+		if m.state == stateProcessing {
+			addSystem("命令 " + value + " 需在任务结束后执行")
+			return true
+		}
+	}
+	return false
 }
 
 func interactiveTool(toolName string) bool {

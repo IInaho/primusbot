@@ -25,6 +25,8 @@ type skillState struct {
 type Deps struct {
 	CtxMgr            *ctxmgr.Manager
 	SetPlanMode       func(bool)
+	SetFullAccess     func(bool)
+	GetFullAccess     func() bool
 	ToolRegistry      *tools.Registry
 	BaseSystemPrompt  func() string
 	GetConfigFn       func() config.ModelConfig

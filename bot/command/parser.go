@@ -34,6 +34,11 @@ type commandEntry struct {
 	Description string
 	Handler     HandlerFunc
 	Menu        MenuFunc
+	// DuringTask marks commands that neither read nor mutate conversation
+	// context and need no run lifecycle (status queries, local toggles).
+	// They may execute immediately, even while a run is in progress —
+	// Codex's available_during_task semantics.
+	DuringTask bool
 }
 
 type Parser struct {
@@ -52,6 +57,32 @@ func (p *Parser) Register(name string, handler HandlerFunc) {
 // transport-neutral command pickers.
 func (p *Parser) RegisterInfo(name, description string, handler HandlerFunc) {
 	p.RegisterWithPrefix(SlashPrefix, name, description, handler)
+}
+
+// RegisterLocalInfo registers a slash command that is safe to run during a
+// task: it does not touch conversation context and needs no run mutex.
+// Such commands are executed immediately by frontends instead of going
+// through a run.
+func (p *Parser) RegisterLocalInfo(name, description string, handler HandlerFunc) {
+	p.RegisterWithPrefix(SlashPrefix, name, description, handler)
+	key := commandKey{Prefix: SlashPrefix, Name: strings.ToLower(strings.TrimSpace(name))}
+	entry := p.handlers[key]
+	entry.DuringTask = true
+	p.handlers[key] = entry
+}
+
+// CommandAvailability reports whether input names a registered command and
+// whether that command may execute while a task is in progress.
+func (p *Parser) CommandAvailability(input string) (isCommand, duringTask bool) {
+	cmd := p.Parse(input)
+	if cmd.Name == "" {
+		return false, false
+	}
+	entry, ok := p.handlers[commandKey{Prefix: normalizePrefix(cmd.Prefix), Name: cmd.Name}]
+	if !ok {
+		return false, false
+	}
+	return true, entry.DuringTask
 }
 
 func (p *Parser) RegisterDynamic(name string, handler HandlerFunc) {
@@ -215,7 +246,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return selection.Provider + "/" + selection.Model
 	}
 
-	p.RegisterInfo("help", "Show available commands", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterLocalInfo("help", "Show available commands", func(_ context.Context, cmd *Command) (string, bool) {
 		return formatCommandHelp(p.RootMenu(SlashPrefix), p.RootMenu(DollarPrefix)), true
 	})
 
@@ -230,7 +261,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return result, true
 	})
 
-	p.RegisterInfo("context", "Show context usage", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterLocalInfo("context", "Show context usage", func(_ context.Context, cmd *Command) (string, bool) {
 		return ContextReport(deps.CtxMgr, deps.ToolRegistry.Descriptors()), true
 	})
 
@@ -271,7 +302,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return result, true
 	})
 
-	p.RegisterInfo("config", "Show the active model", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterLocalInfo("config", "Show the active model", func(_ context.Context, cmd *Command) (string, bool) {
 		return getConfig(), true
 	})
 
@@ -294,6 +325,43 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		}
 		return "Switched to " + getConfig(), true
 	})
+
+	// /permission: show or switch the permission mode. "manual" (the default)
+	// prompts for approval on guarded calls; "full" is the full-takeover mode
+	// that runs everything without approval. Local: it only flips an atomic
+	// switch, so it may run while a task is in progress.
+	p.RegisterLocalInfo("permission", "Show or switch the permission mode", func(_ context.Context, cmd *Command) (string, bool) {
+		if deps.GetFullAccess == nil || deps.SetFullAccess == nil {
+			return "Permission mode is unavailable.", true
+		}
+		if len(cmd.Args) == 0 {
+			return permissionModeStatus(deps.GetFullAccess()), true
+		}
+		switch strings.ToLower(strings.Join(cmd.Args, " ")) {
+		case "manual":
+			deps.SetFullAccess(false)
+			return "已切回手动审批模式。", true
+		case "full":
+			deps.SetFullAccess(true)
+			return fullAccessWarning(), true
+		default:
+			return "Usage: /permission [manual|full]", true
+		}
+	})
+}
+
+func permissionModeStatus(full bool) string {
+	if full {
+		return "Permission: FULL（全接管）· /permission manual 恢复审批"
+	}
+	return "Permission: manual · /permission [manual|full] 切换"
+}
+
+// fullAccessWarning is the one-line risk note shown on entering full-takeover
+// mode. The persistent reminder lives in the status bar (Perm: FULL), so the
+// command output stays short.
+func fullAccessWarning() string {
+	return "⚠ 全接管已开启：所有命令免审批直接执行（deny 规则仍生效），重启自动恢复。/permission manual 关闭。"
 }
 
 func formatCommandHelp(menus ...protocol.CommandMenu) string {

@@ -19,7 +19,9 @@ import (
 type RuntimeClient interface {
 	controlruntime.Interaction
 	SteerRun(context.Context, controlruntime.RunID, controlruntime.Input) error
+	ExecuteLocalCommand(context.Context, string) (string, controlruntime.LocalCommandResult)
 	CurrentModel() controlruntime.ModelSelection
+	PermissionMode() string
 	SessionMessages() []controlruntime.DisplayMessage
 	Close() error
 }
@@ -79,6 +81,7 @@ func NewModel(rt RuntimeClient) (*Model, error) {
 		runtimeEvents: events,
 	}
 	m.Input.SetHistory(loadInputHistory())
+	m.Input.SetPermissionMode(rt.PermissionMode())
 
 	return m, nil
 }

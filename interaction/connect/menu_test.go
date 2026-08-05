@@ -22,6 +22,9 @@ func (menuRuntime) Events(context.Context, controlruntime.EventFilter) (<-chan c
 	return make(chan controlruntime.Event), nil
 }
 func (menuRuntime) ReportConnectorStatus(controlruntime.ConnectorStatusPayload) {}
+func (menuRuntime) ExecuteLocalCommand(context.Context, string) (string, controlruntime.LocalCommandResult) {
+	return "", controlruntime.LocalCommandNotCommand
+}
 func (menuRuntime) CommandMenu(_ context.Context, input string) (protocol.CommandMenu, bool) {
 	switch input {
 	case "/":

@@ -128,6 +128,10 @@ func (c *Connector) handleMessage(ctx context.Context, client *apiClient, msg in
 		case menuResult.Message != "":
 			c.reply(ctx, client, msg, menuResult.Message)
 		case menuResult.Command != "":
+			if out, status := c.rt.ExecuteLocalCommand(ctx, menuResult.Command); status == controlruntime.LocalCommandExecuted {
+				c.reply(ctx, client, msg, out)
+				return
+			}
 			_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
 				Source: controlruntime.SourceRef{Kind: "qqbot", ID: msg.sourceID()},
 				Sender: controlruntime.SenderRef{ID: msg.authorID}, Text: menuResult.Command,
@@ -144,6 +148,10 @@ func (c *Connector) handleMessage(ctx context.Context, client *apiClient, msg in
 	cmds := connect.CommandHandler{RT: c.rt, Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		c.reply(ctx, client, msg, reply)
+		return
+	}
+	if out, status := c.rt.ExecuteLocalCommand(ctx, text); status == controlruntime.LocalCommandExecuted {
+		c.reply(ctx, client, msg, out)
 		return
 	}
 	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{

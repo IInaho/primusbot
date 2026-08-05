@@ -10,7 +10,6 @@ import (
 func TestTranslateDropsProgressEvents(t *testing.T) {
 	progress := []controlruntime.EventType{
 		controlruntime.EventInputAccepted,
-		controlruntime.EventSystemMessage,
 		controlruntime.EventReasoningDelta,
 		controlruntime.EventPhaseChanged,
 		controlruntime.EventToolStarted,
@@ -65,6 +64,27 @@ func TestTranslatePreviewAndResult(t *testing.T) {
 	intents = Translate(controlruntime.Event{Type: controlruntime.EventRunCancelled, RunID: "r1"})
 	if len(intents) != 1 || intents[0].Kind != IntentStopped {
 		t.Fatalf("run_aborted intents = %+v", intents)
+	}
+}
+
+func TestTranslateSystemMessage(t *testing.T) {
+	// Command output (e.g. /devices, /config) must reach the chat as a
+	// distinct IntentSystem, not be dropped as a progress event.
+	intents := Translate(controlruntime.Event{
+		Type:    controlruntime.EventSystemMessage,
+		RunID:   "r1",
+		Payload: controlruntime.MessagePayload{Content: "Connected devices: none"},
+	})
+	if len(intents) != 1 || intents[0].Kind != IntentSystem || intents[0].Text != "Connected devices: none" {
+		t.Fatalf("system intents = %+v", intents)
+	}
+
+	// Empty system messages are dropped.
+	if got := Translate(controlruntime.Event{
+		Type:    controlruntime.EventSystemMessage,
+		Payload: controlruntime.MessagePayload{Content: "   "},
+	}); got != nil {
+		t.Fatalf("empty system message = %v, want nil", got)
 	}
 }
 

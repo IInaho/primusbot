@@ -141,3 +141,39 @@ func TestPrefixTrackerKeepsPeakMissAndLowestHitSeparately(t *testing.T) {
 		t.Fatalf("lowest hit = %+v", stats.LowestHit)
 	}
 }
+
+func TestPrefixTrackerDiagnosticsFingerprint(t *testing.T) {
+	var tracker prefixTracker
+	tracker.Observe(buildPrefixShape(nil, []types.Message{{Role: "user", Content: "one"}}, nil))
+	first := tracker.Diagnostics()
+	if !reflect.DeepEqual(first.ChangedParts, []string{"cold-start"}) {
+		t.Fatalf("cold-start parts = %v", first.ChangedParts)
+	}
+	if first.HistoryCount != 1 || first.HistoryHash == "" || first.SystemHash == "" || first.ToolsHash == "" {
+		t.Fatalf("diag missing fingerprints: %+v", first)
+	}
+
+	// Append-only history: same prefix fingerprint tail, parts cleared.
+	tracker.Observe(buildPrefixShape(nil, []types.Message{
+		{Role: "user", Content: "one"},
+		{Role: "assistant", Content: "two"},
+	}, nil))
+	appended := tracker.Diagnostics()
+	if len(appended.ChangedParts) != 0 {
+		t.Fatalf("append-only parts = %v", appended.ChangedParts)
+	}
+	if appended.HistoryCount != 2 || appended.HistoryHash == first.HistoryHash {
+		t.Fatalf("history fingerprint did not move: %+v vs %+v", appended, first)
+	}
+
+	// Same shape observed again: identical fingerprints — the log-level proof
+	// of a stable prefix.
+	tracker.Observe(buildPrefixShape(nil, []types.Message{
+		{Role: "user", Content: "one"},
+		{Role: "assistant", Content: "two"},
+	}, nil))
+	again := tracker.Diagnostics()
+	if !reflect.DeepEqual(again, appended) {
+		t.Fatalf("identical shape must produce identical diag:\n%+v\n%+v", again, appended)
+	}
+}

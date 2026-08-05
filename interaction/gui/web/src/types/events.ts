@@ -1,5 +1,5 @@
 // Msg types — assistant 消息承载结构化 Run 数据，user/tool 沿用纯文本。
-export type Role = 'user' | 'assistant' | 'tool'
+export type Role = 'user' | 'assistant' | 'tool' | 'system'
 
 export interface ToolStep {
   id: string
@@ -108,8 +108,6 @@ export interface TodosPayload {
 export interface MetricsPayload {
   prompt: number
   completion: number
-  cacheHit: number
-  cacheMiss: number
   elapsedMs: number
   compactCount: number
 }
@@ -117,6 +115,10 @@ export interface MetricsPayload {
 export interface DoneEvent {
   output: string
   error: string
+}
+
+export interface SystemEvent {
+  content: string
 }
 
 export type AgentPhase =

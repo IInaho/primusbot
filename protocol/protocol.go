@@ -57,6 +57,21 @@ type CommandResult struct {
 	AgentInput string
 }
 
+// LocalCommandResult classifies the outcome of ExecuteLocalCommand: commands
+// that neither read nor mutate conversation context run immediately, even
+// while a task is in progress; everything else goes through the run path.
+type LocalCommandResult int
+
+const (
+	// LocalCommandNotCommand: input is not a registered command.
+	LocalCommandNotCommand LocalCommandResult = iota
+	// LocalCommandExecuted: a during-task-safe command ran immediately.
+	LocalCommandExecuted
+	// LocalCommandRequiresIdle: input is a command but needs the run path,
+	// and therefore an idle runtime.
+	LocalCommandRequiresIdle
+)
+
 // CommandMenu is a transport-neutral, dynamically generated command picker.
 // Each item contains the complete input to place in the command line.
 type CommandMenu struct {

@@ -3,6 +3,7 @@ package contextmgr
 import (
 	"context"
 
+	"nekocode/bot/calllog"
 	"nekocode/bot/contextmgr/token"
 	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
@@ -226,6 +227,14 @@ func (m *Manager) RecordCache(hit, miss int) {
 	if miss > 0 {
 		logger.Log("prefix cache miss: tokens=%d changed=%v", miss, diagnosis.Parts)
 	}
+}
+
+// PrefixDiagnostics exposes the current request's prefix fingerprint and
+// change classification for the per-call evidence log.
+func (m *Manager) PrefixDiagnostics() calllog.PrefixDiag {
+	m.state.mu.RLock()
+	defer m.state.mu.RUnlock()
+	return m.state.prefix.Diagnostics()
 }
 
 func (m *Manager) RecordSubagent(tokens, hit, miss int) {

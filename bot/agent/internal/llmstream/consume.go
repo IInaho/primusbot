@@ -22,6 +22,15 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 			if !ok {
 				return nil
 			}
+			if token.Request != nil {
+				// Metadata token sent before the HTTP request starts — not
+				// content, so it must not arm the TTFT clock.
+				s.Request = token.Request
+				continue
+			}
+			if s.FirstTokenAt.IsZero() {
+				s.FirstTokenAt = time.Now()
+			}
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -69,6 +78,7 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 			}
 			if token.Usage != nil {
 				s.LastUsage = token.Usage
+				mergeUsage(&s.Usage, token.Usage)
 				if token.Usage.PromptTokens > 0 || token.Usage.CompletionTokens > 0 {
 					if cb.RecordUsage != nil {
 						cb.RecordUsage(token.Usage.PromptTokens, token.Usage.CompletionTokens)
