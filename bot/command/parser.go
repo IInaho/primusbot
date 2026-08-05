@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"nekocode/protocol"
 )
 
 const (
@@ -20,6 +22,7 @@ type Command struct {
 }
 
 type HandlerFunc func(ctx context.Context, cmd *Command) (string, bool)
+type MenuFunc func(ctx context.Context, cmd *Command) (protocol.CommandMenu, bool)
 
 type commandKey struct {
 	Prefix string
@@ -28,7 +31,9 @@ type commandKey struct {
 
 type commandEntry struct {
 	DisplayName string
+	Description string
 	Handler     HandlerFunc
+	Menu        MenuFunc
 }
 
 type Parser struct {
@@ -40,21 +45,52 @@ func NewParser() *Parser {
 }
 
 func (p *Parser) Register(name string, handler HandlerFunc) {
-	p.RegisterWithPrefix(SlashPrefix, name, handler)
+	p.RegisterInfo(name, "", handler)
+}
+
+// RegisterInfo registers a slash command and the short description shown by
+// transport-neutral command pickers.
+func (p *Parser) RegisterInfo(name, description string, handler HandlerFunc) {
+	p.RegisterWithPrefix(SlashPrefix, name, description, handler)
 }
 
 func (p *Parser) RegisterDynamic(name string, handler HandlerFunc) {
-	p.RegisterWithPrefix(DollarPrefix, name, handler)
+	p.RegisterDynamicInfo(name, "", handler)
 }
 
-func (p *Parser) RegisterWithPrefix(prefix, name string, handler HandlerFunc) {
+func (p *Parser) RegisterDynamicInfo(name, description string, handler HandlerFunc) {
+	p.RegisterWithPrefix(DollarPrefix, name, description, handler)
+}
+
+func (p *Parser) RegisterWithPrefix(prefix, name, description string, handler HandlerFunc) {
 	prefix = normalizePrefix(prefix)
 	displayName := strings.TrimSpace(name)
 	if displayName == "" {
 		return
 	}
 	keyName := strings.ToLower(displayName)
-	p.handlers[commandKey{Prefix: prefix, Name: keyName}] = commandEntry{DisplayName: displayName, Handler: handler}
+	key := commandKey{Prefix: prefix, Name: keyName}
+	entry := p.handlers[key]
+	entry.DisplayName = displayName
+	entry.Description = strings.TrimSpace(description)
+	entry.Handler = handler
+	p.handlers[key] = entry
+}
+
+// RegisterMenu adds a dynamic picker to an existing slash command. Commands
+// without a finite set of choices keep their normal text behavior.
+func (p *Parser) RegisterMenu(name string, menu MenuFunc) {
+	displayName := strings.TrimSpace(name)
+	if displayName == "" {
+		return
+	}
+	key := commandKey{Prefix: SlashPrefix, Name: strings.ToLower(displayName)}
+	entry, exists := p.handlers[key]
+	if !exists {
+		return
+	}
+	entry.Menu = menu
+	p.handlers[key] = entry
 }
 
 // ClearPrefix removes every command registered under one prefix.
@@ -74,6 +110,31 @@ func (p *Parser) Commands() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// RootMenu returns the registered commands under one prefix. Root choices
+// never auto-submit: selecting one either expands its menu or fills the input
+// for an explicit second confirmation.
+func (p *Parser) RootMenu(prefix string) protocol.CommandMenu {
+	prefix = normalizePrefix(prefix)
+	items := make([]protocol.CommandMenuItem, 0, len(p.handlers))
+	for key, entry := range p.handlers {
+		if key.Prefix != prefix {
+			continue
+		}
+		items = append(items, protocol.CommandMenuItem{
+			Value:       prefix + entry.DisplayName,
+			Label:       prefix + entry.DisplayName,
+			Description: entry.Description,
+			Submit:      false,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Value < items[j].Value })
+	title := "Commands"
+	if prefix == DollarPrefix {
+		title = "Skills"
+	}
+	return protocol.CommandMenu{Title: title, Empty: "No commands available", Items: items}
 }
 
 func (p *Parser) Parse(input string) *Command {
@@ -110,6 +171,26 @@ func (p *Parser) Execute(ctx context.Context, cmd *Command) (string, bool) {
 	return entry.Handler(ctx, cmd)
 }
 
+// Menu resolves the next finite set of choices for the current command input.
+func (p *Parser) Menu(ctx context.Context, input string) (protocol.CommandMenu, bool) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == SlashPrefix || trimmed == DollarPrefix {
+		return p.RootMenu(trimmed), true
+	}
+	cmd := p.Parse(input)
+	if cmd.Name == "" {
+		return protocol.CommandMenu{}, false
+	}
+	if cmd.Prefix == SlashPrefix && cmd.Name == "help" && len(cmd.Args) == 0 {
+		return p.RootMenu(SlashPrefix), true
+	}
+	entry, exists := p.handlers[commandKey{Prefix: normalizePrefix(cmd.Prefix), Name: cmd.Name}]
+	if !exists || entry.Menu == nil || ctx.Err() != nil {
+		return protocol.CommandMenu{}, false
+	}
+	return entry.Menu(ctx, cmd)
+}
+
 func normalizePrefix(prefix string) string {
 	if prefix == DollarPrefix {
 		return DollarPrefix
@@ -134,27 +215,11 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return selection.Provider + "/" + selection.Model
 	}
 
-	p.Register("help", func(_ context.Context, cmd *Command) (string, bool) {
-		return `Built-in slash commands:
-  /help        Show this help message
-  /new         Start a new conversation (keeps summary)
-  /clear       Clear all conversation history
-  /context     Show context window breakdown (bar + used/total + detail)
-  /summarize   Force context compression now
-  /rewind      Restore files or list checkpoints (/rewind [turn|list])
-  /config      Show current provider and model
-  /model       List or switch models (/model <name>)
-  /plan        Read-only exploration mode, approve before execution
-  /plugin      Manage plugins (install, list, uninstall, etc.)
-  /sessions    Manage saved sessions
-  /export      Export conversation context to JSON file
-
-Dynamic dollar commands:
-  $<skill>     Load a dynamically registered skill
-`, true
+	p.RegisterInfo("help", "Show available commands", func(_ context.Context, cmd *Command) (string, bool) {
+		return formatCommandHelp(p.RootMenu(SlashPrefix), p.RootMenu(DollarPrefix)), true
 	})
 
-	p.Register("clear", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("clear", "Clear conversation history", func(_ context.Context, cmd *Command) (string, bool) {
 		if deps.ResetConversation == nil {
 			return "Conversation reset is unavailable.", true
 		}
@@ -165,11 +230,11 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("context", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("context", "Show context usage", func(_ context.Context, cmd *Command) (string, bool) {
 		return ContextReport(deps.CtxMgr, deps.ToolRegistry.Descriptors()), true
 	})
 
-	p.Register("summarize", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("summarize", "Compress context now", func(_ context.Context, cmd *Command) (string, bool) {
 		result, err := ForceSummarize(deps.CtxMgr, true)
 		if err != nil {
 			return "Summarize failed: " + err.Error(), true
@@ -177,7 +242,7 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("new", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("new", "Start a new conversation", func(_ context.Context, cmd *Command) (string, bool) {
 		if deps.ResetConversation == nil {
 			return "Conversation reset is unavailable.", true
 		}
@@ -188,7 +253,7 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("rewind", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("rewind", "Restore files to a checkpoint", func(_ context.Context, cmd *Command) (string, bool) {
 		if deps.Rewind == nil {
 			return "Checkpoint rewind is unavailable.", true
 		}
@@ -206,11 +271,11 @@ Dynamic dollar commands:
 		return result, true
 	})
 
-	p.Register("config", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("config", "Show the active model", func(_ context.Context, cmd *Command) (string, bool) {
 		return getConfig(), true
 	})
 
-	p.Register("model", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("model", "Choose the active model", func(_ context.Context, cmd *Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			var sb strings.Builder
 			fmt.Fprintf(&sb, "Current: %s\n", getConfig())
@@ -224,9 +289,31 @@ Dynamic dollar commands:
 			sb.WriteString("\n/model <name> to switch")
 			return sb.String(), true
 		}
-		if err := deps.SwitchModel(cmd.Args[0]); err != nil {
+		if err := deps.SwitchModel(strings.Join(cmd.Args, " ")); err != nil {
 			return err.Error(), true
 		}
 		return "Switched to " + getConfig(), true
 	})
+}
+
+func formatCommandHelp(menus ...protocol.CommandMenu) string {
+	var b strings.Builder
+	for _, menu := range menus {
+		if len(menu.Items) == 0 {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(menu.Title)
+		b.WriteString(":\n")
+		for _, item := range menu.Items {
+			fmt.Fprintf(&b, "  %-14s", item.Label)
+			if item.Description != "" {
+				b.WriteString(item.Description)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(b.String())
 }

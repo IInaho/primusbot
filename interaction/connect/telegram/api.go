@@ -72,6 +72,11 @@ type Update struct {
 	CallbackQuery *CallbackQuery `json:"callback_query"`
 }
 
+type botCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
 func (c *apiClient) getMe(ctx context.Context) (User, error) {
 	return requestJSON[User](ctx, c, http.MethodGet, "getMe", nil, nil)
 }
@@ -83,6 +88,11 @@ func (c *apiClient) getUpdates(ctx context.Context, offset int, timeoutSeconds i
 	}
 	values.Set("timeout", strconv.Itoa(timeoutSeconds))
 	return requestJSON[[]Update](ctx, c, http.MethodGet, "getUpdates", values, nil)
+}
+
+func (c *apiClient) setCommands(ctx context.Context, commands []botCommand) error {
+	_, err := requestJSON[bool](ctx, c, http.MethodPost, "setMyCommands", nil, map[string]any{"commands": commands})
+	return err
 }
 
 func (c *apiClient) sendMessage(ctx context.Context, chatID int64, text string) error {

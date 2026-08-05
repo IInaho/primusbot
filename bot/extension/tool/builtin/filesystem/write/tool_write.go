@@ -3,12 +3,13 @@ package write
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"nekocode/bot/extension/tool/builtin/diff"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/extension/tool/runtime/toolutil"
-	"os"
-	"path/filepath"
 )
 
 type WriteTool struct {
@@ -20,7 +21,7 @@ func (t *WriteTool) Name() string { return "write" }
 func (t *WriteTool) Description() string {
 	return "Create or overwrite a file. Auto-creates parent dirs. " +
 		"For existing files, read first to confirm current content; policy blocks overwrite when no prior read is recorded. " +
-		"For partial changes, prefer Edit with oldString/newString over Write — it produces minimal diffs and auto-snapshots for undo. " +
+		"For partial changes, prefer Edit with oldString/newString over Write — it produces minimal diffs; use /rewind to undo completed file changes. " +
 		"Content escaping: use \\n for newlines, \\\" for quotes, \\\\ for backslashes."
 }
 

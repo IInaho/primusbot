@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"time"
@@ -227,42 +228,105 @@ func (r *Manager) Metrics() MetricsSnapshot {
 
 func (r *Manager) CommandCatalog() []string {
 	seen := make(map[string]bool)
-	names := make([]string, 0)
-	if r.services.CommandNames != nil {
-		for _, name := range r.services.CommandNames() {
-			display := commandDisplayName(name)
-			if display == "" || seen[display] {
-				continue
-			}
-			seen[display] = true
-			names = append(names, display)
-		}
-	}
-	r.mu.Lock()
-	runtimeNames := make([]string, 0, len(r.runtimeCommands))
-	for name := range r.runtimeCommands {
-		runtimeNames = append(runtimeNames, name)
-	}
-	r.mu.Unlock()
-	for _, name := range runtimeNames {
-		display := commandDisplayName(name)
-		if seen[display] {
+	var names []string
+	for _, prefix := range []string{"/", "$"} {
+		menu, ok := r.CommandMenu(context.Background(), prefix)
+		if !ok {
 			continue
 		}
-		seen[display] = true
-		names = append(names, display)
+		for _, item := range menu.Items {
+			if item.Value == "" || seen[item.Value] {
+				continue
+			}
+			seen[item.Value] = true
+			names = append(names, item.Value)
+		}
 	}
 	sort.Strings(names)
 	return names
 }
 
-func commandDisplayName(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return ""
+func (r *Manager) CommandMenu(ctx context.Context, input string) (CommandMenu, bool) {
+	if err := ctx.Err(); err != nil {
+		return CommandMenu{}, false
 	}
-	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "$") {
-		return name
+	r.mu.Lock()
+	service, closed := r.services.CommandMenu, r.closed
+	r.mu.Unlock()
+	if closed {
+		return CommandMenu{}, false
 	}
-	return "/" + name
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "/" || trimmed == "/help" {
+		var menu CommandMenu
+		if service != nil {
+			menu, _ = service(ctx, "/")
+		}
+		runtimeMenu, _ := r.runtimeCommandMenu("/")
+		return mergeCommandMenus(menu, runtimeMenu), true
+	}
+	if service != nil {
+		if menu, ok := service(ctx, trimmed); ok {
+			return menu, true
+		}
+	}
+	return r.runtimeCommandMenu(trimmed)
+}
+
+func (r *Manager) runtimeCommandMenu(input string) (CommandMenu, bool) {
+	parts := strings.Fields(strings.TrimSpace(input))
+	if len(parts) != 1 {
+		return CommandMenu{}, false
+	}
+	command := strings.ToLower(parts[0])
+	if command == "/" {
+		r.mu.Lock()
+		items := make([]CommandMenuItem, 0, len(r.runtimeCommands))
+		for name, entry := range r.runtimeCommands {
+			items = append(items, CommandMenuItem{
+				Value: "/" + name, Label: "/" + name, Description: entry.description,
+			})
+		}
+		r.mu.Unlock()
+		sort.Slice(items, func(i, j int) bool { return items[i].Value < items[j].Value })
+		return CommandMenu{Title: "Commands", Empty: "No commands available", Items: items}, true
+	}
+	if command != "/connect" && command != "/disconnect" {
+		return CommandMenu{}, false
+	}
+	view := r.connectors.View()
+	items := make([]CommandMenuItem, 0, len(view.Connectors))
+	for _, connector := range view.Connectors {
+		if command == "/disconnect" && !connector.Initialized {
+			continue
+		}
+		description := connector.Status
+		if description == "" {
+			description = "registered"
+		}
+		items = append(items, CommandMenuItem{
+			Value: command + " " + connector.Name, Label: connector.Name,
+			Description: description, Submit: command == "/disconnect",
+		})
+	}
+	if command == "/connect" {
+		return CommandMenu{Title: "Choose connector", Empty: "No connectors registered", Items: items}, true
+	}
+	return CommandMenu{Title: "Disconnect connector", Empty: "No active connectors", Items: items}, true
+}
+
+func mergeCommandMenus(menus ...CommandMenu) CommandMenu {
+	merged := CommandMenu{Title: "Commands", Empty: "No commands available"}
+	seen := make(map[string]bool)
+	for _, menu := range menus {
+		for _, item := range menu.Items {
+			if item.Value == "" || seen[item.Value] {
+				continue
+			}
+			seen[item.Value] = true
+			merged.Items = append(merged.Items, item)
+		}
+	}
+	sort.Slice(merged.Items, func(i, j int) bool { return merged.Items[i].Value < merged.Items[j].Value })
+	return merged
 }

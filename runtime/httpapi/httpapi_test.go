@@ -202,6 +202,13 @@ func (f *fakeRuntime) CommandCatalog() []string {
 	return []string{"help", "model", "connect"}
 }
 
+func (f *fakeRuntime) CommandMenu(_ context.Context, input string) (controlruntime.CommandMenu, bool) {
+	if input != "/" {
+		return controlruntime.CommandMenu{}, false
+	}
+	return controlruntime.CommandMenu{Title: "Commands", Items: []controlruntime.CommandMenuItem{{Value: "/help", Label: "/help"}}}, true
+}
+
 func (f *fakeRuntime) CurrentModel() controlruntime.ModelSelection {
 	return controlruntime.ModelSelection{Provider: "openai", Model: "gpt-test"}
 }
@@ -313,7 +320,7 @@ func TestServerExtraQueriesAndConnectCommand(t *testing.T) {
 		t.Fatalf("current run status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	for _, path := range []string{"/status", "/capabilities", "/metrics", "/context", "/memory", "/sessions", "/sessions/current/messages", "/model", "/commands"} {
+	for _, path := range []string{"/status", "/capabilities", "/metrics", "/context", "/memory", "/sessions", "/sessions/current/messages", "/model", "/commands", "/commands/menu?input=%2F"} {
 		req = httptest.NewRequest(http.MethodGet, path, nil)
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

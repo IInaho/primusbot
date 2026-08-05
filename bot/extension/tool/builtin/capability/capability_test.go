@@ -50,6 +50,23 @@ func TestResolveTarget(t *testing.T) {
 	}
 }
 
+func TestResolveTargetEscapesAmbiguousSeparators(t *testing.T) {
+	left, ok := ResolveTarget(map[string]any{"action": "call", "server": "a__b", "tool": "c"})
+	if !ok {
+		t.Fatal("left target did not resolve")
+	}
+	right, ok := ResolveTarget(map[string]any{"action": "call", "server": "a", "tool": "b__c"})
+	if !ok {
+		t.Fatal("right target did not resolve")
+	}
+	if left.Name == right.Name {
+		t.Fatalf("ambiguous targets collided at %q", left.Name)
+	}
+	if left.Name != "mcp__a%5F%5Fb__c" || right.Name != "mcp__a__b%5F%5Fc" {
+		t.Fatalf("escaped targets = %q and %q", left.Name, right.Name)
+	}
+}
+
 func TestExecuteBadUsage(t *testing.T) {
 	tool := New(mcp.New())
 	ctx := context.Background()

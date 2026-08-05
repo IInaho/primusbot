@@ -8,18 +8,19 @@ NekoCode 是一个基于 Go 的终端 AI 助手，使用 Bubble Tea v2 构建 TU
 
 ## Bot 层目标结构
 
-Bot 层按子系统组织，目录结构和依赖方向都应接近树状：上层负责装配，下层负责能力实现；子系统之间通过窄接口交互，避免横向穿透和反向依赖。
+Bot 层按子系统组织，目录结构和依赖方向都应接近树状：`bot/core` 负责直接装配，下层负责能力实现；通过明确所有权和单向依赖避免横向穿透与反向依赖，不为绕过包关系额外制造窄接口。
 
 目标分层：
 
 ```
 bot/
-├── bot.go               # 对外 Bot API + 生命周期装配入口
-├── bot_run.go           # RunHost、运行与命令执行
-├── bot_services.go      # 模型、配置、上下文、指标领域查询
-├── bot_session.go       # 会话领域操作
-├── bot_extension.go     # 扩展领域操作
-├── bot_subagent.go      # 子 Agent 接线
+├── core/                # Bot 对外 API + 生命周期组合根
+│   ├── bot.go           # Bot 类型与初始化
+│   ├── bot_run.go       # RunHost、运行与命令执行
+│   ├── bot_services.go  # 模型、配置、上下文、指标领域查询
+│   ├── bot_session.go   # 会话领域操作
+│   ├── bot_extension.go # 扩展领域操作
+│   └── bot_subagent.go  # 子 Agent 接线
 ├── agent/               # Agent 主循环：turn、LLM 调用、工具反馈、停止条件
 ├── agent/subagent/      # 子 Agent 执行引擎
 ├── contextmgr/          # 上下文、压缩、memory、token 统计
@@ -34,15 +35,15 @@ bot/
 
 依赖规则：
 
-- `bot` 根包是装配层，可以依赖各子系统；其他子系统不能依赖 `bot` 根包。
+- `bot/core` 是装配层，可以直接依赖各子系统；其他子系统不能反向依赖 `bot/core`。
 - `bot/**` 不依赖 `runtime` 或展示层；Bot 只公开领域对象和
   `protocol` 中的中立运行契约。
 - `runtime/standard` 是完整 Bot 到 runtime 协议的唯一适配边界，view DTO
   的投影集中在其 `internal/viewmodel`。
 - `agent` 只依赖 LLM、context、tools、policy 等运行时接口，不关心 plugin/skill/mcp 的安装和发现。
-- `tools` 只定义和执行工具，不反向依赖 agent 主循环或 `agent/subagent`；需要委托子 Agent 时通过 `TaskRunner` 接口接线，具体适配器放在 `bot` 根包。
+- `tools` 只定义和执行工具，不反向依赖 agent 主循环或 `agent/subagent`；需要委托子 Agent 时通过既有 task runtime 接线，具体适配器放在 `bot/core`。
 - `agent/subagent` 不依赖 `agent` 主循环；经 `RunConfig.Policy` 注入主 agent 的 Policy，共享治理账本与探索预算。
-- `extension.Manager` 是扩展系统唯一的高层入口；`bot` 不直接持有 plugin/skill/mcp 子 Manager。
+- `extension.Manager` 是扩展系统唯一的高层入口；`bot/core` 不直接持有 plugin/skill/mcp 子 Manager。
 - `plugin` 只管理插件清单、安装和启停状态；扩展激活由 `extension.Manager` 统一编排。
 - `mcp.Manager` 同时拥有 server 和对应工具的生命周期，外层不手工同步工具切片。
 - Skill 发现、上下文格式化和 loaded 状态归 `extension.Manager`；command 只接收动态命令注册数据。
@@ -103,12 +104,13 @@ nekocode/
 │       ├── recording/              #     事件录制
 │       └── connectors/             #     connector 注册表
 ├── bot/                            # 核心逻辑
-│   ├── bot.go                      #   入口：Bot + New()
-│   ├── bot_run.go                  #   运行、命令与 RunHost 回调转发
-│   ├── bot_services.go             #   配置、模型、指标、上下文与 Memory 服务
-│   ├── bot_extension.go            #   extension 组装、生命周期与领域操作
-│   ├── bot_session.go              #   session 状态编排与领域操作
-│   ├── bot_subagent.go             #   task tool 到 subagent engine 接线
+│   ├── core/                       #   组合根与对外 Bot API
+│   │   ├── bot.go                  #     Bot + New()
+│   │   ├── bot_run.go              #     运行、命令与 RunHost 回调转发
+│   │   ├── bot_services.go         #     配置、模型、指标、上下文与 Memory 服务
+│   │   ├── bot_extension.go        #     extension 组装、生命周期与领域操作
+│   │   ├── bot_session.go          #     session 状态编排与领域操作
+│   │   └── bot_subagent.go         #     task tool 到 subagent engine 接线
 │   ├── agent/                      #   Agent 循环
 │   │   ├── agent.go                #     入口：Agent + New(Config)
 │   │   ├── loop.go                 #     Run 主循环
@@ -278,7 +280,7 @@ nekocode/
 │   │   ├── splash.go               #     启动页
 │   │   ├── confirm_bar.go          #     确认栏
 │   │   ├── list_widget.go          #     列表组件
-│   │   ├── suggestions.go          #     命令补全
+│   │   ├── suggestions.go          #     一级命令补全 + 动态分级命令菜单
 │   │   └── scrollbar.go            #     滚动指示器
 │   └── styles/                     #   样式
 │   │   ├── colors.go               #     色彩体系
@@ -295,9 +297,9 @@ nekocode/
 
 上层应用、第三套 UI 和自定义 connector 的实现教程见 [RUNTIME_APP_GUIDE.md](RUNTIME_APP_GUIDE.md)。
 
-## Bot 应用层（bot/）
+## Bot 应用层（bot/core）
 
-`bot/` 根包是核心依赖注入和生命周期编排层。`Bot` 结构体持有所有子系统引用，通过 `New()` 按顺序初始化：
+`bot/core` 是核心依赖注入和生命周期编排层。`Bot` 结构体持有所有子系统引用，通过 `New()` 按顺序初始化：
 
 ```
 New()
@@ -404,7 +406,7 @@ system/tools/history 变化会记录到 ContextReport，并由 `/context` 展示
 
 ### Session 持久化实现
 
-保存链路（`bot/bot_run.go` `runAgent`）：
+保存链路（`bot/core/bot_run.go` `runAgent`）：
 
 ```
 ag.Run()  →  ctxMgr.SetSystemPrompt()  →  ctxMgr.Summarize()（按需）  →  saveSession()
@@ -438,9 +440,9 @@ type Tool interface {
 
 ### 工具注册
 
-`bot/extension/tool/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension manager 统一注册 `skill` 和 constant-schema `capability` 工具。`bot/bot.go` 只负责 Extension、Agent 和 command parser 的顶层组装。
+`bot/extension/tool/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension manager 统一注册 `skill` 和 constant-schema `capability` 工具。`bot/core/bot.go` 只负责 Extension、Agent 和 command parser 的顶层组装。
 
-`Registry` 除了保存 `Tool`，还集中保存 preview 与 delegated-call target 等执行元数据。模型侧名称仍是固定的 `capability`，但解析后的 canonical identity 会随 `ToolCallItem` 贯穿权限、Pre/Post Hook、quota、Ledger、audit、结果和 UI 回调。Runner 和 Policy 都不通过 optional interface 或硬编码 MCP 参数来推断行为。
+`Registry` 除了保存 `Tool`，还集中保存 preview 与 delegated-call target 等执行元数据。模型侧名称仍是固定的 `capability`，但解析后的 canonical identity 会随 `ToolCallItem` 贯穿权限、Pre/Post Hook、quota、Ledger、audit、结果和 UI 回调。canonical identity 会转义 server/tool 名称中的 `%` 和 `__`，避免不同 server.tool 组合碰撞到同一条权限规则。Runner 和 Policy 都不通过 optional interface 或硬编码 MCP 参数来推断行为。
 
 ### 内置工具
 
@@ -632,12 +634,16 @@ Model
 ├── Header         — provider/model · tokens
 ├── Splash         — 启动页
 ├── Messages       — 消息列表 + Scrollbar
-├── Suggestions    — 命令补全
+├── Suggestions    — 命令补全 + 分级选择（model/checkpoint/session/plugin/connector）
 ├── Input          — 消息输入框（3 行固定高度，SetPromptFunc 控制换行）
 ├── ConfirmBar     — 确认栏（工具 + 插件安装）
 ├── QuestionBar    — 多选/文本问题栏
 └── runtimeEvents  — runtime 事件订阅
 ```
+
+命令菜单沿用命令注册链路：命令所属模块向 `command.Parser` 注册命令说明与动态有限候选，`protocol.CommandMenu` 经 standard adapter/runtime 投影给所有交互端。查询 `/` 或 `$` 得到根菜单，查询完整命令得到下一级菜单；`CommandCatalog` 仅由根菜单派生，用于旧 HTTP 客户端兼容，不再保存第二份命令列表。
+
+TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台原生命令列表，飞书渲染交互卡片，QQ 等文本渠道渲染编号选择。`interaction/connect.CommandMenus` 只保存有界、短期的回调 ID 映射，完整命令不会进入外部平台回调。所有叶子选择最终仍作为普通命令提交给 Runtime，不绕过命令解析、权限、session 或 checkpoint。自由文本参数不会强制菜单化；runtime 自有的 connect/disconnect 菜单根据 connector 状态动态生成。
 
 ## 模块职责
 
@@ -647,7 +653,7 @@ Model
 | 中立交互契约 | `protocol/` | Bot 与 runtime 适配器共享的步骤、待办、确认、提问和指标类型 |
 | Runtime DTO | `runtime/protocol.go` | runtime 对交互层公开的配置、上下文、会话和扩展数据 |
 | 展示格式 | `interaction/interaction.go` | TUI、Connector 等交互端共享的工具摘要 |
-| Bot 底座 | `bot/` | Agent 能力装配、领域操作与生命周期，不感知 UI/runtime |
+| Bot 底座 | `bot/core/` | Agent 能力装配、领域操作与生命周期，不感知 UI/runtime |
 | 标准适配 | `runtime/standard/` | Bot 领域协议 → runtime 能力与 UI DTO |
 | Agent 循环 | `bot/agent/` | Reason→Execute→Feedback，中断，重试 |
 | 治理系统 | `bot/policy/` | Policy：hook + ledger + exploration + quota |

@@ -84,3 +84,5 @@ const (
 )
 
 type CommandResult = protocol.CommandResult
+type CommandMenu = protocol.CommandMenu
+type CommandMenuItem = protocol.CommandMenuItem

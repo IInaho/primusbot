@@ -1,5 +1,6 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn } from '../lib/classnames'
+import type { GUICommandMenu } from '../lib/wails'
 import type { SkillView } from '../types/skills'
 
 interface InputBarProps {
@@ -14,6 +15,8 @@ interface InputBarProps {
   onTextareaChange: () => void
   onSelectSkill?: (name: string) => void
   onClearSkill?: () => void
+  commandMenu?: GUICommandMenu | null
+  onSelectCommand?: (item: GUICommandMenu['items'][number]) => void
 }
 
 export function InputBar({
@@ -28,7 +31,15 @@ export function InputBar({
   onTextareaChange,
   onSelectSkill,
   onClearSkill,
+  commandMenu,
+  onSelectCommand,
 }: InputBarProps) {
+	const [commandIndex, setCommandIndex] = useState(0)
+	const [menuDismissed, setMenuDismissed] = useState(false)
+	useEffect(() => {
+	  setCommandIndex(0)
+	  setMenuDismissed(false)
+	}, [commandMenu])
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       onChange(e.target.value)
@@ -39,17 +50,56 @@ export function InputBar({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+	  const items = menuDismissed ? [] : (commandMenu?.items ?? [])
+	  if (items.length > 0 && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+		e.preventDefault()
+		setCommandIndex((current) => (current + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
+		return
+	  }
+	  if (commandMenu && e.key === 'Escape') {
+		e.preventDefault()
+		setMenuDismissed(true)
+		return
+	  }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        onSend()
+		if (items.length > 0) onSelectCommand?.(items[commandIndex])
+		else onSend()
       }
     },
-    [onSend],
+	[commandIndex, commandMenu, menuDismissed, onSelectCommand, onSend],
   )
 
   return (
     <div className="border-t border-border/50 bg-surface-2 px-5 pb-5 pt-3">
       <div className="mx-auto flex w-full max-w-[980px] flex-col gap-2 card-radius border border-border/60 bg-surface p-2.5 transition-colors focus-within:border-primary/70">
+		{commandMenu && !menuDismissed && (
+		  <div className="mb-1 overflow-hidden rounded-lg border border-border/60 bg-surface-2/80">
+			<div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
+			  <span className="text-[11px] font-semibold tracking-wide text-text-2">{commandMenu.title || 'Commands'}</span>
+			  <span className="text-[10px] text-text-3">↑↓ 选择 · Enter 确认 · Esc 关闭</span>
+			</div>
+			<div className="max-h-60 overflow-y-auto p-1.5">
+			  {commandMenu.items.length === 0 ? (
+				<div className="px-2 py-4 text-center text-[11px] text-text-3">{commandMenu.empty || '暂无可选项'}</div>
+			  ) : commandMenu.items.map((item, index) => (
+				<button
+				  key={`${item.value}-${index}`}
+				  type="button"
+				  onMouseEnter={() => setCommandIndex(index)}
+				  onClick={() => onSelectCommand?.(item)}
+				  className={cn(
+					'flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
+					index === commandIndex ? 'bg-primary/12 text-text' : 'text-text-2 hover:bg-surface-3',
+				  )}
+				>
+				  <span className="min-w-36 font-mono text-[12px] font-medium text-primary">{item.label || item.value}</span>
+				  {item.description && <span className="line-clamp-2 text-[11px] leading-4 text-text-3">{item.description}</span>}
+				</button>
+			  ))}
+			</div>
+		  </div>
+		)}
         <textarea
           ref={textareaRef}
           value={text}

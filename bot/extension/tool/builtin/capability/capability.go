@@ -8,6 +8,7 @@ package capability
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"nekocode/bot/extension/mcp"
 	tools "nekocode/bot/extension/tool"
@@ -39,7 +40,16 @@ func ResolveTarget(args map[string]any) (tools.CallTarget, bool) {
 		return tools.CallTarget{}, false
 	}
 	callArgs, _ := args["args"].(map[string]any)
-	return tools.CallTarget{Name: "mcp__" + server + "__" + toolName, Args: callArgs}, true
+	return tools.CallTarget{Name: canonicalTargetName(server, toolName), Args: callArgs}, true
+}
+
+func canonicalTargetName(server, toolName string) string {
+	return "mcp__" + escapeTargetPart(server) + "__" + escapeTargetPart(toolName)
+}
+
+func escapeTargetPart(value string) string {
+	value = strings.ReplaceAll(value, "%", "%25")
+	return strings.ReplaceAll(value, "__", "%5F%5F")
 }
 
 func (t *tool) Name() string { return ToolName }

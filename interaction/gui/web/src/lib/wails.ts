@@ -2,6 +2,7 @@ import { EventsOn, Quit } from '../../wailsjs/runtime/runtime'
 import {
   Abort,
   ClearSelectedSkill,
+  CommandMenu,
   ContextSnapshot,
   DeleteSession,
   GetConfig,
@@ -23,7 +24,8 @@ import {
   SwitchModel,
 } from '../../wailsjs/go/main/App'
 import type { ConfigView } from '../types/config'
-import type { runtime } from '../../wailsjs/go/models'
+import type { protocol, runtime } from '../../wailsjs/go/models'
+export type GUICommandMenu = Omit<protocol.CommandMenu, 'convertValues'>
 type GUIContextSnapshot = runtime.ContextSnapshot
 type SessionMeta = runtime.SessionMeta
 type DisplayMessage = runtime.DisplayMessage
@@ -46,6 +48,14 @@ export function safeSendMessage(msg: string): Promise<void> {
     return SendMessage(msg)
   } catch {
     return Promise.resolve()
+  }
+}
+
+export function safeCommandMenu(input: string): Promise<GUICommandMenu | null> {
+  try {
+    return CommandMenu(input).then((menu: unknown) => menu as GUICommandMenu | null)
+  } catch {
+    return Promise.resolve(null)
   }
 }
 

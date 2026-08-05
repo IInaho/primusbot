@@ -269,7 +269,7 @@ Manager 的可选只读方法：
 | Configuration | `ConfigView` |
 | Session | `CurrentSessionID`、`ListSessions`、`SessionMessages` |
 | Metrics | `Metrics` |
-| Commands | `CommandCatalog` |
+| Commands | `CommandMenu`（`/` 查询根命令，完整命令查询下一级候选） |
 
 先用 `Capabilities()` 决定页面和控件是否存在。能力不存在或 Manager 已关闭时，
 只读方法返回对应零值。

@@ -217,7 +217,7 @@ func TestManagerNormalizesToolOutput(t *testing.T) {
 
 func TestManagerCustomRuntimeCommand(t *testing.T) {
 	rt := newTestRuntime(&testBot{})
-	rt.registerCommand("hello", func(_ context.Context, args []string) (string, error) {
+	rt.registerCommand("hello", "", func(_ context.Context, args []string) (string, error) {
 		return "hello " + strings.Join(args, " "), nil
 	})
 
@@ -257,7 +257,7 @@ func TestManagerCustomRuntimeCommand(t *testing.T) {
 	}
 }
 
-func TestManagerCommandNamesIncludePrefixes(t *testing.T) {
+func TestManagerCommandCatalogDerivesRootMenu(t *testing.T) {
 	rt := newTestRuntime(&testBot{
 		commands: []string{"/help", "$review", "model"},
 	})
@@ -265,8 +265,63 @@ func TestManagerCommandNamesIncludePrefixes(t *testing.T) {
 	got := rt.CommandCatalog()
 	for _, want := range []string{"/help", "/model", "$review"} {
 		if !hasString(got, want) {
-			t.Fatalf("CommandNames() missing %q in %v", want, got)
+			t.Fatalf("CommandCatalog() missing %q in %v", want, got)
 		}
+	}
+}
+
+func TestManagerRootMenuDoesNotAutoSubmitRuntimeCommands(t *testing.T) {
+	rt := newTestRuntime(&testBot{})
+	menu, ok := rt.CommandMenu(context.Background(), "/")
+	if !ok {
+		t.Fatal("root menu unavailable")
+	}
+	for _, item := range menu.Items {
+		if item.Submit {
+			t.Fatalf("runtime root item %q auto-submits", item.Value)
+		}
+	}
+}
+
+func TestManagerExposesStructuredCommandMenu(t *testing.T) {
+	rt := newTestRuntime(&testBot{menu: func(input string) (CommandMenu, bool) {
+		if input != "/model" {
+			return CommandMenu{}, false
+		}
+		return CommandMenu{Title: "Models", Items: []CommandMenuItem{{Value: "/model fast", Submit: true}}}, true
+	}})
+
+	menu, ok := rt.CommandMenu(context.Background(), "/model")
+	if !ok || menu.Title != "Models" || len(menu.Items) != 1 || !menu.Items[0].Submit {
+		t.Fatalf("command menu = %+v, %v", menu, ok)
+	}
+}
+
+func TestManagerBuildsConnectorMenusFromRuntimeState(t *testing.T) {
+	rt := newTestRuntime(&testBot{})
+	rt.RegisterConnector("demo", func(runtime ConnectorRuntime) Connector {
+		return statusPublishingConnector{rt: runtime}
+	})
+
+	menu, ok := rt.CommandMenu(context.Background(), "/connect")
+	if !ok || menu.Title != "Choose connector" || len(menu.Items) != 1 || menu.Items[0].Value != "/connect demo" || menu.Items[0].Submit {
+		t.Fatalf("connect menu = %+v, %v", menu, ok)
+	}
+	menu, ok = rt.CommandMenu(context.Background(), "/disconnect")
+	if !ok || len(menu.Items) != 0 || menu.Empty != "No active connectors" {
+		t.Fatalf("disconnect menu = %+v, %v", menu, ok)
+	}
+}
+
+func TestManagerCommandMenuHonorsCancellationBeforeRuntimeFallback(t *testing.T) {
+	rt := newTestRuntime(&testBot{})
+	rt.RegisterConnector("demo", func(runtime ConnectorRuntime) Connector {
+		return statusPublishingConnector{rt: runtime}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, ok := rt.CommandMenu(ctx, "/connect"); ok {
+		t.Fatal("cancelled command menu fell through to runtime choices")
 	}
 }
 
@@ -279,7 +334,7 @@ func TestManagerRuntimeCommandsRequireSlash(t *testing.T) {
 		},
 	}
 	rt := newTestRuntime(bot)
-	rt.registerCommand("hello", func(_ context.Context, _ []string) (string, error) {
+	rt.registerCommand("hello", "", func(_ context.Context, _ []string) (string, error) {
 		return "runtime command ran", nil
 	})
 

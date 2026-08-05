@@ -39,7 +39,7 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 	RegisterDefaults(p, deps)
 
 	// /plan: enter read-only exploration mode.
-	p.Register("plan", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("plan", "Plan before making changes", func(_ context.Context, cmd *Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			return "Usage: /plan <task>", true
 		}
@@ -243,23 +243,39 @@ func formatPrefixMissParts(parts []string) string {
 }
 
 func buildBar(total int, segments []barSegment, width int) string {
-	if total <= 0 {
+	if total <= 0 || width <= 0 {
 		return ""
 	}
 	allocated := make([]int, len(segments))
-	remaining := width
+	positive := make([]int, 0, len(segments))
+	sum := 0
 	for i, segment := range segments {
-		if segment.size <= 0 {
-			continue
+		if segment.size > 0 {
+			positive = append(positive, i)
+			sum += segment.size
 		}
-		allocated[i] = max(segment.size*width/total, 1)
-		remaining -= allocated[i]
 	}
-	for i := len(segments) - 1; i >= 0 && remaining > 0; i-- {
-		if segments[i].size > 0 {
-			allocated[i] += remaining
-			break
+	if len(positive) == 0 {
+		return ""
+	}
+	if len(positive) >= width {
+		for _, i := range positive[:width] {
+			allocated[i] = 1
 		}
+	} else {
+		remaining := width - len(positive)
+		largest := positive[0]
+		for _, i := range positive {
+			allocated[i] = 1 + segments[i].size*remaining/sum
+			if segments[i].size > segments[largest].size {
+				largest = i
+			}
+		}
+		used := 0
+		for _, n := range allocated {
+			used += n
+		}
+		allocated[largest] += width - used
 	}
 	var cells []string
 	for i, segment := range segments {

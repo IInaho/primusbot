@@ -242,15 +242,40 @@ func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "esc":
 		if m.Suggestions.Visible() {
+			if m.Suggestions.IsMenu() && len(m.commandMenuBack) > 0 {
+				last := len(m.commandMenuBack) - 1
+				parent := m.commandMenuBack[last]
+				m.commandMenuBack = m.commandMenuBack[:last]
+				m.Input.SetValue(parent)
+				m.Input.SetCursorEnd()
+				m.openCommandMenu(parent)
+				return nil
+			}
 			m.Suggestions.Hide()
+			m.commandMenuBack = nil
 			m.resizeMessages()
 			return nil
 		}
 	case "enter":
 		if m.Suggestions.Visible() {
-			if selected := m.Suggestions.Accept(); selected != "" {
-				m.Input.SetValue(selected + " ")
+			parent := m.Input.Value()
+			wasMenu := m.Suggestions.IsMenu()
+			if selected, ok := m.Suggestions.Accept(); ok {
+				m.Input.SetValue(selected.Value + " ")
 				m.Input.SetCursorEnd()
+				if selected.Submit {
+					m.commandMenuBack = nil
+					m.resizeMessages()
+					m.rememberInput(selected.Value)
+					m.Input.Reset()
+					return m.startChat(selected.Value)
+				}
+				if m.openCommandMenu(selected.Value) {
+					if wasMenu {
+						m.commandMenuBack = append(m.commandMenuBack, parent)
+					}
+					return nil
+				}
 			}
 			m.resizeMessages()
 			return nil
@@ -261,7 +286,12 @@ func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
 			m.Input.SetFollow(true)
 			return nil
 		}
+		if m.openCommandMenu(value) {
+			m.commandMenuBack = nil
+			return nil
+		}
 		m.Suggestions.Hide()
+		m.commandMenuBack = nil
 		m.resizeMessages()
 		m.rememberInput(value)
 		m.Input.Reset()
@@ -278,8 +308,37 @@ func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
 // --- suggestions ---
 
 func (m *Model) refreshSuggestions() {
-	m.Suggestions.Refresh(m.Input.Value(), m.Runtime.CommandCatalog())
+	m.commandMenuBack = nil
+	value := m.Input.Value()
+	prefix := ""
+	if strings.HasPrefix(value, "/") {
+		prefix = "/"
+	} else if strings.HasPrefix(value, "$") {
+		prefix = "$"
+	}
+	if prefix == "" {
+		m.Suggestions.Hide()
+		m.resizeMessages()
+		return
+	}
+	menu, ok := m.Runtime.CommandMenu(context.Background(), prefix)
+	if !ok {
+		m.Suggestions.Hide()
+		m.resizeMessages()
+		return
+	}
+	m.Suggestions.Refresh(value, menu.Items)
 	m.resizeMessages()
+}
+
+func (m *Model) openCommandMenu(input string) bool {
+	menu, ok := m.Runtime.CommandMenu(context.Background(), strings.TrimSpace(input))
+	if !ok {
+		return false
+	}
+	m.Suggestions.OpenMenu(menu.Title, menu.Empty, menu.Items)
+	m.resizeMessages()
+	return true
 }
 
 func (m *Model) cycleSuggestion(delta int) {

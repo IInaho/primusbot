@@ -1,4 +1,4 @@
-package bot
+package core
 
 import (
 	"context"
@@ -172,10 +172,13 @@ func toSandboxDecl(input map[string]config.SandboxConfig) map[string]permission.
 	return output
 }
 
-func (b *Bot) CommandNames() []string {
+func (b *Bot) CommandMenu(ctx context.Context, input string) (protocol.CommandMenu, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.cmd.Names()
+	if b.cmd == nil {
+		return protocol.CommandMenu{}, false
+	}
+	return b.cmd.Menu(ctx, input)
 }
 
 func (b *Bot) ExecuteCommand(ctx context.Context, input string, host RunHost) (protocol.CommandResult, error) {

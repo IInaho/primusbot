@@ -67,6 +67,25 @@ func TestBuildBarSeparatesCells(t *testing.T) {
 	}
 }
 
+func TestBuildBarKeepsFixedWidthWithTinySegments(t *testing.T) {
+	got := buildBar(1_000, []barSegment{
+		{size: 1, kind: "sys"},
+		{size: 1, kind: "tools"},
+		{size: 1, kind: "skills"},
+		{size: 1, kind: "msgs"},
+		{size: 996, kind: "free"},
+	}, 24)
+	cells := strings.Fields(strings.Trim(got, "[] "))
+	if len(cells) != 24 {
+		t.Fatalf("bar cells = %d, want 24: %q", len(cells), got)
+	}
+	for _, marker := range []string{barChars["sys"], barChars["skills"], barChars["free"]} {
+		if !strings.Contains(got, marker) {
+			t.Fatalf("bar lost non-empty segment %q: %q", marker, got)
+		}
+	}
+}
+
 func TestFormatPrefixMissPartsExplainsStableTail(t *testing.T) {
 	got := formatPrefixMissParts([]string{"tail/provider"})
 	if got != "stable prefix unchanged; new content or provider cache" {

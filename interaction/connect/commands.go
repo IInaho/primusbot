@@ -8,15 +8,12 @@ import (
 )
 
 // CommandHandler parses the text commands shared by IM connectors
-// (/stop, /help, /approve, /always, /reject, and — when Questions is set —
+// (/stop, /approve, /always, /reject, and — when Questions is set —
 // /answer and /dismiss) and drives the runtime accordingly.
 // Channels compose it and fall through to their own commands (or message
 // submission) when Handle reports handled=false.
 type CommandHandler struct {
 	RT controlruntime.ConnectorRuntime
-
-	// Help is the channel-specific help text returned for /help.
-	Help string
 
 	// Questions enables /answer and /dismiss when set. Channels feed it
 	// from the IntentQuestion / IntentQuestionResolved intents their sink
@@ -34,8 +31,6 @@ func (h CommandHandler) Handle(ctx context.Context, text string) (reply string, 
 	case text == "/stop":
 		_ = h.RT.CancelRun(ctx, "")
 		return "已请求停止。", true
-	case text == "/help":
-		return h.Help, true
 	case strings.HasPrefix(text, "/approve "):
 		id := strings.TrimSpace(strings.TrimPrefix(text, "/approve "))
 		err := h.RT.DecideApproval(ctx, id, controlruntime.ApprovalDecision{Allowed: true})

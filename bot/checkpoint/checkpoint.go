@@ -23,12 +23,20 @@ const (
 	MaxTurnsPerSession = 10
 )
 
+type ChangeKind string
+
+const (
+	ChangeCreated  ChangeKind = "created"
+	ChangeModified ChangeKind = "modified"
+	ChangeDeleted  ChangeKind = "deleted"
+)
+
 type entry struct {
-	Path     string `json:"path"`
-	Before   string `json:"before"`           // absent | file
-	Change   string `json:"change,omitempty"` // created | modified | deleted
-	Snapshot string `json:"snapshot,omitempty"`
-	Mode     uint32 `json:"mode,omitempty"`
+	Path     string     `json:"path"`
+	Before   string     `json:"before"`           // absent | file
+	Change   ChangeKind `json:"change,omitempty"` // created | modified | deleted
+	Snapshot string     `json:"snapshot,omitempty"`
+	Mode     uint32     `json:"mode,omitempty"`
 }
 
 type manifest struct {
@@ -45,7 +53,7 @@ type Result struct {
 
 type FileChange struct {
 	Path string
-	Kind string
+	Kind ChangeKind
 }
 
 type TurnInfo struct {
@@ -97,6 +105,9 @@ func (m *Manager) Begin(session string) (string, error) {
 	defer m.mu.Unlock()
 	if !validID(session) {
 		return "", fmt.Errorf("checkpoint: invalid session %q", session)
+	}
+	if m.activeSession != "" || m.active.Turn != "" {
+		return "", fmt.Errorf("checkpoint: turn %s is still active for session %s", m.active.Turn, m.activeSession)
 	}
 	m.next[session]++
 	turn := strconv.Itoa(m.next[session])
@@ -187,7 +198,7 @@ func (m *Manager) Capture(path string) error {
 	info, err := os.Lstat(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		entry.Change = "created"
+		entry.Change = ChangeCreated
 	case err != nil:
 		return fmt.Errorf("checkpoint: inspect %s: %w", path, err)
 	case !info.Mode().IsRegular():
@@ -198,7 +209,7 @@ func (m *Manager) Capture(path string) error {
 			return fmt.Errorf("checkpoint: read %s: %w", path, readErr)
 		}
 		entry.Before = "file"
-		entry.Change = "modified"
+		entry.Change = ChangeModified
 		entry.Mode = uint32(info.Mode().Perm())
 		entry.Snapshot = snapshotName(path)
 		if err := writePrivateFile(filepath.Join(m.activeDir(), entry.Snapshot), data); err != nil {
@@ -358,7 +369,7 @@ func (m *Manager) Delete(session string) error {
 	return os.RemoveAll(filepath.Join(m.root, session))
 }
 
-func (m *Manager) changed(entry entry) (bool, string, error) {
+func (m *Manager) changed(entry entry) (bool, ChangeKind, error) {
 	data, err := os.ReadFile(entry.Path)
 	if entry.Before == "absent" {
 		if errors.Is(err, os.ErrNotExist) {
@@ -367,10 +378,10 @@ func (m *Manager) changed(entry entry) (bool, string, error) {
 		if err != nil {
 			return false, "", fmt.Errorf("checkpoint: inspect result %s: %w", entry.Path, err)
 		}
-		return true, "created", nil
+		return true, ChangeCreated, nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return true, "deleted", nil
+		return true, ChangeDeleted, nil
 	}
 	if err != nil {
 		return false, "", fmt.Errorf("checkpoint: inspect result %s: %w", entry.Path, err)
@@ -383,7 +394,7 @@ func (m *Manager) changed(entry entry) (bool, string, error) {
 	if err != nil {
 		return false, "", fmt.Errorf("checkpoint: stat result %s: %w", entry.Path, err)
 	}
-	return !bytes.Equal(data, before) || uint32(info.Mode().Perm()) != entry.Mode, "modified", nil
+	return !bytes.Equal(data, before) || uint32(info.Mode().Perm()) != entry.Mode, ChangeModified, nil
 }
 
 func (m *Manager) restore(session, turn string, entry entry) error {
@@ -406,7 +417,7 @@ func (m *Manager) restore(session, turn string, entry entry) error {
 			return fmt.Errorf("checkpoint: create restore file for %s: %w", entry.Path, err)
 		}
 		tmpName := tmp.Name()
-		defer os.Remove(tmpName)
+		defer func() { _ = os.Remove(tmpName) }()
 		if _, err = tmp.Write(data); err == nil {
 			err = tmp.Chmod(os.FileMode(entry.Mode))
 		}

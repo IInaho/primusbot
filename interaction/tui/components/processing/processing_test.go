@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestFinishEditRevertIsNotError(t *testing.T) {
+func TestFinishEditResultIsNotError(t *testing.T) {
 	sty := styles.DefaultStyles()
 	p := NewProcessingItem(&sty)
 	p.SetBlocks([]block.ContentBlock{{
@@ -18,17 +18,17 @@ func TestFinishEditRevertIsNotError(t *testing.T) {
 		ToolName: "edit",
 	}})
 
-	p.finishToolBlock("", "edit", "[/tmp/file.txt#revert]\n-1:changed\n+1:original\n", false)
+	p.finishToolBlock("", "edit", "[/tmp/file.txt]\n-1:original\n+1:changed\n", false)
 
 	blocks := p.Blocks()
 	if len(blocks) != 1 {
 		t.Fatalf("blocks = %d, want 1", len(blocks))
 	}
 	if !blocks[0].Done {
-		t.Fatal("revert block was not marked done")
+		t.Fatal("edit block was not marked done")
 	}
 	if blocks[0].IsError {
-		t.Fatal("revert block was marked as error")
+		t.Fatal("edit block was marked as error")
 	}
 }
 

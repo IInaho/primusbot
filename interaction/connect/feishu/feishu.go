@@ -27,6 +27,7 @@ type Connector struct {
 	base *connect.Base
 
 	questions *connect.QuestionTracker
+	menus     *connect.CommandMenus
 
 	// approvals tracks cards in flight (approval ID → view) so button
 	// callbacks can render the resolved replacement card.
@@ -38,6 +39,7 @@ func New(rt controlruntime.ConnectorRuntime) *Connector {
 		rt:        rt,
 		base:      connect.NewBase(rt, "feishu", "Feishu"),
 		questions: connect.NewQuestionTracker(),
+		menus:     connect.NewCommandMenus(),
 	}
 }
 
@@ -143,9 +145,14 @@ func (c *Connector) handleMessage(ctx context.Context, client *feishuClient, ev 
 	}
 	cfg.touchOwner(openID, chatID)
 	_ = saveConfig(cfg)
+	menuResult := c.menus.HandleText(ctx, c.rt, openID, text)
+	if menuResult.Handled {
+		c.sendMenuResult(ctx, client, chatID, openID, menuResult)
+		return
+	}
 
 	// Shared commands (/stop /help /approve /reject /answer /dismiss), then chat.
-	cmds := connect.CommandHandler{RT: c.rt, Help: helpText(), Questions: c.questions}
+	cmds := connect.CommandHandler{RT: c.rt, Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		_ = client.sendText(ctx, chatID, reply)
 		return
@@ -262,6 +269,36 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 	if ev == nil || ev.Event == nil || ev.Event.Action == nil {
 		return toastResponse("error", "无法识别的卡片操作"), nil
 	}
+	if token, _ := ev.Event.Action.Value[valueKeyCommand].(string); token != "" {
+		cfg, err := loadConfig()
+		if err != nil || ev.Event.Operator == nil || !cfg.isAllowed(ev.Event.Operator.OpenID) {
+			return toastResponse("error", "只有已配对的用户才能使用命令菜单"), nil
+		}
+		result := c.menus.Select(ctx, c.rt, ev.Event.Operator.OpenID, token)
+		if result.Prompt != nil {
+			resp := toastResponse("success", "已选择")
+			resp.Card = &larkcallback.Card{Type: "raw", Data: commandMenuCard(result.Prompt)}
+			return resp, nil
+		}
+		if result.Message != "" {
+			resp := toastResponse("info", result.Message)
+			resp.Card = &larkcallback.Card{Type: "raw", Data: commandMenuResultCard(result.Message)}
+			return resp, nil
+		}
+		if result.Command != "" {
+			_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
+				Source: controlruntime.SourceRef{Kind: "feishu"},
+				Sender: controlruntime.SenderRef{ID: ev.Event.Operator.OpenID}, Text: result.Command,
+			})
+			if err != nil {
+				return toastResponse("error", "命令提交失败: "+err.Error()), nil
+			}
+			resp := toastResponse("success", "命令已提交")
+			resp.Card = &larkcallback.Card{Type: "raw", Data: commandMenuResultCard("已提交: " + result.Command)}
+			return resp, nil
+		}
+		return toastResponse("success", "命令已提交"), nil
+	}
 	approvalID, decision, err := decodeCardActionValue(ev.Event.Action.Value)
 	if err != nil {
 		return toastResponse("error", "无法识别的卡片操作"), nil
@@ -297,6 +334,29 @@ func (c *Connector) handleCardAction(ctx context.Context, ev *larkcallback.CardA
 	return resp, nil
 }
 
+func (c *Connector) sendMenuResult(ctx context.Context, client messageSender, chatID, openID string, result connect.MenuResult) {
+	if result.Prompt != nil {
+		if err := client.sendCard(ctx, chatID, commandMenuCard(result.Prompt)); err != nil {
+			_ = client.sendText(ctx, chatID, connect.FormatMenu(result.Prompt))
+		}
+		return
+	}
+	if result.Message != "" {
+		_ = client.sendText(ctx, chatID, result.Message)
+		return
+	}
+	if result.Command == "" {
+		return
+	}
+	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
+		Source: controlruntime.SourceRef{Kind: "feishu", ID: chatID},
+		Sender: controlruntime.SenderRef{ID: openID}, Text: result.Command,
+	})
+	if err != nil {
+		_ = client.sendText(ctx, chatID, "Error: "+err.Error())
+	}
+}
+
 func (c *Connector) sendToOwner(ctx context.Context, client messageSender, text string) {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -305,8 +365,4 @@ func (c *Connector) sendToOwner(ctx context.Context, client messageSender, text 
 	for _, chatID := range cfg.pairedChatIDs() {
 		_ = client.sendText(ctx, chatID, text)
 	}
-}
-
-func helpText() string {
-	return connect.SharedHelp("", "Send any other text to chat with the current session.")
 }

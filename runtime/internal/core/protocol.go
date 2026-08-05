@@ -138,6 +138,7 @@ type ConnectorRuntime interface {
 	CancelRun(ctx context.Context, runID RunID) error
 	DecideApproval(ctx context.Context, approvalID string, decision ApprovalDecision) error
 	AnswerQuestion(ctx context.Context, questionID string, reply protocol.QuestionReply) error
+	CommandMenu(ctx context.Context, input string) (protocol.CommandMenu, bool)
 	Events(ctx context.Context, filter EventFilter) (<-chan Event, error)
 	ReportConnectorStatus(payload ConnectorStatusPayload)
 }

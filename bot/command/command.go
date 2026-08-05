@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/protocol"
 )
 
 // Handler owns command registration, execution, and selected-skill state.
@@ -43,7 +44,7 @@ func (h *Handler) RegisterSkills(skills []SkillRegistration) {
 	h.parser.ClearPrefix(DollarPrefix)
 	for _, registration := range skills {
 		sk := registration
-		h.parser.RegisterDynamic(sk.Name, func(_ context.Context, cmd *Command) (string, bool) {
+		h.parser.RegisterDynamicInfo(sk.Name, "Load this skill", func(_ context.Context, cmd *Command) (string, bool) {
 			if h.ctxMgr == nil {
 				return "Skill context is unavailable.", true
 			}
@@ -79,6 +80,10 @@ func (h *Handler) Parser() *Parser {
 // Names returns the sorted names of all registered commands.
 func (h *Handler) Names() []string {
 	return h.parser.Commands()
+}
+
+func (h *Handler) Menu(ctx context.Context, input string) (protocol.CommandMenu, bool) {
+	return h.parser.Menu(ctx, input)
 }
 
 // Execute parses input and runs it as a command. handled is false when

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"nekocode/bot"
+	"nekocode/bot/core"
 	"nekocode/interaction/connect/feishu"
 	"nekocode/interaction/connect/qqbot"
 	"nekocode/interaction/connect/telegram"
@@ -15,7 +15,7 @@ import (
 
 // New constructs the standard application runtime.
 func New() (*controlruntime.Manager, error) {
-	standardBot, err := bot.New()
+	standardBot, err := core.New()
 	if err != nil {
 		return nil, fmt.Errorf("standard runtime: %w", err)
 	}
@@ -37,10 +37,10 @@ func New() (*controlruntime.Manager, error) {
 
 // FromBot creates a runtime around an existing standard bot without enabling
 // event recording or registering bundled connectors.
-func FromBot(core *bot.Bot) *controlruntime.Manager {
-	if core == nil {
+func FromBot(standardBot *core.Bot) *controlruntime.Manager {
+	if standardBot == nil {
 		panic("runtime/standard: nil bot")
 	}
-	adapter := adapt(core)
+	adapter := adapt(standardBot)
 	return controlruntime.New(adapter, adapter.services())
 }

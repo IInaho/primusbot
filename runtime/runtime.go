@@ -20,14 +20,20 @@ import (
 
 type commandHandler func(ctx context.Context, args []string) (string, error)
 
+type runtimeCommand struct {
+	description string
+	handle      commandHandler
+}
+
 // Interaction is the stable, transport-neutral contract shared by in-process
-// UIs, HTTP adapters, and connectors. Optional capabilities remain discoverable
-// through Manager instead of expanding this core boundary.
+// UIs, HTTP adapters, and connectors. CommandMenu belongs here because command
+// discovery and execution are two halves of the same interaction protocol.
 type Interaction interface {
 	StartRun(context.Context, Input) (RunID, error)
 	CancelRun(context.Context, RunID) error
 	DecideApproval(context.Context, string, ApprovalDecision) error
 	AnswerQuestion(context.Context, string, QuestionReply) error
+	CommandMenu(context.Context, string) (CommandMenu, bool)
 	Events(context.Context, EventFilter) (<-chan Event, error)
 }
 
@@ -42,7 +48,7 @@ type Manager struct {
 	connectors      *connectors.Manager
 	runs            *runstore.RunStore
 	recorder        *recording.EventRecorder
-	runtimeCommands map[string]commandHandler
+	runtimeCommands map[string]runtimeCommand
 
 	mu            sync.Mutex
 	mutationMu    sync.Mutex
@@ -93,7 +99,7 @@ func New(runner Runner, services Services) *Manager {
 }
 
 func validateServices(services Services) {
-	requireCompleteService("commands", services.ExecuteCommand != nil, services.CommandNames != nil)
+	requireCompleteService("commands", services.ExecuteCommand != nil, services.CommandMenu != nil)
 	requireCompleteService("context", services.ContextSnapshot != nil, services.MemoryView != nil)
 	requireCompleteService("sessions", services.CurrentSessionID != nil, services.ListSessions != nil, services.SessionMessages != nil)
 }
@@ -111,10 +117,10 @@ func requireCompleteService(name string, present ...bool) {
 }
 
 func (r *Manager) registerConnectorCommands() {
-	r.registerCommand("connect", func(ctx context.Context, args []string) (string, error) {
+	r.registerCommand("connect", "Configure or connect a messaging channel", func(ctx context.Context, args []string) (string, error) {
 		return r.connectors.Handle(ctx, args)
 	})
-	r.registerCommand("disconnect", func(ctx context.Context, args []string) (string, error) {
+	r.registerCommand("disconnect", "Disconnect a messaging channel", func(ctx context.Context, args []string) (string, error) {
 		connName := ""
 		if len(args) > 0 {
 			connName = args[0]
@@ -125,13 +131,13 @@ func (r *Manager) registerConnectorCommands() {
 		}
 		return resp, err
 	})
-	r.registerCommand("devices", func(_ context.Context, _ []string) (string, error) {
+	r.registerCommand("devices", "Show connected messaging devices", func(_ context.Context, _ []string) (string, error) {
 		return r.connectors.Devices(), nil
 	})
 }
 
 // registerCommand adds a runtime-owned slash command.
-func (r *Manager) registerCommand(name string, handler commandHandler) {
+func (r *Manager) registerCommand(name, description string, handler commandHandler) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" || handler == nil {
 		return
@@ -139,9 +145,9 @@ func (r *Manager) registerCommand(name string, handler commandHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.runtimeCommands == nil {
-		r.runtimeCommands = make(map[string]commandHandler)
+		r.runtimeCommands = make(map[string]runtimeCommand)
 	}
-	r.runtimeCommands[name] = handler
+	r.runtimeCommands[name] = runtimeCommand{description: strings.TrimSpace(description), handle: handler}
 }
 
 func (r *Manager) currentRunID() RunID {

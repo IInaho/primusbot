@@ -268,12 +268,12 @@ func (r *Manager) handleRuntimeCommand(ctx context.Context, runID RunID, input I
 		return false
 	}
 	r.mu.Lock()
-	handler, ok := r.runtimeCommands[strings.TrimPrefix(head, "/")]
+	command, ok := r.runtimeCommands[strings.TrimPrefix(head, "/")]
 	r.mu.Unlock()
 	if !ok {
 		return false
 	}
-	response, err := handler(ctx, fields[1:])
+	response, err := command.handle(ctx, fields[1:])
 	if err != nil {
 		response = err.Error()
 	}

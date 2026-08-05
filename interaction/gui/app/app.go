@@ -181,6 +181,16 @@ func confirmPreview(req controlruntime.ConfirmRequest) string {
 
 // ---------- 前端可调用的 Method ----------
 
+// CommandMenu returns the transport-neutral picker for the current input.
+// Nil means the input has no finite choices and should remain normal text.
+func (a *App) CommandMenu(input string) *controlruntime.CommandMenu {
+	menu, ok := a.rt.CommandMenu(a.ctx, strings.TrimSpace(input))
+	if !ok {
+		return nil
+	}
+	return &menu
+}
+
 // SendMessage 发送一条用户消息并启动 Agent 循环。
 func (a *App) SendMessage(input string) {
 	a.mu.Lock()

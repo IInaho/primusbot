@@ -165,19 +165,6 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 	return b.String()
 }
 
-func Help() string {
-	return strings.Join([]string{
-		htmlTitle("命令"),
-		labelCode("状态", "/status"),
-		labelCode("最近", "/last"),
-		labelCode("差异", "/diff"),
-		labelCode("停止", "/stop"),
-		labelCode("永久允许", "/always <id>"),
-		"",
-		HTMLEscape("审批和单选问题可直接点击按钮。"),
-	}, "\n")
-}
-
 func toolLine(tool toolCard) string {
 	brief := strings.TrimSpace(tool.Brief)
 	if brief == "" {

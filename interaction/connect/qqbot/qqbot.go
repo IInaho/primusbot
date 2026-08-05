@@ -21,6 +21,7 @@ type Connector struct {
 	base *connect.Base
 
 	questions *connect.QuestionTracker
+	menus     *connect.CommandMenus
 
 	mu    sync.Mutex
 	chats map[string]chatSession // 已知会话（受理入站消息时记录）
@@ -31,6 +32,7 @@ func New(rt controlruntime.ConnectorRuntime) *Connector {
 		rt:        rt,
 		base:      connect.NewBase(rt, "qqbot", "QQBot"),
 		questions: connect.NewQuestionTracker(),
+		menus:     connect.NewCommandMenus(),
 		chats:     make(map[string]chatSession),
 	}
 }
@@ -118,10 +120,28 @@ func (c *Connector) handleMessage(ctx context.Context, client *apiClient, msg in
 	if text == "" {
 		return
 	}
+	menuResult := c.menus.HandleText(ctx, c.rt, msg.sourceID(), text)
+	if menuResult.Handled {
+		switch {
+		case menuResult.Prompt != nil:
+			c.reply(ctx, client, msg, connect.FormatMenu(menuResult.Prompt))
+		case menuResult.Message != "":
+			c.reply(ctx, client, msg, menuResult.Message)
+		case menuResult.Command != "":
+			_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
+				Source: controlruntime.SourceRef{Kind: "qqbot", ID: msg.sourceID()},
+				Sender: controlruntime.SenderRef{ID: msg.authorID}, Text: menuResult.Command,
+			})
+			if err != nil {
+				c.reply(ctx, client, msg, "错误: "+err.Error())
+			}
+		}
+		return
+	}
 
 	// 共享命令（/stop /help /approve /always /reject /answer /dismiss），
 	// 其余文本作为消息提交给 runtime。
-	cmds := connect.CommandHandler{RT: c.rt, Help: helpText(), Questions: c.questions}
+	cmds := connect.CommandHandler{RT: c.rt, Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		c.reply(ctx, client, msg, reply)
 		return
@@ -209,8 +229,4 @@ func (c *Connector) knownChats() []chatSession {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return slices.Collect(maps.Values(c.chats))
-}
-
-func helpText() string {
-	return connect.SharedHelp("", "群聊中需要 @机器人，私聊直接发送即可。")
 }

@@ -47,23 +47,6 @@ func TruncateRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-// SharedHelp renders the help text for the commands every channel supports
-// (shared slash commands plus /answer). extras are appended verbatim for
-// channel-specific commands and usage notes.
-func SharedHelp(extras ...string) string {
-	lines := []string{
-		"Commands:",
-		"  /stop          停止当前任务",
-		"  /approve <id>  批准一次工具调用",
-		"  /always <id>   批准并永久允许",
-		"  /reject <id>   拒绝工具调用",
-		"  /answer <内容> 回答进行中的问题",
-		"  /dismiss [id]  忽略进行中的问题",
-		"  /help          显示帮助",
-	}
-	return strings.Join(append(lines, extras...), "\n")
-}
-
 // StatusView builds the baseline connector status view (running/stopped)
 // so channels only fill in configuration, metadata, and devices.
 func StatusView(name string, running bool) controlruntime.ConnectorView {

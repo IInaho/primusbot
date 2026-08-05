@@ -1,11 +1,29 @@
 package checkpoint
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestChangeKindKeepsManifestJSONCompatible(t *testing.T) {
+	var item entry
+	if err := json.Unmarshal([]byte(`{"path":"main.go","change":"modified"}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.Change != ChangeModified {
+		t.Fatalf("decoded change = %q, want %q", item.Change, ChangeModified)
+	}
+	data, err := json.Marshal(entry{Path: "main.go", Change: ChangeCreated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"path":"main.go","before":"","change":"created"}` {
+		t.Fatalf("encoded entry = %s", data)
+	}
+}
 
 func TestRewindRestoresModifiedCreatedAndDeletedFiles(t *testing.T) {
 	root := t.TempDir()
@@ -121,6 +139,23 @@ func TestFinalizeDropsNoOpCapture(t *testing.T) {
 	}
 	if _, err := m.Rewind("session", ""); err == nil {
 		t.Fatal("rewind found an empty checkpoint")
+	}
+}
+
+func TestBeginRejectsOverlappingTurns(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	if _, err := m.Begin("session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Begin("session"); err == nil {
+		t.Fatal("second Begin replaced an active checkpoint turn")
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	if turn, err := m.Begin("session"); err != nil || turn != "2" {
+		t.Fatalf("Begin after Finish = %q, %v", turn, err)
 	}
 }
 

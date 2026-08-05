@@ -20,7 +20,7 @@ export interface UseChatReturn {
   setText: (text: string) => void
   busy: boolean
   error: string | null
-  send: () => void
+  send: (input?: string) => void
   stop: () => void
   toggleStep: (stepId: string) => void
   setMessages: (msgs: Msg[]) => void
@@ -359,8 +359,8 @@ export function useChat(): UseChatReturn {
     onStatus,
   })
 
-  const send = useCallback(() => {
-    const t = text.trim()
+  const send = useCallback((input?: string) => {
+	const t = (input ?? text).trim()
     if (!t || busy || sendingRef.current) return
 
     resetBuffers(textBufferRef, reasoningBufferRef, textDoneRef, reasoningDoneRef, activityBufferRef, hasStreamTextRef, streamBreakPendingRef, flushTimerRef)

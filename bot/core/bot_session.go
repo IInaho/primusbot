@@ -1,10 +1,11 @@
-package bot
+package core
 
 import (
 	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"nekocode/bot/checkpoint"
 	"nekocode/bot/command"
@@ -12,6 +13,7 @@ import (
 	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
+	"nekocode/protocol"
 )
 
 func (b *Bot) initSession() {
@@ -21,7 +23,7 @@ func (b *Bot) initSession() {
 }
 
 func (b *Bot) registerSessionCommands(p *command.Parser) {
-	p.Register("sessions", func(ctx context.Context, cmd *command.Command) (string, bool) {
+	p.RegisterInfo("sessions", "Resume a saved session", func(ctx context.Context, cmd *command.Command) (string, bool) {
 		if err := ctx.Err(); err != nil {
 			return "Session command cancelled: " + err.Error(), true
 		}
@@ -36,7 +38,7 @@ func (b *Bot) registerSessionCommands(p *command.Parser) {
 		b.syncPolicySessionID()
 		return fmt.Sprintf("Resumed session %s (%d messages restored).", id, len(snapshot.Messages)), true
 	})
-	p.Register("export", func(ctx context.Context, _ *command.Command) (string, bool) {
+	p.RegisterInfo("export", "Export conversation context", func(ctx context.Context, _ *command.Command) (string, bool) {
 		if err := ctx.Err(); err != nil {
 			return "Export cancelled: " + err.Error(), true
 		}
@@ -46,6 +48,26 @@ func (b *Bot) registerSessionCommands(p *command.Parser) {
 			return fmt.Sprintf("Failed to %v", err), true
 		}
 		return fmt.Sprintf("Context exported to %s (%d messages)", path, len(messages)), true
+	})
+	p.RegisterMenu("sessions", func(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
+		if len(cmd.Args) != 0 {
+			return protocol.CommandMenu{}, false
+		}
+		current := b.sess.CurrentID()
+		sessions := b.sess.List()
+		items := make([]protocol.CommandMenuItem, 0, len(sessions))
+		for _, item := range sessions {
+			description := fmt.Sprintf("%s · %d messages · %s",
+				time.Unix(item.UpdatedAt, 0).Local().Format("01-02 15:04"), item.MsgCount, filepath.Base(item.CWD))
+			if item.ID == current {
+				description += " · current"
+			}
+			items = append(items, protocol.CommandMenuItem{
+				Value: "/sessions " + item.ID, Label: item.ID,
+				Description: description, Submit: true,
+			})
+		}
+		return protocol.CommandMenu{Title: "Resume session", Empty: "No saved sessions", Items: items}, true
 	})
 }
 
@@ -238,9 +260,6 @@ func (b *Bot) rewindCheckpoint(turn string) (string, error) {
 	if b.checkpoints == nil || b.sess == nil {
 		return "", fmt.Errorf("checkpoint rewind is unavailable")
 	}
-	if turn == "list" {
-		return b.formatCheckpointHistory()
-	}
 	result, err := b.checkpoints.Rewind(b.sess.CurrentID(), turn)
 	if err != nil {
 		return "", err
@@ -255,51 +274,18 @@ func (b *Bot) rewindCheckpoint(turn string) (string, error) {
 	return fmt.Sprintf("Rewound to turn %s: restored %d files.", result.Turn, result.Files), nil
 }
 
-func (b *Bot) formatCheckpointHistory() (string, error) {
-	history, err := b.checkpoints.History(b.sess.CurrentID())
-	if err != nil {
-		return "", err
-	}
-	if len(history) == 0 {
-		return "No rewind checkpoints available.", nil
-	}
-	var out strings.Builder
-	out.WriteString("Rewind checkpoints (newest first):\n")
-	for _, turn := range history {
-		created, modified, deleted := 0, 0, 0
-		for _, change := range turn.Changes {
-			switch change.Kind {
-			case "created":
-				created++
-			case "deleted":
-				deleted++
-			default:
-				modified++
-			}
-		}
-		fmt.Fprintf(&out, "\nTurn %s  %s  %d files (+%d ~%d -%d)\n",
-			turn.Turn, turn.CreatedAt.Local().Format("01-02 15:04"), len(turn.Changes), created, modified, deleted)
-		for _, change := range turn.Changes {
-			path := change.Path
-			if relative, relErr := filepath.Rel(b.cwd, path); relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				path = relative
-			}
-			fmt.Fprintf(&out, "  %s %s\n", checkpointChangeMark(change.Kind), path)
+func checkpointChangeCounts(turn checkpoint.TurnInfo) (created, modified, deleted int) {
+	for _, change := range turn.Changes {
+		switch change.Kind {
+		case checkpoint.ChangeCreated:
+			created++
+		case checkpoint.ChangeModified:
+			modified++
+		case checkpoint.ChangeDeleted:
+			deleted++
 		}
 	}
-	out.WriteString("\n/rewind <turn> to restore that turn and all newer turns")
-	return out.String(), nil
-}
-
-func checkpointChangeMark(kind string) string {
-	switch kind {
-	case "created":
-		return "A"
-	case "deleted":
-		return "D"
-	default:
-		return "M"
-	}
+	return created, modified, deleted
 }
 
 func formatSessionList(sessions []session.Meta) string {

@@ -85,10 +85,7 @@ func (m *Manager) Add(ctx context.Context, id, name string, cfg ServerConfig) er
 		return fmt.Errorf("list tools: %w", err)
 	}
 
-	serverTools := make([]toolDef, 0, len(defs))
-	for _, td := range defs {
-		serverTools = append(serverTools, td)
-	}
+	serverTools := append([]toolDef(nil), defs...)
 	m.servers[id].tools = serverTools
 	m.health[name] = Health{Status: StatusReady, ToolCount: len(serverTools)}
 	return nil

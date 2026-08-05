@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"testing"
+
+	"nekocode/protocol"
 )
 
 func TestParserParse(t *testing.T) {
@@ -30,6 +32,42 @@ func TestParserParse(t *testing.T) {
 		}
 		if len(cmd.Args) != tt.wantArgs {
 			t.Errorf("Parse(%q).Args len = %d, want %d", tt.input, len(cmd.Args), tt.wantArgs)
+		}
+	}
+}
+
+func TestParserMenuIsOptionalAndDynamic(t *testing.T) {
+	p := NewParser()
+	p.Register("model", func(context.Context, *Command) (string, bool) { return "", true })
+	p.RegisterMenu("model", func(_ context.Context, cmd *Command) (protocol.CommandMenu, bool) {
+		if len(cmd.Args) != 0 {
+			return protocol.CommandMenu{}, false
+		}
+		return protocol.CommandMenu{Title: "Models", Items: []protocol.CommandMenuItem{{Value: "/model fast"}}}, true
+	})
+
+	menu, ok := p.Menu(context.Background(), "/model")
+	if !ok || menu.Title != "Models" || len(menu.Items) != 1 {
+		t.Fatalf("model menu = %+v, %v", menu, ok)
+	}
+	if _, ok := p.Menu(context.Background(), "/model fast"); ok {
+		t.Fatal("model menu remained open after a model argument")
+	}
+	if menu, ok := p.Menu(context.Background(), "/help"); !ok || menu.Title != "Commands" {
+		t.Fatal("help did not expose the root command menu")
+	}
+}
+
+func TestRootMenuNeverAutoSubmitsCommands(t *testing.T) {
+	p := NewParser()
+	p.Register("clear", nil)
+	p.Register("model", nil)
+	p.RegisterMenu("model", func(context.Context, *Command) (protocol.CommandMenu, bool) {
+		return protocol.CommandMenu{}, true
+	})
+	for _, item := range p.RootMenu(SlashPrefix).Items {
+		if item.Submit {
+			t.Fatalf("root item %q auto-submits", item.Value)
 		}
 	}
 }

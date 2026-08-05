@@ -38,8 +38,10 @@ func (*tickFakeBot) AnswerQuestion(context.Context, string, controlruntime.Quest
 func (*tickFakeBot) Events(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error) {
 	return make(chan controlruntime.Event), nil
 }
-func (*tickFakeBot) CommandCatalog() []string { return nil }
-func (*tickFakeBot) Close() error             { return nil }
+func (*tickFakeBot) CommandMenu(context.Context, string) (controlruntime.CommandMenu, bool) {
+	return controlruntime.CommandMenu{}, false
+}
+func (*tickFakeBot) Close() error { return nil }
 func (*tickFakeBot) CurrentModel() controlruntime.ModelSelection {
 	return controlruntime.ModelSelection{Provider: "test", Model: "test"}
 }

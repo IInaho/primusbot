@@ -4,6 +4,7 @@ import {
   safeAbort,
   safeEventsOn,
   safeCurrentModel,
+	safeCommandMenu,
   safeSendMessage,
 } from '../wails'
 
@@ -19,5 +20,6 @@ describe('safe wrappers', () => {
     expect(safeAbort()).toBeUndefined()
     await expect(safeCurrentModel()).resolves.toBe('')
     await expect(safeSendMessage('hello')).resolves.toBeUndefined()
+	await expect(safeCommandMenu('/')).resolves.toBeNull()
   })
 })

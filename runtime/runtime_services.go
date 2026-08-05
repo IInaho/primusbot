@@ -10,7 +10,7 @@ import (
 // transports do not discover capabilities through type assertions.
 type Services struct {
 	ExecuteCommand         func(ctx context.Context, input string, host RunHost) (CommandResult, error)
-	CommandNames           func() []string
+	CommandMenu            func(context.Context, string) (CommandMenu, bool)
 	Steer                  func(ctx context.Context, message string) error
 	Metrics                func() MetricsSnapshot
 	CurrentModel           func() ModelSelection

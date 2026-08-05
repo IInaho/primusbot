@@ -15,9 +15,38 @@ import (
 // into it). The decision is a canonical connect.Action* ID, shared with the
 // slash commands and the other channels.
 const (
-	valueKeyID     = "approval_id"
-	valueKeyAction = "decision"
+	valueKeyID      = "approval_id"
+	valueKeyAction  = "decision"
+	valueKeyCommand = "command_token"
 )
+
+func commandMenuCard(prompt *connect.MenuPrompt) map[string]any {
+	buttons := make([]any, 0, len(prompt.Choices))
+	for _, choice := range prompt.Choices {
+		buttons = append(buttons, map[string]any{
+			"tag": "button", "text": map[string]any{"tag": "plain_text", "content": choice.Label},
+			"type": "default", "value": map[string]interface{}{valueKeyCommand: choice.Token},
+		})
+	}
+	body := connect.FormatMenu(prompt)
+	return map[string]any{
+		"config": map[string]any{"wide_screen_mode": true},
+		"header": map[string]any{"template": "blue", "title": map[string]any{"tag": "plain_text", "content": prompt.Title}},
+		"elements": []any{
+			map[string]any{"tag": "div", "text": map[string]any{"tag": "lark_md", "content": body}},
+			map[string]any{"tag": "action", "actions": buttons},
+		},
+	}
+}
+
+func commandMenuResultCard(content string) map[string]any {
+	return map[string]any{
+		"config": map[string]any{"wide_screen_mode": true},
+		"elements": []any{
+			map[string]any{"tag": "div", "text": map[string]any{"tag": "lark_md", "content": content}},
+		},
+	}
+}
 
 // maxMarkdownRunes bounds markdown card content. The documented card size
 // limit is 30 KB for the whole payload; at up to 4 bytes per rune in JSON,

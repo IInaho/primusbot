@@ -71,7 +71,8 @@ the daemon's HTTP management API and is not needed by IM connectors.
 | POST | `/connect/{name}` | Configure or start a connector |
 | POST | `/disconnect/{name}` | Stop a connector |
 | GET | `/model` | Read the active provider and model |
-| GET | `/commands` | List available commands |
+| GET | `/commands` | Compatibility list derived from the `/` and `$` root menus |
+| GET | `/commands/menu?input=/model` | Resolve a transport-neutral command menu |
 | GET | `/metrics` | Read the latest operational metrics |
 | GET | `/context` | Read the context snapshot |
 | GET | `/memory?scope=project` | Read project memory |

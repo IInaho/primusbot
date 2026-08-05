@@ -28,6 +28,7 @@ type Connector struct {
 	// questions tracks pending questions (fed by the sink's question
 	// intents) so /answer //dismiss and button callbacks can resolve them.
 	questions *connect.QuestionTracker
+	menus     *connect.CommandMenus
 
 	mu          sync.Mutex
 	active      string
@@ -43,6 +44,7 @@ func New(rt controlruntime.ConnectorRuntime) *Connector {
 		rt:            rt,
 		base:          connect.NewBase(rt, "telegram", "Telegram"),
 		questions:     connect.NewQuestionTracker(),
+		menus:         connect.NewCommandMenus(),
 		taskTracker:   taskview.NewTracker(),
 		pendingMsgs:   make(map[string]msgRef),
 		pendingSelect: make(map[string]map[int]bool),
@@ -108,9 +110,35 @@ func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Unlock()
 
 	c.base.PublishStatus("running", "")
+	go c.syncCommands(runCtx, client)
 	go c.pollLoop(runCtx, client, generation)
 	go c.dispatchLoop(runCtx, client)
 	return nil
+}
+
+func (c *Connector) syncCommands(ctx context.Context, client *apiClient) {
+	menu, ok := c.rt.CommandMenu(ctx, "/")
+	if !ok {
+		return
+	}
+	commands := make([]botCommand, 0, len(menu.Items))
+	for _, item := range menu.Items {
+		if !strings.HasPrefix(item.Value, "/") {
+			continue
+		}
+		name := strings.TrimPrefix(item.Value, "/")
+		if name == "" || strings.ContainsAny(name, " \t") {
+			continue
+		}
+		description := item.Description
+		if description == "" {
+			description = item.Label
+		}
+		commands = append(commands, botCommand{Command: name, Description: description})
+	}
+	if len(commands) > 0 {
+		_ = client.setCommands(ctx, commands)
+	}
 }
 
 func (c *Connector) Stop() error {
@@ -192,10 +220,15 @@ func (c *Connector) handleUpdate(ctx context.Context, client *apiClient, profile
 		return
 	}
 	profile.touchOwner(msg.From.ID, msg.From.Username, msg.Chat.ID)
+	menuResult := c.menus.HandleText(ctx, c.rt, strconv.FormatInt(msg.Chat.ID, 10), text)
+	if menuResult.Handled {
+		_ = c.sendMenuResult(ctx, client, msg.Chat.ID, *msg.From, menuResult)
+		return
+	}
 
 	// Shared commands (/stop /help /approve /reject /answer /dismiss) come
 	// from the connector core; telegram-specific commands follow below.
-	cmds := connect.CommandHandler{RT: c.rt, Help: taskview.Help(), Questions: c.questions}
+	cmds := connect.CommandHandler{RT: c.rt, Questions: c.questions}
 	if reply, handled := cmds.Handle(ctx, text); handled {
 		_ = client.sendMessage(ctx, msg.Chat.ID, taskview.HTMLEscape(reply))
 		return
@@ -268,6 +301,34 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 	if chatID != 0 {
 		profile.touchOwner(cb.From.ID, cb.From.Username, chatID)
 	}
+	if strings.HasPrefix(cb.Data, "cmd:") || strings.HasPrefix(cb.Data, "cmdp:") {
+		result := c.menus.Select(ctx, c.rt, strconv.FormatInt(chatID, 10), cb.Data)
+		callbackMessage := "已选择"
+		if result.Prompt != nil && cb.Message != nil {
+			text := taskview.HTMLEscape(connect.FormatMenu(result.Prompt))
+			keyboard := commandMenuKeyboard(result.Prompt)
+			_ = client.editMessage(ctx, chatID, cb.Message.MessageID, text, &keyboard)
+		} else {
+			submitErr := c.sendMenuResult(ctx, client, chatID, cb.From, result)
+			if submitErr != nil {
+				callbackMessage = "提交失败"
+			}
+			if cb.Message != nil {
+				text := result.Message
+				if result.Command != "" {
+					text = "已提交: " + result.Command
+					if submitErr != nil {
+						text = "提交失败: " + submitErr.Error()
+					}
+				}
+				if text != "" {
+					_ = client.editMessage(ctx, chatID, cb.Message.MessageID, taskview.HTMLEscape(text), &emptyKeyboard)
+				}
+			}
+		}
+		_ = client.answerCallbackQuery(ctx, cb.ID, callbackMessage)
+		return
+	}
 
 	parts := strings.Split(cb.Data, ":")
 	if len(parts) < 2 {
@@ -316,6 +377,39 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 	default:
 		_ = client.answerCallbackQuery(ctx, cb.ID, "未知操作。")
 	}
+}
+
+func (c *Connector) sendMenuResult(ctx context.Context, client *apiClient, chatID int64, sender User, result connect.MenuResult) error {
+	if result.Prompt != nil {
+		text := taskview.HTMLEscape(connect.FormatMenu(result.Prompt))
+		_, err := client.sendMessageWithKeyboard(ctx, chatID, text, commandMenuKeyboard(result.Prompt))
+		return err
+	}
+	if result.Message != "" {
+		return client.sendMessage(ctx, chatID, taskview.HTMLEscape(result.Message))
+	}
+	if result.Command == "" {
+		return nil
+	}
+	_, err := c.rt.StartRun(context.WithoutCancel(ctx), controlruntime.Input{
+		Source: controlruntime.SourceRef{Kind: "telegram", ID: strconv.FormatInt(chatID, 10)},
+		Sender: controlruntime.SenderRef{
+			ID: strconv.FormatInt(sender.ID, 10), Username: sender.Username, Display: sender.FirstName,
+		},
+		Text: result.Command,
+	})
+	if err != nil {
+		_ = client.sendMessage(ctx, chatID, taskview.HTMLEscape("Error: "+err.Error()))
+	}
+	return err
+}
+
+func commandMenuKeyboard(prompt *connect.MenuPrompt) inlineKeyboardMarkup {
+	rows := make([][]inlineKeyboardButton, 0, len(prompt.Choices))
+	for _, choice := range prompt.Choices {
+		rows = append(rows, []inlineKeyboardButton{{Text: choice.Label, CallbackData: choice.Token}})
+	}
+	return inlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // handleAnswerCallback dispatches question-answer callbacks: single-select

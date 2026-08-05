@@ -53,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /disconnect/{name}", s.handleDisconnectCommand)
 	mux.HandleFunc("GET /model", s.handleModel)
 	mux.HandleFunc("GET /commands", s.handleCommands)
+	mux.HandleFunc("GET /commands/menu", s.handleCommandMenu)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /context", s.handleContext)
 	mux.HandleFunc("GET /memory", s.handleMemory)
@@ -175,6 +176,19 @@ func (s *Server) handleCommands(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"commands": s.rt.CommandCatalog()})
+}
+
+func (s *Server) handleCommandMenu(w http.ResponseWriter, r *http.Request) {
+	if !s.rt.Capabilities().Commands {
+		writeError(w, http.StatusNotImplemented, "command capability unavailable")
+		return
+	}
+	menu, ok := s.rt.CommandMenu(r.Context(), r.URL.Query().Get("input"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "command menu not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, menu)
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {

@@ -29,7 +29,7 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(pluginDir, ".claude-plugin", "plugin.json"),
-		[]byte(`{"name":"demo","skills":["skills/demo"]}`),
+		[]byte(`{"name":"demo plugin","skills":["skills/demo"]}`),
 		0o644,
 	); err != nil {
 		t.Fatal(err)
@@ -55,6 +55,20 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 		GetConfigFn: func() config.ModelConfig { return config.ModelConfig{} },
 	})
 	manager.RegisterCommands(commands, nil)
+	menu, ok := commands.Menu(context.Background(), "/plugin")
+	if !ok || menu.Title != "Plugin action" || len(menu.Items) != 6 {
+		t.Fatalf("plugin action menu = %+v, %v", menu, ok)
+	}
+	menu, ok = commands.Menu(context.Background(), "/plugin disable")
+	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/plugin disable demo plugin" {
+		t.Fatalf("plugin choice menu = %+v, %v", menu, ok)
+	}
+	if result, handled := commands.Execute(context.Background(), menu.Items[0].Value, contextManager); !handled || !strings.Contains(result, `Disabled plugin "demo plugin"`) {
+		t.Fatalf("spaced plugin command = %q, %v", result, handled)
+	}
+	if result, handled := commands.Execute(context.Background(), "/plugin enable demo plugin", contextManager); !handled || !strings.Contains(result, `Enabled plugin "demo plugin"`) {
+		t.Fatalf("spaced plugin re-enable = %q, %v", result, handled)
+	}
 
 	if got := manager.Snapshot(); len(got.Plugins) != 1 {
 		t.Fatalf("plugins = %d, want 1", len(got.Plugins))
@@ -69,7 +83,7 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 		t.Fatal("skill tool was not registered")
 	}
 
-	if err := manager.SetPluginEnabled("demo", false); err != nil {
+	if err := manager.SetPluginEnabled("demo plugin", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := manager.Skill("demo-skill"); ok {
@@ -79,7 +93,7 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 		t.Fatal("disabled plugin skill command remained registered")
 	}
 
-	if err := manager.SetPluginEnabled("demo", true); err != nil {
+	if err := manager.SetPluginEnabled("demo plugin", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := manager.Skill("demo-skill"); !ok {

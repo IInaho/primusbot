@@ -3,7 +3,7 @@ package standard
 import (
 	"context"
 
-	"nekocode/bot"
+	"nekocode/bot/core"
 	"nekocode/bot/extension"
 	"nekocode/protocol"
 	controlruntime "nekocode/runtime"
@@ -14,11 +14,11 @@ import (
 // adapter is the only standard-application boundary between the bot domain
 // and runtime's interaction/read-model protocol.
 type adapter struct {
-	bot *bot.Bot
+	bot *core.Bot
 }
 
-func adapt(core *bot.Bot) *adapter {
-	return &adapter{bot: core}
+func adapt(standardBot *core.Bot) *adapter {
+	return &adapter{bot: standardBot}
 }
 
 type runHost struct {
@@ -37,8 +37,8 @@ func (a *adapter) ExecuteCommand(ctx context.Context, input string, host control
 	return a.bot.ExecuteCommand(ctx, input, runHost{RunHost: host})
 }
 
-func (a *adapter) CommandNames() []string {
-	return a.bot.CommandNames()
+func (a *adapter) CommandMenu(ctx context.Context, input string) (controlruntime.CommandMenu, bool) {
+	return a.bot.CommandMenu(ctx, input)
 }
 
 func (a *adapter) Steer(ctx context.Context, message string) error {
@@ -145,7 +145,7 @@ func (a *adapter) Close() error {
 func (a *adapter) services() controlruntime.Services {
 	return controlruntime.Services{
 		ExecuteCommand:         a.ExecuteCommand,
-		CommandNames:           a.CommandNames,
+		CommandMenu:            a.CommandMenu,
 		Steer:                  a.Steer,
 		Metrics:                a.Metrics,
 		CurrentModel:           a.CurrentModel,

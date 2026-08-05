@@ -65,20 +65,22 @@ func TestRewindCommandDelegatesOptionalTurn(t *testing.T) {
 	}
 }
 
-func TestRewindListUsesSameCheckpointCommand(t *testing.T) {
+func TestModelCommandPreservesSpacedName(t *testing.T) {
 	manager := ctxmgr.New(ctxmgr.Config{})
 	var got string
 	handler := New(Deps{
 		CtxMgr: manager, ToolRegistry: tools.New(),
 		GetConfigFn: func() config.ModelConfig { return config.ModelConfig{} },
-		Rewind: func(turn string) (string, error) {
-			got = turn
-			return "history", nil
+		SwitchModel: func(name string) error {
+			got = name
+			return nil
 		},
 	})
-	result, handled := handler.Execute(context.Background(), "/rewind list", manager)
-	if !handled || result != "history" || got != "list" {
-		t.Fatalf("rewind list result=%q handled=%v arg=%q", result, handled, got)
+	if _, handled := handler.Execute(context.Background(), "/model deep reasoner", manager); !handled {
+		t.Fatal("model command was not handled")
+	}
+	if got != "deep reasoner" {
+		t.Fatalf("model name = %q, want %q", got, "deep reasoner")
 	}
 }
 

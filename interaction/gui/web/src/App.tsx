@@ -20,6 +20,7 @@ import { mapDisplayMessage, useSessions } from './hooks/useSessions'
 import { useTheme } from './hooks/useTheme'
 import {
   safeClearSelectedSkill,
+	safeCommandMenu,
   safeContextSnapshot,
   safeEventsOn,
   safeGetConfig,
@@ -28,6 +29,7 @@ import {
   safeSkillManagementView,
   safeSwitchModel,
 } from './lib/wails'
+import type { GUICommandMenu } from './lib/wails'
 import type { ConfirmEvent, Msg, QuestionEvent } from './types/events'
 import type { ModelConfig } from './types/config'
 import type { runtime } from '../wailsjs/go/models'
@@ -66,6 +68,38 @@ export default function App() {
   const [contextOpen, setContextOpen] = useState(false)
   const [contextLoading, setContextLoading] = useState(false)
   const [contextSnapshot, setContextSnapshot] = useState<ContextSnapshot | null>(null)
+	const [commandMenu, setCommandMenu] = useState<GUICommandMenu | null>(null)
+
+	useEffect(() => {
+	  const input = text.trim()
+	  if (busy || (input !== '/' && input !== '$' && !input.startsWith('/') && !input.startsWith('$'))) {
+		setCommandMenu(null)
+		return
+	  }
+	  let current = true
+	  const load = async () => {
+		const direct = await safeCommandMenu(input)
+		if (!current) return
+		if (direct) {
+		  setCommandMenu(direct)
+		  return
+		}
+		if (/\s/.test(input)) {
+		  setCommandMenu(null)
+		  return
+		}
+		const root = await safeCommandMenu(input.startsWith('$') ? '$' : '/')
+		if (!current) return
+		if (!root) {
+		  setCommandMenu(null)
+		  return
+		}
+		root.items = root.items.filter((item) => item.value.startsWith(input))
+		setCommandMenu(root)
+	  }
+	  void load()
+	  return () => { current = false }
+	}, [busy, text])
 
   const refreshControls = useCallback(async () => {
     const [cfg, skillSnapshot] = await Promise.all([
@@ -124,6 +158,19 @@ export default function App() {
       }
     })
   }, [send, taRef, follow])
+
+	const handleCommandSelect = useCallback((item: GUICommandMenu['items'][number]) => {
+	  if (item.submit) {
+		send(item.value)
+		follow()
+		return
+	  }
+	  setText(item.value)
+	  requestAnimationFrame(() => {
+		taRef.current?.focus()
+		resize()
+	  })
+	}, [follow, resize, send, setText, taRef])
 
   const handlePromptSelect = useCallback(
     (prompt: string) => {
@@ -265,6 +312,8 @@ export default function App() {
           onTextareaChange={resize}
           onSelectSkill={selectSkill}
           onClearSkill={clearSkill}
+		  commandMenu={commandMenu}
+		  onSelectCommand={handleCommandSelect}
         />
       </div>
 

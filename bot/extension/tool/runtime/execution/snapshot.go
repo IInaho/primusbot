@@ -21,7 +21,7 @@ type Snapshot struct {
 }
 
 // SnapshotStore is an LRU cache of file content snapshots keyed by path.
-// Each path retains up to maxPerPath versions for undo and stable file tags.
+// Each path retains up to maxPerPath versions for read fusion and stable tags.
 type SnapshotStore struct {
 	mu         sync.RWMutex
 	versions   map[string][]Snapshot // path → versions (newest first)

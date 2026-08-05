@@ -9,8 +9,8 @@ import (
 
 	"nekocode/interaction/tui/components"
 	"nekocode/interaction/tui/styles"
-	"nekocode/util/version"
 	controlruntime "nekocode/runtime"
+	"nekocode/util/version"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -21,7 +21,6 @@ type RuntimeClient interface {
 	SteerRun(context.Context, controlruntime.RunID, controlruntime.Input) error
 	CurrentModel() controlruntime.ModelSelection
 	SessionMessages() []controlruntime.DisplayMessage
-	CommandCatalog() []string
 	Close() error
 }
 
@@ -46,6 +45,7 @@ type Model struct {
 	Scrollbar       *components.Scrollbar
 	runtimeEvents   <-chan controlruntime.Event
 	metrics         controlruntime.MetricsSnapshot
+	commandMenuBack []string
 }
 
 var displayVersion = version.Version

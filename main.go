@@ -46,6 +46,10 @@ func (a *App) SendMessage(input string) {
 	a.impl.SendMessage(input)
 }
 
+func (a *App) CommandMenu(input string) *controlruntime.CommandMenu {
+	return a.impl.CommandMenu(input)
+}
+
 func (a *App) Abort() {
 	a.impl.Abort()
 }

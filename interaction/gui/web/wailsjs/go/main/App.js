@@ -10,6 +10,10 @@ export function ClearSelectedSkill() {
   return window['go']['main']['App']['ClearSelectedSkill']();
 }
 
+export function CommandMenu(arg1) {
+  return window['go']['main']['App']['CommandMenu'](arg1);
+}
+
 export function ContextSnapshot() {
   return window['go']['main']['App']['ContextSnapshot']();
 }

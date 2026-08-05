@@ -86,4 +86,28 @@ describe('InputBar', () => {
     expect(onTextareaChange).toHaveBeenCalledTimes(1)
   })
 
+  it('selects command menu items with the keyboard instead of sending text', () => {
+	const onSend = vi.fn()
+	const onSelectCommand = vi.fn()
+	const items = [
+	  { value: '/model fast', label: 'fast', submit: true },
+	  { value: '/model deep', label: 'deep', description: 'More reasoning', submit: true },
+	]
+	setup({ text: '/model', onSend, onSelectCommand, commandMenu: { title: 'Models', items } })
+
+	const textarea = screen.getByRole('textbox')
+	fireEvent.keyDown(textarea, { key: 'ArrowDown' })
+	fireEvent.keyDown(textarea, { key: 'Enter' })
+
+	expect(onSelectCommand).toHaveBeenCalledWith(items[1])
+	expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('closes the command menu with Escape', () => {
+	setup({ commandMenu: { title: 'Commands', items: [{ value: '/model', label: '/model' }] } })
+	expect(screen.getByText('Commands')).toBeInTheDocument()
+	fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' })
+	expect(screen.queryByText('Commands')).toBeNull()
+  })
+
 })

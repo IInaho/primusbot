@@ -1,5 +1,5 @@
-// Package bot assembles NekoCode's transport-neutral agent foundation.
-package bot
+// Package core assembles NekoCode's transport-neutral agent foundation.
+package core
 
 import (
 	"context"
@@ -234,4 +234,5 @@ func (b *Bot) initCommands() {
 	}
 	b.ext.RegisterCommands(b.cmd, b.confirmInstall)
 	b.registerSessionCommands(b.cmd.Parser())
+	b.registerCommandMenus(b.cmd.Parser())
 }

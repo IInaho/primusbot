@@ -16,6 +16,7 @@ type testBot struct {
 	aborts   int
 	run      func(string, RunHost) (string, error)
 	command  func(string, RunHost) CommandResult
+	menu     func(string) (CommandMenu, bool)
 	commands []string
 }
 
@@ -35,7 +36,26 @@ func (b *testBot) ExecuteCommand(_ context.Context, input string, host RunHost) 
 
 func (b *testBot) Metrics() MetricsSnapshot { return MetricsSnapshot{} }
 
-func (b *testBot) CommandNames() []string { return append([]string(nil), b.commands...) }
+func (b *testBot) CommandMenu(_ context.Context, input string) (CommandMenu, bool) {
+	if input == "/" && len(b.commands) > 0 {
+		items := make([]CommandMenuItem, 0, len(b.commands))
+		for _, name := range b.commands {
+			items = append(items, CommandMenuItem{Value: commandDisplayForTest(name), Label: commandDisplayForTest(name)})
+		}
+		return CommandMenu{Title: "Commands", Items: items}, true
+	}
+	if b.menu == nil {
+		return CommandMenu{}, false
+	}
+	return b.menu(input)
+}
+
+func commandDisplayForTest(name string) string {
+	if len(name) > 0 && (name[0] == '/' || name[0] == '$') {
+		return name
+	}
+	return "/" + name
+}
 
 func (b *testBot) Steer(context.Context, string) error {
 	b.mu.Lock()
@@ -67,7 +87,7 @@ func newTestRuntime(b *testBot) *Manager {
 func testBotServices(b *testBot) Services {
 	return Services{
 		ExecuteCommand: b.ExecuteCommand,
-		CommandNames:   b.CommandNames,
+		CommandMenu:    b.CommandMenu,
 		Steer:          b.Steer,
 		Metrics:        b.Metrics,
 		Close:          b.Close,

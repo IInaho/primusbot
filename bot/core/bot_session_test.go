@@ -1,4 +1,4 @@
-package bot
+package core
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"nekocode/bot/session"
 )
 
-func TestFormatCheckpointHistoryShowsTurnAndChangedFiles(t *testing.T) {
+func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
 	cwd := t.TempDir()
 	manager := session.New(cwd)
 	cp := checkpoint.New(t.TempDir())
@@ -44,14 +44,26 @@ func TestFormatCheckpointHistoryShowsTurnAndChangedFiles(t *testing.T) {
 	}
 
 	b := &Bot{cwd: cwd, sess: manager, checkpoints: cp}
-	got, err := b.formatCheckpointHistory()
-	if err != nil {
-		t.Fatal(err)
+	parser := command.NewParser()
+	parser.Register("rewind", func(context.Context, *command.Command) (string, bool) { return "", true })
+	b.registerCommandMenus(parser)
+	menu, ok := parser.Menu(context.Background(), "/rewind")
+	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/rewind "+turn ||
+		!menu.Items[0].Submit || !strings.Contains(menu.Items[0].Description, "1 files · +0 ~1 -0") {
+		t.Fatalf("rewind menu = %+v, %v", menu, ok)
 	}
-	for _, want := range []string{"Turn " + turn, "1 files (+0 ~1 -0)", "M main.go"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("history missing %q:\n%s", want, got)
-		}
+}
+
+func TestCheckpointChangeHelpersDoNotTreatUnknownAsModified(t *testing.T) {
+	turn := checkpoint.TurnInfo{Changes: []checkpoint.FileChange{
+		{Kind: checkpoint.ChangeCreated},
+		{Kind: checkpoint.ChangeModified},
+		{Kind: checkpoint.ChangeDeleted},
+		{Kind: checkpoint.ChangeKind("renamed")},
+	}}
+	created, modified, deleted := checkpointChangeCounts(turn)
+	if created != 1 || modified != 1 || deleted != 1 {
+		t.Fatalf("change counts = +%d ~%d -%d", created, modified, deleted)
 	}
 }
 
@@ -72,6 +84,10 @@ func TestSessionCommandResumesDirectManager(t *testing.T) {
 	b := &Bot{sess: manager, ctxMgr: contextManager}
 	parser := command.NewParser()
 	b.registerSessionCommands(parser)
+	menu, ok := parser.Menu(context.Background(), "/sessions")
+	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/sessions "+target.ID {
+		t.Fatalf("sessions menu = %+v, %v", menu, ok)
+	}
 	if _, handled := parser.Execute(context.Background(), parser.Parse("/sessions "+target.ID)); !handled {
 		t.Fatal("sessions command was not handled")
 	}

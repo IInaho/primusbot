@@ -3,9 +3,11 @@ package extension
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"nekocode/bot/command"
 	"nekocode/bot/extension/plugin"
+	"nekocode/protocol"
 )
 
 type InstallConfirm func(source string, plugin *plugin.Plugin, remote bool) bool
@@ -17,7 +19,7 @@ func (m *Manager) RegisterCommands(handler *command.Handler, confirm InstallConf
 	m.syncSkillCommandsLocked()
 	m.mu.Unlock()
 	p := handler.Parser()
-	p.Register("plugin", func(ctx context.Context, cmd *command.Command) (string, bool) {
+	p.RegisterInfo("plugin", "Manage plugins", func(ctx context.Context, cmd *command.Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			return plugin.Usage(), true
 		}
@@ -38,6 +40,51 @@ func (m *Manager) RegisterCommands(handler *command.Handler, confirm InstallConf
 			return fmt.Sprintf("Unknown subcommand: %s\n%s", cmd.Args[0], plugin.Usage()), true
 		}
 	})
+	p.RegisterMenu("plugin", m.pluginMenu)
+}
+
+func (m *Manager) pluginMenu(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
+	if len(cmd.Args) == 0 {
+		return protocol.CommandMenu{Title: "Plugin action", Items: []protocol.CommandMenuItem{
+			{Value: "/plugin install", Label: "Install", Description: "Install from a local path or URL"},
+			{Value: "/plugin enable", Label: "Enable", Description: "Activate an installed plugin"},
+			{Value: "/plugin disable", Label: "Disable", Description: "Deactivate an installed plugin"},
+			{Value: "/plugin info", Label: "Info", Description: "Inspect an installed plugin"},
+			{Value: "/plugin uninstall", Label: "Uninstall", Description: "Remove an installed plugin"},
+			{Value: "/plugin list", Label: "List", Description: "Show installed plugins", Submit: true},
+		}}, true
+	}
+	if len(cmd.Args) != 1 {
+		return protocol.CommandMenu{}, false
+	}
+	action := cmd.Args[0]
+	if action == "install" || action == "list" {
+		return protocol.CommandMenu{}, false
+	}
+	if action != "enable" && action != "disable" && action != "info" && action != "uninstall" {
+		return protocol.CommandMenu{}, false
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	plugins := m.plugins.ListPlugins()
+	items := make([]protocol.CommandMenuItem, 0, len(plugins))
+	for _, item := range plugins {
+		if action == "enable" && item.Enabled || action == "disable" && !item.Enabled {
+			continue
+		}
+		state := "disabled"
+		if item.Enabled {
+			state = "enabled"
+		}
+		items = append(items, protocol.CommandMenuItem{
+			Value: "/plugin " + action + " " + item.Name,
+			Label: item.Name, Description: state, Submit: true,
+		})
+	}
+	return protocol.CommandMenu{
+		Title: "Choose plugin", Empty: "No matching plugins", Items: items,
+	}, true
 }
 
 func (m *Manager) installPlugin(ctx context.Context, args []string, confirm InstallConfirm) string {
@@ -87,7 +134,7 @@ func (m *Manager) uninstallPlugin(ctx context.Context, args []string) string {
 	defer m.ops.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	name := args[0]
+	name := strings.Join(args, " ")
 	p, ok := m.plugins.Get(name)
 	if !ok {
 		return fmt.Sprintf("Uninstall failed: plugin %q not found", name)
@@ -164,9 +211,10 @@ func (m *Manager) pluginInfo(args []string) string {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	info, ok := m.plugins.InfoText(args[0])
+	name := strings.Join(args, " ")
+	info, ok := m.plugins.InfoText(name)
 	if !ok {
-		return fmt.Sprintf("Plugin %q not found.", args[0])
+		return fmt.Sprintf("Plugin %q not found.", name)
 	}
 	return info
 }
@@ -178,7 +226,7 @@ func (m *Manager) enablePlugin(ctx context.Context, args []string, enabled bool)
 		}
 		return "Usage: /plugin disable <name>"
 	}
-	name := args[0]
+	name := strings.Join(args, " ")
 	changed, err := m.setPluginEnabled(ctx, name, enabled)
 	if err != nil {
 		action := "Enable"

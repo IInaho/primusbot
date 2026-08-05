@@ -57,6 +57,21 @@ type CommandResult struct {
 	AgentInput string
 }
 
+// CommandMenu is a transport-neutral, dynamically generated command picker.
+// Each item contains the complete input to place in the command line.
+type CommandMenu struct {
+	Title string            `json:"title"`
+	Empty string            `json:"empty,omitempty"`
+	Items []CommandMenuItem `json:"items"`
+}
+
+type CommandMenuItem struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Submit      bool   `json:"submit,omitempty"`
+}
+
 type TodoItem struct {
 	Content string `json:"content"`
 	Status  string `json:"status"`

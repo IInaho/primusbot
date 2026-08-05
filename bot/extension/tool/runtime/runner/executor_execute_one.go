@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"nekocode/protocol"
 	"strings"
 
 	"nekocode/bot/extension/tool/runtime/core"
@@ -11,6 +10,7 @@ import (
 	"nekocode/bot/extension/tool/runtime/permission"
 	"nekocode/bot/extension/tool/runtime/workspace"
 	"nekocode/logger"
+	"nekocode/protocol"
 )
 
 func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.ToolCallResult {
