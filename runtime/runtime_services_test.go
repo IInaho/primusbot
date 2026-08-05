@@ -12,7 +12,7 @@ func TestManagerPublishesSessionChangeFromServiceState(t *testing.T) {
 		runner.current = "session_2"
 		return CommandResult{Action: CommandHandled}
 	}
-	rt := New(runner)
+	rt := New(runner, sessionRunnerServices(runner))
 
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"},
@@ -45,7 +45,7 @@ func TestManagerSessionClearanceDoesNotPublishSessionChange(t *testing.T) {
 		runner.current = "" // simulate saveSession clearing an empty session
 		return CommandResult{Action: CommandHandled, Output: "handled"}
 	}
-	rt := New(runner)
+	rt := New(runner, sessionRunnerServices(runner))
 
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"},
@@ -77,7 +77,7 @@ func TestManagerSessionClearanceDoesNotPublishSessionChange(t *testing.T) {
 
 func TestManagerSessionMutationsPublishCurrentSession(t *testing.T) {
 	runner := &sessionCommandRunner{current: "session_1"}
-	rt := New(runner)
+	rt := New(runner, sessionRunnerServices(runner))
 
 	if err := rt.ResumeSession("session_2"); err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestManagerRejectsMutationsWhileRunIsActive(t *testing.T) {
 		<-release
 		return "", nil
 	}
-	rt := New(runner)
+	rt := New(runner, Services{SwitchModel: runner.SwitchModel})
 	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"})
 	if err != nil {
 		t.Fatal(err)

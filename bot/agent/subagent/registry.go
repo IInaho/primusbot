@@ -7,9 +7,9 @@ import (
 
 	goyaml "gopkg.in/yaml.v3"
 
+	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/policy"
 	"nekocode/bot/prompt"
-	"nekocode/bot/tools/runtime/execution"
 	"nekocode/protocol"
 	"nekocode/util/registry"
 	"nekocode/util/yaml"

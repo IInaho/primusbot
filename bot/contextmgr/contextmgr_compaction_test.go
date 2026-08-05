@@ -3,6 +3,7 @@ package contextmgr
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"nekocode/bot/provider/types"
 )
@@ -10,8 +11,51 @@ import (
 func TestAutoCompactIfNeeded_NoStrategy(t *testing.T) {
 	m := New(Config{SystemPrompt: "test prompt"})
 	m.state.compressor = nil
-	if err := m.AutoCompactIfNeeded(); err != nil {
+	if _, err := m.AutoCompactIfNeeded(); err != nil {
 		t.Errorf("AutoCompactIfNeeded error: %v", err)
+	}
+}
+
+func TestSummarizeDoesNotBlockOrOverwriteConcurrentHistory(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	m := New(Config{
+		SystemPrompt: "system",
+		Summarizer: func(msgs []types.Message, prev string) (string, error) {
+			close(started)
+			<-release
+			return "<summary>Compacted context summary that is long enough to pass validation.</summary>", nil
+		},
+	})
+	for i := 0; i < 8; i++ {
+		m.Add("user", "old question")
+		m.AddAssistantResponse("old answer", "")
+	}
+
+	compactDone := make(chan error, 1)
+	go func() {
+		_, err := m.Summarize()
+		compactDone <- err
+	}()
+	<-started
+
+	addDone := make(chan struct{})
+	go func() {
+		m.Add("user", "message added during summary")
+		close(addDone)
+	}()
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("Add blocked while summarizer was running")
+	}
+
+	close(release)
+	if err := <-compactDone; err == nil || !strings.Contains(err.Error(), "context changed") {
+		t.Fatalf("Summarize() error = %v, want stale-summary rejection", err)
+	}
+	if !containsContent(m.Build(), "message added during summary") {
+		t.Fatal("concurrent message was overwritten by stale summary")
 	}
 }
 
@@ -27,16 +71,18 @@ func TestManagerSummarizeUsesDefaultCompressionStrategy(t *testing.T) {
 		m.Add("assistant", "old answer")
 	}
 
-	if err := m.Summarize(); err != nil {
+	if compacted, err := m.Summarize(); err != nil {
 		t.Fatalf("Summarize() error: %v", err)
+	} else if !compacted {
+		t.Fatal("Summarize() did not compact")
 	}
 
 	snap := m.Snapshot()
-	if snap.CompactBoundary != 0 {
-		t.Fatalf("CompactBoundary = %d, want 0", snap.CompactBoundary)
-	}
 	if len(snap.Messages) >= 16 {
 		t.Fatalf("messages were not replaced: got %d", len(snap.Messages))
+	}
+	if report := m.Report(); report.CompactCount != 1 || report.Archived == 0 || report.TrimCount != report.Archived {
+		t.Fatalf("compaction counters = %+v", report)
 	}
 
 	exported := m.Build()

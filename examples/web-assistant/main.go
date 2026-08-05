@@ -11,9 +11,9 @@ import (
 
 	agentcore "nekocode/bot/agent"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/builtin/web"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/builtin/web"
 	controlruntime "nekocode/runtime"
 	"nekocode/runtime/agentrunner"
 )
@@ -22,7 +22,7 @@ const assistantPrompt = `You are a concise research and chat assistant.
 Use web_search when current information is needed and web_fetch to inspect a source.
 Cite source URLs for factual claims based on the web.`
 
-func newAssistant() controlruntime.Runner {
+func newAssistant() *agentrunner.Runner {
 	model := getenv("NEKOCODE_MODEL", "gpt-4o-mini")
 	llm := provider.New(provider.Config{
 		APIKey: os.Getenv("NEKOCODE_API_KEY"), BaseURL: os.Getenv("NEKOCODE_BASE_URL"),
@@ -48,7 +48,8 @@ func main() {
 		input = "What changed in Go recently?"
 	}
 
-	rt := controlruntime.New(newAssistant())
+	runner := newAssistant()
+	rt := controlruntime.New(runner, runner.Services())
 	defer func() {
 		if err := rt.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "close runtime: %v\n", err)

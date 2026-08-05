@@ -6,20 +6,10 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/extension/skill"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/runner"
 )
-
-type planControllerStub struct{ enabled bool }
-
-func (s *planControllerStub) SetPlanMode(enabled bool) { s.enabled = enabled }
-
-type noSkills struct{}
-
-func (noSkills) SkillCommands() []skill.Command     { return nil }
-func (noSkills) Skill(string) (skill.Command, bool) { return skill.Command{}, false }
-func (noSkills) MarkSkillLoaded(string)             {}
 
 func TestEstimateToolDefTokens(t *testing.T) {
 	descs := []core.Descriptor{
@@ -36,16 +26,51 @@ func TestEstimateToolDefTokens(t *testing.T) {
 func TestContextReportFormatting(t *testing.T) {
 	report := ctxmgr.ContextReport{
 		Budget: 10_000, SystemPrompt: 500, ToolDefTokens: 1_000,
-		SkillList: 200, Messages: 3_000, ToolDefCount: 15, UserMessages: 5,
+		SkillList: 200, Messages: 3_000, ToolDefCount: 15, UserMessages: 5, AssistantMsgs: 4, ToolResults: 3,
+		CacheHitTokens: 880, CacheMissTokens: 120, CacheHitRatio: 0.88,
+		PrefixTurn: ctxmgr.PrefixTurnStats{
+			Requests: 3, HitTokens: 880, MissTokens: 120,
+			PeakMiss:  ctxmgr.PrefixCallStats{Request: 2, HitTokens: 100, MissTokens: 100, Parts: []string{"system", "tools"}},
+			LowestHit: ctxmgr.PrefixCallStats{Request: 3, HitTokens: 20, MissTokens: 80, Parts: []string{"tail/provider"}},
+		},
 	}
 	got := formatContextReport(report)
-	for _, want := range []string{"⛁", "5.3k", "10.0k", "System", "15 tools"} {
+	for _, want := range []string{
+		"Context Window", "Used 4.7k / 10.0k (47%) · Free 5.3k (53%)", "Breakdown", "System",
+		"Conversation", "Tools      15", "Messages   12 · 5 user · 4 assistant · 3 tool results", "Summary    none",
+		"⛂ Session", "⛂ Last turn", "3 calls", "⛃ Peak miss", "100 miss",
+		"⛃ Lowest hit", "20% hit",
+		"system prompt changed", "tool definitions changed",
+	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("report missing %q: %s", want, got)
 		}
 	}
+	if strings.Contains(got, "#2") || strings.Contains(got, "#3") {
+		t.Fatalf("report leaked internal model-call sequence: %s", got)
+	}
 	if got := buildBar(0, nil, 10); got != "" {
 		t.Fatalf("zero-budget bar = %q", got)
+	}
+}
+
+func TestFormatCountUsesThousandsSeparators(t *testing.T) {
+	if got := formatCount(1004); got != "1,004" {
+		t.Fatalf("formatCount(1004) = %q", got)
+	}
+}
+
+func TestBuildBarSeparatesCells(t *testing.T) {
+	got := buildBar(100, []barSegment{{size: 50, kind: "sys"}, {size: 50, kind: "free"}}, 8)
+	if got != "[ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ]" {
+		t.Fatalf("spaced bar = %q", got)
+	}
+}
+
+func TestFormatPrefixMissPartsExplainsStableTail(t *testing.T) {
+	got := formatPrefixMissParts([]string{"tail/provider"})
+	if got != "stable prefix unchanged; new content or provider cache" {
+		t.Fatalf("tail/provider label = %q", got)
 	}
 }
 
@@ -66,11 +91,12 @@ func TestPlanModePrompt(t *testing.T) {
 
 func TestPlanCommandAppendsModeToBaseSystemPrompt(t *testing.T) {
 	mgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "stale"})
-	controller := &planControllerStub{}
+	registry := tools.New(fakePlanTool{})
+	executor := runner.NewExecutor(registry)
 	h := New(Deps{
-		CtxMgr: mgr,
-		Ag:     func() PlanModeController { return controller },
-		Skills: noSkills{}, ToolRegistry: tools.New(),
+		CtxMgr:           mgr,
+		SetPlanMode:      executor.SetPlanMode,
+		ToolRegistry:     registry,
 		BaseSystemPrompt: func() string { return "stable behavior contract" },
 	})
 
@@ -78,9 +104,20 @@ func TestPlanCommandAppendsModeToBaseSystemPrompt(t *testing.T) {
 		t.Fatal("plan command should continue into the agent")
 	}
 	got := mgr.Snapshot().SystemPrompt
-	if !controller.enabled || !strings.Contains(got, "stable behavior contract") || !strings.Contains(got, "<plan-mode>") {
-		t.Fatalf("plan mode did not preserve base contract: enabled=%t prompt=%q", controller.enabled, got)
+	blocked := executor.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "write-test"}})[0]
+	if blocked.Error == "" || !strings.Contains(got, "stable behavior contract") || !strings.Contains(got, "<plan-mode>") {
+		t.Fatalf("plan mode did not preserve base contract or block writes: result=%+v prompt=%q", blocked, got)
 	}
+}
+
+type fakePlanTool struct{}
+
+func (fakePlanTool) Name() string                                    { return "write-test" }
+func (fakePlanTool) Description() string                             { return "test" }
+func (fakePlanTool) Parameters() []core.Parameter                    { return nil }
+func (fakePlanTool) ExecutionMode(map[string]any) core.ExecutionMode { return core.ModeSequential }
+func (fakePlanTool) Execute(context.Context, map[string]any) (string, error) {
+	return "unexpected", nil
 }
 
 func TestSkillState(t *testing.T) {

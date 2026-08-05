@@ -130,12 +130,12 @@ func (r *Manager) SteerRun(ctx context.Context, runID RunID, input Input) error 
 		r.mu.Unlock()
 		return protocolError(ErrorConflict, "steer_run", fmt.Sprintf("run %s is cancelled", runID))
 	}
-	steerer := r.steerer
+	steer := r.services.Steer
 	lease := r.runLease
 	runCtx := r.runContext
 	r.mu.Unlock()
 
-	if steerer == nil {
+	if steer == nil {
 		return protocolError(ErrorUnsupported, "steer_run", "runner does not support steering")
 	}
 	steerCtx, cancelSteer := context.WithCancel(ctx)
@@ -146,7 +146,7 @@ func (r *Manager) SteerRun(ctx context.Context, runID RunID, input Input) error 
 	}()
 	var steerErr error
 	if !lease.guard(func() {
-		steerErr = steerer.Steer(steerCtx, input.Text)
+		steerErr = steer(steerCtx, input.Text)
 	}) {
 		return protocolError(ErrorConflict, "steer_run", fmt.Sprintf("run %s is no longer active", runID))
 	}
@@ -231,7 +231,7 @@ func (r *Manager) AnswerQuestion(ctx context.Context, questionID string, reply Q
 
 // Close stops the active run and releases all runtime-owned resources. It must
 // be called by the application lifecycle, not synchronously from Runner or
-// Commander callbacks.
+// command callbacks.
 func (r *Manager) Close() error {
 	r.closeOnce.Do(func() {
 		var errs []error
@@ -292,8 +292,8 @@ func (r *Manager) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if r.closer != nil {
-			if err := r.closer.Close(); err != nil {
+		if r.services.Close != nil {
+			if err := r.services.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}

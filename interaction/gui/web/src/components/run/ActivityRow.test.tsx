@@ -24,11 +24,11 @@ describe('ActivityRow', () => {
     expect(screen.queryByRole('table')).toBeNull()
   })
 
-  it('renders edit revert output as a diff table', () => {
+  it('renders edit output as a diff table', () => {
     const step: ToolStep = {
-      id: 'edit-revert',
+      id: 'edit-success',
       toolName: 'edit',
-      args: 'path=/tmp/file.go,revert=true',
+      args: 'path=/tmp/file.go,oldString=changed,newString=original',
       output: '[/tmp/file.go#TAG]\n-1:changed\n+1:original\n',
       status: 'done',
       isError: false,

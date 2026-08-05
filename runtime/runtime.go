@@ -8,7 +8,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
@@ -35,27 +34,15 @@ type Interaction interface {
 // Manager is the runtime interaction kernel. Applications should keep this
 // single instance and route every interaction surface through it.
 type Manager struct {
-	runner           Runner
-	commander        Commander
-	steerer          Steerer
-	metrics          MetricsProvider
-	models           ModelService
-	context          ContextService
-	extensions       ExtensionService
-	configuration    ConfigurationService
-	sessions         SessionService
-	modelMutator     ModelMutator
-	extensionMutator ExtensionMutator
-	configMutator    ConfigurationMutator
-	sessionMutator   SessionMutator
-	closer           io.Closer
-	events           *eventbus.EventBus
-	approvals        *broker.ApprovalBroker
-	questions        *broker.QuestionBroker
-	connectors       *connectors.Manager
-	runs             *runstore.RunStore
-	recorder         *recording.EventRecorder
-	runtimeCommands  map[string]commandHandler
+	runner          Runner
+	services        Services
+	events          *eventbus.EventBus
+	approvals       *broker.ApprovalBroker
+	questions       *broker.QuestionBroker
+	connectors      *connectors.Manager
+	runs            *runstore.RunStore
+	recorder        *recording.EventRecorder
+	runtimeCommands map[string]commandHandler
 
 	mu            sync.Mutex
 	mutationMu    sync.Mutex
@@ -81,39 +68,46 @@ var (
 	_ ConnectorRuntime = (*Manager)(nil)
 )
 
-// New constructs the interaction runtime around one runner. Every additional
-// bot capability is discovered from the same instance.
-func New(runner Runner) *Manager {
+// New constructs the interaction runtime with explicitly supplied optional
+// application services. Pass Services{} for a core-only runtime.
+func New(runner Runner, services Services) *Manager {
 	if runner == nil {
 		panic("runtime: nil runner")
 	}
+	validateServices(services)
 	events := eventbus.NewEventBus()
 	rt := &Manager{
 		runner:    runner,
+		services:  services,
 		events:    events,
 		runs:      runstore.NewRunStore(0),
 		status:    RunIdle,
 		cancelled: make(map[RunID]struct{}),
 	}
-	rt.commander, _ = runner.(Commander)
-	rt.steerer, _ = runner.(Steerer)
-	rt.metrics, _ = runner.(MetricsProvider)
-	rt.models, _ = runner.(ModelService)
-	rt.context, _ = runner.(ContextService)
-	rt.extensions, _ = runner.(ExtensionService)
-	rt.configuration, _ = runner.(ConfigurationService)
-	rt.sessions, _ = runner.(SessionService)
-	rt.modelMutator, _ = runner.(ModelMutator)
-	rt.extensionMutator, _ = runner.(ExtensionMutator)
-	rt.configMutator, _ = runner.(ConfigurationMutator)
-	rt.sessionMutator, _ = runner.(SessionMutator)
-	rt.closer, _ = runner.(io.Closer)
 	events.AddObserver(rt.runs.Record)
 	events.AddObserver(rt.recordMetrics)
 	rt.approvals = broker.NewApprovalBroker(events, SourceRef{Kind: "runtime"}, rt.currentRunID)
 	rt.questions = broker.NewQuestionBroker(events, SourceRef{Kind: "runtime"}, rt.currentRunID)
 	rt.connectors = connectors.NewManager(rt)
 	return rt
+}
+
+func validateServices(services Services) {
+	requireCompleteService("commands", services.ExecuteCommand != nil, services.CommandNames != nil)
+	requireCompleteService("context", services.ContextSnapshot != nil, services.MemoryView != nil)
+	requireCompleteService("sessions", services.CurrentSessionID != nil, services.ListSessions != nil, services.SessionMessages != nil)
+}
+
+func requireCompleteService(name string, present ...bool) {
+	count := 0
+	for _, ok := range present {
+		if ok {
+			count++
+		}
+	}
+	if count != 0 && count != len(present) {
+		panic("runtime: incomplete " + name + " services")
+	}
 }
 
 func (r *Manager) registerConnectorCommands() {

@@ -9,7 +9,7 @@ import (
 // Runner is the only capability required by Manager.
 //
 // A runner receives a host scoped to exactly one run. It must not retain the
-// host after Run returns. A Runner or Commander callback must not call
+// host after Run returns. A Runner or command callback must not call
 // Manager.Close synchronously; shutdown is owned by the application lifecycle.
 type Runner interface {
 	Run(ctx context.Context, input string, host RunHost) (string, error)
@@ -84,15 +84,3 @@ const (
 )
 
 type CommandResult = protocol.CommandResult
-
-// Commander is an optional bot-owned command capability.
-type Commander interface {
-	ExecuteCommand(ctx context.Context, input string, host RunHost) (CommandResult, error)
-	CommandNames() []string
-}
-
-// Steerer is optional. Implementations must stop when ctx is cancelled.
-// Runners that do not support mid-run input simply omit this interface.
-type Steerer interface {
-	Steer(ctx context.Context, message string) error
-}

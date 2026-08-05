@@ -9,7 +9,7 @@ package skill
 
 import (
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/tools"
+	"nekocode/bot/extension/tool"
 )
 
 // Skill represents a loaded skill definition: the parsed content of one

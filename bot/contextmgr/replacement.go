@@ -11,69 +11,40 @@ import (
 
 // replacementCompactor implements replacement-history compaction.
 // It summarizes the old visible prefix, then replaces active history with
-// the archive plus recent messages instead of retaining hidden pre-boundary
-// messages in ctx.Messages.
+// the archive plus recent messages in active history.
 type replacementCompactor struct {
-	state      *managerState
 	summarizer Summarizer
 	cfg        compressionConfig
 	keepTurns  int
 }
 
-func newReplacementCompactor(state *managerState, summarizer Summarizer) *replacementCompactor {
+func newReplacementCompactor(summarizer Summarizer) *replacementCompactor {
 	return &replacementCompactor{
-		state:      state,
 		summarizer: summarizer,
 		cfg:        defaultCompressionConfig,
 		keepTurns:  3,
 	}
 }
 
-func (s *replacementCompactor) AutoCompactIfNeeded() error {
-	level := s.currentLevel()
-	if level == compactionNormal || level == compactionWarning || level == compactionMicro {
-		return nil
-	}
-	if err := s.Summarize(); err != nil {
-		return fmt.Errorf("auto compact failed: %w", err)
-	}
-	if s.currentLevel() == compactionBlocking {
-		used := s.estimateTokens()
-		budget := s.effectiveBudget()
-		return fmt.Errorf("context full: %d tokens used of %d budget (only %d remaining)",
-			used, budget, budget-used)
-	}
-	return nil
+func (s *replacementCompactor) shouldAutoCompact(history []types.Message, archive string, budget, estimate int) bool {
+	level := s.currentLevel(history, archive, budget, estimate)
+	return level == compactionRequired || level == compactionBlocking
 }
 
-func (s *replacementCompactor) NeedsSummarization() bool {
-	if s.summarizer == nil || len(s.visibleHistory()) <= 20 {
-		return false
+func (s *replacementCompactor) summarize(history []types.Message, prevArchive string, budget int) (string, []types.Message, int, error) {
+	if s.summarizer == nil || len(history) <= 2 {
+		return prevArchive, history, 0, nil
 	}
-	return s.estimateTokens() > s.effectiveBudget()*8/10
-}
-
-func (s *replacementCompactor) Summarize() error {
-	if s.summarizer == nil || s.state == nil {
-		return nil
-	}
-	history := s.visibleHistory()
-	if len(history) <= 2 {
-		return nil
-	}
-
-	keepStart := s.recentStart(history)
+	keepStart := s.recentStart(history, budget)
 	if keepStart <= 0 {
-		return nil
+		return prevArchive, history, 0, nil
 	}
 
 	toSummarize := append([]types.Message(nil), history[:keepStart]...)
 	recent := append([]types.Message(nil), history[keepStart:]...)
-	prevArchive := s.state.ctx.Archive
-
 	rawSummary, err := s.summarizer(toSummarize, prevArchive)
 	if err != nil {
-		return fmt.Errorf("replacement compact: %w", err)
+		return "", nil, 0, fmt.Errorf("replacement compact: %w", err)
 	}
 
 	archive := formatCompactSummary(rawSummary)
@@ -81,64 +52,25 @@ func (s *replacementCompactor) Summarize() error {
 		archive = "[Archive unavailable: summarizer output was malformed or too small; recent conversation was preserved.]"
 	}
 
-	oldLen := len(s.state.ctx.Messages)
-	s.state.ctx.Archive = archive
-	s.state.ctx.Messages = recent
-	s.state.ctx.CompactBoundary = 0
-	if oldLen > len(recent) {
-		s.state.trimCount += oldLen - len(recent)
-	}
-	if s.state.tracker != nil {
-		s.state.tracker.RecordUsage(s.visibleEstimatedTokens(), 0)
-	}
-
 	logger.Log("replacement_compact: summarized %d msgs, kept %d recent msgs, archive_tokens=%d",
 		len(toSummarize), len(recent), token.EstimateString(archive))
-	return nil
+	return archive, recent, len(history) - len(recent), nil
 }
 
-func (s *replacementCompactor) SetSummarizer(summarizer Summarizer) {
-	s.summarizer = summarizer
-}
-
-func (s *replacementCompactor) currentLevel() compactionLevel {
-	return classifyCompaction(s.effectiveBudget()-s.estimateTokens(), s.effectiveConfig())
-}
-
-func (s *replacementCompactor) estimateTokens() int {
-	est := s.visibleEstimatedTokens()
-	if s.state.tracker != nil {
-		if t := s.state.tracker.PromptEstimate(); t > est {
-			return t
-		}
+func (s *replacementCompactor) currentLevel(history []types.Message, archive string, budget, estimate int) compactionLevel {
+	if estimate <= 0 {
+		estimate = token.EstimateTokens(history) + token.EstimateString(archive)
 	}
-	return est
+	return classifyCompaction(s.effectiveBudget(budget)-estimate, s.effectiveConfig(budget))
 }
 
-func (s *replacementCompactor) visibleEstimatedTokens() int {
-	return token.EstimateTokens(s.visibleHistory()) + token.EstimateString(s.state.ctx.Archive)
-}
-
-func (s *replacementCompactor) visibleHistory() []types.Message {
-	if s.state == nil {
-		return nil
-	}
-	if s.state.ctx.CompactBoundary <= 0 {
-		return s.state.ctx.Messages
-	}
-	if s.state.ctx.CompactBoundary >= len(s.state.ctx.Messages) {
-		return nil
-	}
-	return s.state.ctx.Messages[s.state.ctx.CompactBoundary:]
-}
-
-func (s *replacementCompactor) recentStart(history []types.Message) int {
+func (s *replacementCompactor) recentStart(history []types.Message, budget int) int {
 	start := userTurnBoundary(history, s.keepTurns)
 	if start <= 0 {
 		return start
 	}
 
-	maxRecentTokens := s.effectiveBudget() / 3
+	maxRecentTokens := s.effectiveBudget(budget) / 3
 	if maxRecentTokens < 2000 {
 		maxRecentTokens = 2000
 	}
@@ -177,15 +109,15 @@ func nextUserBoundary(msgs []types.Message, start int) int {
 	return -1
 }
 
-func (s *replacementCompactor) effectiveBudget() int {
-	if s.state.contextWindow > 0 {
-		return s.state.contextWindow
+func (s *replacementCompactor) effectiveBudget(budget int) int {
+	if budget > 0 {
+		return budget
 	}
 	return defaultBudget
 }
 
-func (s *replacementCompactor) effectiveConfig() compressionConfig {
-	budget := s.effectiveBudget()
+func (s *replacementCompactor) effectiveConfig(configuredBudget int) compressionConfig {
+	budget := s.effectiveBudget(configuredBudget)
 	if budget <= defaultBudget {
 		return s.cfg
 	}

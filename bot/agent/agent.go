@@ -9,13 +9,14 @@ import (
 	"sync"
 
 	"nekocode/bot/agent/internal/kernel"
+	"nekocode/bot/checkpoint"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/runtime/execution"
+	"nekocode/bot/extension/tool/runtime/permission"
+	"nekocode/bot/extension/tool/runtime/runner"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/builtin/shell"
-	"nekocode/bot/tools/runtime/execution"
-	"nekocode/bot/tools/runtime/runner"
 	"nekocode/logger"
 	"nekocode/protocol"
 )
@@ -28,6 +29,7 @@ type Config struct {
 	Policy      *aggov.Policy
 	Output      Output
 	Interaction Interaction
+	Checkpoints *checkpoint.Manager
 }
 
 // Output contains optional streaming callbacks.
@@ -94,11 +96,10 @@ func New(ctx context.Context, cfg Config) *Agent {
 		gate: kernel.NewGate(defaultMaxRetries),
 	}
 	a.deps.gov = cfg.Policy
+	a.deps.toolExecutor.ExecutionState().Checkpoints = cfg.Checkpoints
 	a.setOutput(cfg.Output)
 	a.interaction = cfg.Interaction
 	a.deps.toolExecutor.SetConfirmFn(a.confirm)
-	a.wireQuestion(a.ask)
-	a.wireTodoWrite(a.updateTodos)
 	a.loopRunner = newLoopRunner(a)
 	a.modelRunner = newModelRunner(a)
 	a.turnRunner = newTurnRunner(a)
@@ -197,19 +198,19 @@ func (a *Agent) TokenUsage() (prompt, completion int) {
 }
 
 func (a *Agent) contextTokens() int {
-	_, tokens, _ := a.deps.ctxMgr.Stats()
-	return tokens
+	return a.deps.ctxMgr.Status().Tokens
 }
 
 // Metrics returns one complete operational snapshot for runtime adapters.
-func (a *Agent) Metrics(compactCount int) protocol.Metrics {
-	contextTokens := a.contextTokens()
+func (a *Agent) Metrics() protocol.Metrics {
+	status := a.deps.ctxMgr.Status()
+	contextTokens := status.Tokens
 	prompt, completion := a.tokens.total(contextTokens)
 	turnPrompt, turnCompletion := a.tokens.turn(contextTokens)
 	return protocol.NewMetrics(protocol.MetricsInput{
 		PromptTokens: prompt, CompletionTokens: completion,
 		TurnPrompt: turnPrompt, TurnCompletion: turnCompletion,
-		ContextTokens: contextTokens, CompactCount: compactCount,
+		ContextTokens: contextTokens, CompactCount: status.CompactCount,
 		Duration: a.life.Duration(),
 	})
 }
@@ -258,9 +259,8 @@ func (a *Agent) setOutput(output Output) {
 	a.deps.toolExecutor.SetPhaseFn(output.Phase)
 }
 
-// SandboxProfiler returns the permission engine as a SandboxProfiler so tools
-// can look up sandbox rules (e.g. pnpm dev → network).
-func (a *Agent) SandboxProfiler() shell.SandboxProfiler {
+// SandboxEngine returns the concrete permission engine shared with tools.
+func (a *Agent) SandboxEngine() *permission.Engine {
 	return a.deps.toolExecutor.SandboxEngine()
 }
 
@@ -268,20 +268,10 @@ func (a *Agent) ToolExecutionState() *execution.ExecutionState {
 	return a.deps.toolExecutor.ExecutionState()
 }
 
-func (a *Agent) wireTodoWrite(fn protocol.TodoFunc) {
-	if t, err := a.deps.toolRegistry.Get("todo_write"); err == nil {
-		if updater, ok := t.(interface{ SetUpdateFn(protocol.TodoFunc) }); ok {
-			updater.SetUpdateFn(fn)
-		}
-	}
-}
-
-func (a *Agent) wireQuestion(fn protocol.QuestionFunc) {
-	if t, err := a.deps.toolRegistry.Get("question"); err == nil {
-		if asker, ok := t.(interface{ SetQuestionFunc(protocol.QuestionFunc) }); ok {
-			asker.SetQuestionFunc(fn)
-		}
-	}
+// ToolInteraction returns the callbacks used by the concrete question and
+// todo tools owned by the application composition root.
+func (a *Agent) ToolInteraction() (protocol.QuestionFunc, protocol.TodoFunc) {
+	return a.ask, a.updateTodos
 }
 
 func (a *Agent) confirm(req protocol.ConfirmRequest) protocol.ConfirmReply {

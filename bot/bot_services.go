@@ -46,16 +46,12 @@ func (b *Bot) SwitchModel(name string) error {
 	oldPrompt, oldCompletion := b.ag.TokenUsage()
 	b.initAgent()
 	b.ag.AddTokens(oldPrompt, oldCompletion)
-	if b.ctxMgr != nil {
-		b.ctxMgr.SetContextWindow(b.cfg.EffectiveContextWindow())
-	}
-	b.ctxMgr.ResetCache()
 	return nil
 }
 
 func (b *Bot) Metrics() protocol.Metrics {
 	agent := b.getAgent()
-	return agent.Metrics(b.ctxMgr.Report().CompactCount)
+	return agent.Metrics()
 }
 
 func (b *Bot) Configuration() config.Config {

@@ -57,6 +57,16 @@ func (p *Parser) RegisterWithPrefix(prefix, name string, handler HandlerFunc) {
 	p.handlers[commandKey{Prefix: prefix, Name: keyName}] = commandEntry{DisplayName: displayName, Handler: handler}
 }
 
+// ClearPrefix removes every command registered under one prefix.
+func (p *Parser) ClearPrefix(prefix string) {
+	prefix = normalizePrefix(prefix)
+	for key := range p.handlers {
+		if key.Prefix == prefix {
+			delete(p.handlers, key)
+		}
+	}
+}
+
 func (p *Parser) Commands() []string {
 	names := make([]string, 0, len(p.handlers))
 	for key, entry := range p.handlers {
@@ -131,6 +141,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
   /clear       Clear all conversation history
   /context     Show context window breakdown (bar + used/total + detail)
   /summarize   Force context compression now
+  /rewind      Restore files or list checkpoints (/rewind [turn|list])
   /config      Show current provider and model
   /model       List or switch models (/model <name>)
   /plan        Read-only exploration mode, approve before execution
@@ -173,6 +184,24 @@ Dynamic dollar commands:
 		result, err := deps.ResetConversation(true)
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
+		}
+		return result, true
+	})
+
+	p.Register("rewind", func(_ context.Context, cmd *Command) (string, bool) {
+		if deps.Rewind == nil {
+			return "Checkpoint rewind is unavailable.", true
+		}
+		if len(cmd.Args) > 1 {
+			return "Usage: /rewind [turn|list]", true
+		}
+		turn := ""
+		if len(cmd.Args) == 1 {
+			turn = cmd.Args[0]
+		}
+		result, err := deps.Rewind(turn)
+		if err != nil {
+			return "Rewind failed: " + err.Error(), true
 		}
 		return result, true
 	})

@@ -6,11 +6,11 @@ import (
 
 	"nekocode/bot/agent/internal/llmstream"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/runner"
 	"nekocode/bot/policy"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider/types"
-	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/runner"
 	"nekocode/protocol"
 )
 
@@ -19,12 +19,13 @@ func (e *Engine) newContextManager(cfg RunConfig) *ctxmgr.Manager {
 		SystemPrompt:    buildSystemPrompt(cfg),
 		ContextWindow:   cfg.ContextWindow,
 		CompactionModel: e.compactionModel,
-	})
-	if cfg.Environment != nil {
-		mgr.SetRuntimePromptProvider(func() string {
+		RuntimePrompt: func() string {
+			if cfg.Environment == nil {
+				return ""
+			}
 			return prompt.FormatEnvironment(cfg.Environment(), "", "bash", "", "")
-		})
-	}
+		},
+	})
 	return mgr
 }
 
@@ -67,6 +68,7 @@ func (e *Engine) newExecutor(cfg RunConfig) (*runner.Executor, func()) {
 		if cfg.ToolState.SnapshotStore != nil {
 			toolState.SnapshotStore = cfg.ToolState.SnapshotStore
 		}
+		toolState.Checkpoints = cfg.ToolState.Checkpoints
 	}
 	return executor, func() {
 		if cfg.ToolState != nil && cfg.ToolState.FileCache != nil {
@@ -152,10 +154,11 @@ func isAllExploratory(calls []core.ToolCallItem) bool {
 
 func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), phase func(string)) ([]core.ToolCallItem, string, error) {
 	toolDefs := e.filteredToolDefs(allowed)
+	messages := mgr.BuildRequest(toolDefs)
 	result, err := llmstream.CallLLMWithRetry(ctx, e.llmClient, func() llmstream.LLMCallOptions {
 		return llmstream.LLMCallOptions{
 			Ctx:      ctx,
-			Messages: mgr.Build(),
+			Messages: messages,
 			ToolDefs: toolDefs,
 			Callbacks: llmstream.StreamCallbacks{
 				OnPhase: phase,
@@ -164,6 +167,10 @@ func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []stri
 						addTokens(p, c)
 					}
 				},
+				RecordUsage: func(prompt, _ int) {
+					mgr.RecordUsage(prompt)
+				},
+				RecordCache: mgr.RecordCache,
 			},
 			CheckDone: func() bool { return false },
 		}

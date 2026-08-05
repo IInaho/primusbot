@@ -7,7 +7,6 @@ import "sync"
 type Tracker struct {
 	mu               sync.RWMutex
 	lastPromptTokens int // from last API response
-	lastCompTokens   int
 	cacheHitTokens   int // cumulative (free — already cached)
 	cacheMissTokens  int // cumulative (charged as input)
 	newMessageTokens int // estimated tokens in messages added since last API call
@@ -16,7 +15,6 @@ type Tracker struct {
 
 type State struct {
 	LastPromptTokens int
-	LastCompTokens   int
 	CacheHitTokens   int
 	CacheMissTokens  int
 	NewMessageTokens int
@@ -28,7 +26,6 @@ func (t *Tracker) Snapshot() State {
 	defer t.mu.RUnlock()
 	return State{
 		LastPromptTokens: t.lastPromptTokens,
-		LastCompTokens:   t.lastCompTokens,
 		CacheHitTokens:   t.cacheHitTokens,
 		CacheMissTokens:  t.cacheMissTokens,
 		NewMessageTokens: t.newMessageTokens,
@@ -40,22 +37,19 @@ func (t *Tracker) Restore(s State) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.lastPromptTokens = s.LastPromptTokens
-	t.lastCompTokens = s.LastCompTokens
 	t.cacheHitTokens = s.CacheHitTokens
 	t.cacheMissTokens = s.CacheMissTokens
 	t.newMessageTokens = s.NewMessageTokens
 	t.sub = s.Sub
 }
 
-// RecordUsage records token usage from an API response.
-func (t *Tracker) RecordUsage(promptTokens, completionTokens int) {
+// RecordPrompt records prompt usage from an API response. Completion usage is
+// an agent metric and does not affect the next model context.
+func (t *Tracker) RecordPrompt(promptTokens int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if promptTokens > 0 {
 		t.lastPromptTokens = promptTokens
-	}
-	if completionTokens > 0 {
-		t.lastCompTokens = completionTokens
 	}
 	t.newMessageTokens = 0
 }
@@ -96,13 +90,6 @@ func (t *Tracker) CacheHitRatio() float64 {
 		return 0
 	}
 	return float64(t.cacheHitTokens) / float64(total)
-}
-
-// Total returns the estimated total token count (prompt + completion + new).
-func (t *Tracker) Total() int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.lastPromptTokens + t.lastCompTokens + t.newMessageTokens
 }
 
 // PromptEstimate returns the estimated prompt token count for the next call.

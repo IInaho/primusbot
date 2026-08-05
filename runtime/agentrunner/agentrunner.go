@@ -60,12 +60,17 @@ func (r *Runner) Run(ctx context.Context, input string, host controlruntime.RunH
 }
 
 func (r *Runner) Metrics() controlruntime.MetricsSnapshot {
-	return r.agent.Metrics(0)
+	return r.agent.Metrics()
 }
 
 func (r *Runner) Close() error {
 	r.agent.Abort()
 	return nil
+}
+
+// Services returns the optional runtime functions implemented by Runner.
+func (r *Runner) Services() controlruntime.Services {
+	return controlruntime.Services{Metrics: r.Metrics, Close: r.Close}
 }
 
 // PublishStep converts one agent-core step into the public runtime protocol.
@@ -115,7 +120,4 @@ func toolEvent(kind controlruntime.ToolEventKind, event protocol.StepEvent) cont
 	}
 }
 
-var (
-	_ controlruntime.Runner          = (*Runner)(nil)
-	_ controlruntime.MetricsProvider = (*Runner)(nil)
-)
+var _ controlruntime.Runner = (*Runner)(nil)

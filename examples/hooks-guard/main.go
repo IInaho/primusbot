@@ -19,9 +19,9 @@ import (
 
 	agentcore "nekocode/bot/agent"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/builtin/catalog"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools/builtin/catalog"
 	"nekocode/protocol"
 )
 

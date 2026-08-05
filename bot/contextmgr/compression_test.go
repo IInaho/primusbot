@@ -30,15 +30,3 @@ func TestBuildSummaryMessagesSeparatesRulesFromHistory(t *testing.T) {
 		}
 	}
 }
-
-func TestBuildSummaryMergeMessagesKeepsNewerArchiveAsData(t *testing.T) {
-	messages := buildSummaryMergeMessages("old state", "new state")
-	if len(messages) != 2 || messages[0].Role != "system" || messages[1].Role != "user" {
-		t.Fatalf("unexpected merge message roles: %+v", messages)
-	}
-	if !strings.Contains(messages[0].Content, "newer archive wins") ||
-		!strings.Contains(messages[1].Content, "[Older archive]\nold state") ||
-		!strings.Contains(messages[1].Content, "[Newer archive]\nnew state") {
-		t.Fatalf("merge prompt lost precedence or archive data: %+v", messages)
-	}
-}

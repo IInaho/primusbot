@@ -55,6 +55,18 @@ func TestStreamUsage_NoCacheDetails(t *testing.T) {
 	}
 }
 
+func TestStreamUsage_OpenAIZeroCachedTokensIsFullMiss(t *testing.T) {
+	data := `{"prompt_tokens":100,"completion_tokens":50,"prompt_tokens_details":{"cached_tokens":0}}`
+	var u StreamUsage
+	if err := json.Unmarshal([]byte(data), &u); err != nil {
+		t.Fatal(err)
+	}
+	u.Normalize()
+	if u.CacheHitTokens != 0 || u.CacheMissTokens != 100 {
+		t.Fatalf("cache usage = hit %d / miss %d, want 0/100", u.CacheHitTokens, u.CacheMissTokens)
+	}
+}
+
 func TestStreamUsage_DeepSeekFlatFieldsFallback(t *testing.T) {
 	// DeepSeek's flat fields populate CacheHit/Miss via Normalize when the
 	// standard nested field is absent (e.g. older/proxied responses).

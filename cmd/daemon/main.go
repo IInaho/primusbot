@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize runtime: %v", err)
 	}
-	statuses, err := bootstrapConnectors(context.Background(), rt, os.Getenv)
+	statuses, err := bootstrapConnectors(context.Background(), rt.Connect, os.Getenv)
 	if err != nil {
 		_ = rt.Close()
 		log.Fatalf("initialize connectors: %v", err)

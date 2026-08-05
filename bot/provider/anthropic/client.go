@@ -121,6 +121,10 @@ func toMessages(messages []types.Message) ([]message, string) {
 
 	for _, msg := range messages {
 		if msg.Role == "system" {
+			if msg.Source == types.MessageSourceVolatileTail {
+				out = append(out, message{Role: "user", Content: msg.Content})
+				continue
+			}
 			if systemPrompt != "" {
 				systemPrompt += "\n\n"
 			}

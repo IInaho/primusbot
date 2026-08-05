@@ -42,8 +42,10 @@ type Snapshot struct {
 	SubCacheHit       int `json:"sub_cache_hit,omitempty"`
 	SubCacheMiss      int `json:"sub_cache_miss,omitempty"`
 
-	LoadedSkills []string        `json:"loaded_skills"`
-	Ledger       ledger.Snapshot `json:"ledger"`
+	LoadedSkills    []string        `json:"loaded_skills"`
+	CheckpointTurns []string        `json:"checkpoint_turns,omitempty"`
+	CheckpointNext  int             `json:"checkpoint_next,omitempty"`
+	Ledger          ledger.Snapshot `json:"ledger"`
 }
 
 type Meta struct {
@@ -192,12 +194,14 @@ func (s *Snapshot) CaptureContext(snap ctxmgr.ManagerSnapshot, promptTokens, com
 	s.Memory = snap.Memory
 	s.Archive = snap.Archive
 	s.Messages = snap.Messages
-	s.CompactBoundary = snap.CompactBoundary
+	s.CompactBoundary = 0
 	s.ContextWindow = snap.Budget
 	s.PromptTokens = promptTokens
 	s.CompletionTokens = completionTokens
 	s.TrackerPrompt = snap.Tracker.LastPromptTokens
-	s.TrackerCompletion = snap.Tracker.LastCompTokens
+	// Kept in the JSON struct for backward-compatible reads only. Completion
+	// usage is owned by the agent-level PromptTokens/CompletionTokens fields.
+	s.TrackerCompletion = 0
 	s.TrackerNewTokens = snap.Tracker.NewMessageTokens
 	s.CacheHitTokens = snap.Tracker.CacheHitTokens
 	s.CacheMissTokens = snap.Tracker.CacheMissTokens
@@ -213,17 +217,19 @@ func (s *Snapshot) ContextSnapshot() ctxmgr.ManagerSnapshot {
 	if s == nil {
 		return ctxmgr.ManagerSnapshot{}
 	}
+	messages := s.Messages
+	if s.CompactBoundary > 0 && s.CompactBoundary <= len(messages) {
+		messages = messages[s.CompactBoundary:]
+	}
 	return ctxmgr.ManagerSnapshot{
-		SystemPrompt:    s.SystemPrompt,
-		Skills:          s.Skills,
-		Archive:         s.Archive,
-		Memory:          s.Memory,
-		CompactBoundary: s.CompactBoundary,
-		Messages:        s.Messages,
-		Budget:          s.ContextWindow,
+		SystemPrompt: s.SystemPrompt,
+		Skills:       s.Skills,
+		Archive:      s.Archive,
+		Memory:       s.Memory,
+		Messages:     append([]types.Message(nil), messages...),
+		Budget:       s.ContextWindow,
 		Tracker: token.State{
 			LastPromptTokens: s.TrackerPrompt,
-			LastCompTokens:   s.TrackerCompletion,
 			NewMessageTokens: s.TrackerNewTokens,
 			CacheHitTokens:   s.CacheHitTokens,
 			CacheMissTokens:  s.CacheMissTokens,

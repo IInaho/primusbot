@@ -41,14 +41,14 @@ type RuntimeStatus struct {
 
 func (r *Manager) Capabilities() CapabilityManifest {
 	r.mu.Lock()
-	hasCommands := r.commander != nil || len(r.runtimeCommands) > 0
+	hasCommands := r.services.ExecuteCommand != nil || len(r.runtimeCommands) > 0
 	r.mu.Unlock()
 	return CapabilityManifest{
-		Protocol: ProtocolVersion, Steering: r.steerer != nil,
+		Protocol: ProtocolVersion, Steering: r.services.Steer != nil,
 		Commands: hasCommands,
-		Metrics:  r.metrics != nil, Models: r.models != nil,
-		Context: r.context != nil, Extensions: r.extensions != nil,
-		Configuration: r.configuration != nil, Sessions: r.sessions != nil,
+		Metrics:  r.services.Metrics != nil, Models: r.services.CurrentModel != nil,
+		Context: r.services.ContextSnapshot != nil, Extensions: r.services.SkillManagementView != nil,
+		Configuration: r.services.ConfigView != nil, Sessions: r.services.ListSessions != nil,
 		Connectors: len(r.connectors.View().Connectors) > 0,
 	}
 }
@@ -78,89 +78,89 @@ func (r *Manager) Status() RuntimeStatus {
 // return their zero value.
 func (r *Manager) CurrentModel() ModelSelection {
 	r.mu.Lock()
-	service, closed := r.models, r.closed
+	service, closed := r.services.CurrentModel, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return ModelSelection{}
 	}
-	return service.CurrentModel()
+	return service()
 }
 
 func (r *Manager) ContextSnapshot() ContextSnapshot {
 	r.mu.Lock()
-	service, closed := r.context, r.closed
+	service, closed := r.services.ContextSnapshot, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return ContextSnapshot{}
 	}
-	return service.ContextSnapshot()
+	return service()
 }
 
 func (r *Manager) MemoryView(scope MemoryScope) MemoryView {
 	r.mu.Lock()
-	service, closed := r.context, r.closed
+	service, closed := r.services.MemoryView, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return MemoryView{}
 	}
-	return service.MemoryView(scope)
+	return service(scope)
 }
 
 func (r *Manager) SkillManagementView() SkillManagementView {
 	r.mu.Lock()
-	service, closed := r.extensions, r.closed
+	service, closed := r.services.SkillManagementView, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return SkillManagementView{}
 	}
-	return service.SkillManagementView()
+	return service()
 }
 
 func (r *Manager) ConfigView() ConfigView {
 	r.mu.Lock()
-	service, closed := r.configuration, r.closed
+	service, closed := r.services.ConfigView, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return ConfigView{}
 	}
-	return service.ConfigView()
+	return service()
 }
 
 func (r *Manager) CurrentSessionID() string {
 	r.mu.Lock()
-	service, closed := r.sessions, r.closed
+	service, closed := r.services.CurrentSessionID, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return ""
 	}
-	return service.CurrentSessionID()
+	return service()
 }
 
 func (r *Manager) ListSessions() []SessionMeta {
 	r.mu.Lock()
-	service, closed := r.sessions, r.closed
+	service, closed := r.services.ListSessions, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return nil
 	}
-	return service.ListSessions()
+	return service()
 }
 
 func (r *Manager) SessionMessages() []DisplayMessage {
 	r.mu.Lock()
-	service, closed := r.sessions, r.closed
+	service, closed := r.services.SessionMessages, r.closed
 	r.mu.Unlock()
 	if closed || service == nil {
 		return nil
 	}
-	return service.SessionMessages()
+	return service()
 }
 
 func (r *Manager) publishMetrics(runID RunID) {
-	if r.metrics == nil {
+	if r.services.Metrics == nil {
 		return
 	}
-	metrics := r.metrics.Metrics()
+	metrics := r.services.Metrics()
 	r.events.Publish(Event{
 		RunID: runID, Type: EventMetricsUpdated, Source: SourceRef{Kind: "bot"},
 		Payload: metrics,
@@ -168,7 +168,7 @@ func (r *Manager) publishMetrics(runID RunID) {
 }
 
 func (r *Manager) startMetricsUpdates(runID RunID, lease *runLease) func() {
-	if r.metrics == nil {
+	if r.services.Metrics == nil {
 		return func() {}
 	}
 	stop := make(chan struct{})
@@ -228,8 +228,8 @@ func (r *Manager) Metrics() MetricsSnapshot {
 func (r *Manager) CommandCatalog() []string {
 	seen := make(map[string]bool)
 	names := make([]string, 0)
-	if r.commander != nil {
-		for _, name := range r.commander.CommandNames() {
+	if r.services.CommandNames != nil {
+		for _, name := range r.services.CommandNames() {
 			display := commandDisplayName(name)
 			if display == "" || seen[display] {
 				continue

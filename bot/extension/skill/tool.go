@@ -3,22 +3,18 @@ package skill
 import (
 	"context"
 	"fmt"
-	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/extension/tool/runtime/core"
 )
 
 // skillTool implements tools.Tool to let the model load skills by name.
 type skillTool struct {
 	registry *registry
-	onLoad   func(name string) // called after a skill is loaded via tool
 }
 
 // newSkillTool creates a skill tool bound to the given registry.
 func newSkillTool(r *registry) *skillTool {
 	return &skillTool{registry: r}
 }
-
-// SetOnLoad sets a callback invoked after a skill is successfully loaded via this tool.
-func (t *skillTool) SetOnLoad(fn func(name string)) { t.onLoad = fn }
 
 func (t *skillTool) Name() string { return "skill" }
 func (t *skillTool) Description() string {
@@ -54,8 +50,8 @@ func (t *skillTool) Execute(ctx context.Context, args map[string]any) (string, e
 
 	// Keep loaded skills reloadable: compaction can remove the original tool
 	// result while the registry's conversation-level loaded flag survives.
-	if !t.registry.IsLoaded(name) && t.onLoad != nil {
-		t.onLoad(name)
+	if !t.registry.IsLoaded(name) {
+		t.registry.MarkLoaded(name)
 	}
 
 	return FormatForContext(sk), nil

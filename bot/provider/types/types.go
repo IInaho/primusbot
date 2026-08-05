@@ -28,8 +28,10 @@ type Message struct {
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	IsError          bool       `json:"is_error,omitempty"`
-	Source           string     `json:"source,omitempty"` // internal: "user" | "hint" | "" (legacy); stripped before API call
+	Source           string     `json:"source,omitempty"` // internal routing metadata; provider wire structs omit it
 }
+
+const MessageSourceVolatileTail = "volatile-tail"
 
 type ToolCall struct {
 	Index    int          `json:"index"`
@@ -95,15 +97,18 @@ type StreamUsage struct {
 // nested field wins for hit, DeepSeek's flat fields fill any gap, and a
 // reported miss is trusted over the prompt-hit arithmetic.
 func (u *StreamUsage) Normalize() {
-	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > 0 {
+	reportedHit := u.CacheHitTokens > 0
+	if u.PromptTokensDetails != nil {
 		u.CacheHitTokens = u.PromptTokensDetails.CachedTokens
+		reportedHit = true
 	} else if u.FlatCacheHit != nil {
 		u.CacheHitTokens = *u.FlatCacheHit
+		reportedHit = true
 	}
 	switch {
 	case u.FlatCacheMiss != nil:
 		u.CacheMissTokens = *u.FlatCacheMiss
-	case u.CacheHitTokens > 0 && u.PromptTokens > 0:
+	case reportedHit && u.PromptTokens > 0:
 		u.CacheMissTokens = max(0, u.PromptTokens-u.CacheHitTokens)
 	}
 }

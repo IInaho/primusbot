@@ -17,7 +17,7 @@ import (
 //	Layer 0 — system prompt + skill list (immutable within a session)
 //	Layer 1 — long-term memory (~/.nekocode/memory.md)
 //	Layer 2 — compaction archive (only rewritten by the compactor)
-//	Layer 3 — message history (append-only; compacted via boundary)
+//	Layer 3 — active message history (replaced when compacted)
 //	Layer 4 — runtime environment block (volatile, rebuilt per request)
 //	Layer 5 — todos + hints (volatile tail)
 //
@@ -40,8 +40,7 @@ type contextContent struct {
 	Archive string
 
 	// Layer 3 — message history.
-	Messages        []types.Message
-	CompactBoundary int
+	Messages []types.Message
 
 	// Layer 5 — volatile suffix. ALL variable content goes HERE, after history.
 	Todo      string
@@ -133,10 +132,10 @@ func (c *contextContent) BuildLayer2() []types.Message {
 func (c *contextContent) BuildLayer5() []types.Message {
 	var out []types.Message
 	if c.Todo != "" {
-		out = append(out, types.Message{Role: "system", Content: formatTodo(c.Todo)})
+		out = append(out, types.Message{Role: "system", Content: formatTodo(c.Todo), Source: types.MessageSourceVolatileTail})
 	}
 	if c.Hints != "" {
-		out = append(out, types.Message{Role: "system", Content: c.Hints})
+		out = append(out, types.Message{Role: "system", Content: c.Hints, Source: types.MessageSourceVolatileTail})
 	}
 	return out
 }

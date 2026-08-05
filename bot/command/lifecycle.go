@@ -3,13 +3,13 @@ package command
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/extension/skill"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/util/text"
 )
 
@@ -21,31 +21,17 @@ type skillState struct {
 	WantsAgent bool
 }
 
-type PlanModeController interface {
-	SetPlanMode(bool)
-}
-
-type SkillProvider interface {
-	SkillCommands() []skill.Command
-	Skill(name string) (skill.Command, bool)
-	MarkSkillLoaded(name string)
-}
-
-type skillLoadCallbackTool interface {
-	SetOnLoad(func(string))
-}
-
 // Deps bundles services needed by registration and lifecycle operations.
 type Deps struct {
 	CtxMgr            *ctxmgr.Manager
-	Ag                func() PlanModeController // dynamic: returns current agent
-	Skills            SkillProvider
+	SetPlanMode       func(bool)
 	ToolRegistry      *tools.Registry
 	BaseSystemPrompt  func() string
 	GetConfigFn       func() config.ModelConfig
 	ListModelsFn      func() []string
 	SwitchModel       func(string) error
 	ResetConversation func(keepSummary bool) (string, error)
+	Rewind            func(turn string) (string, error)
 }
 
 // registerAll wires built-in and dynamic slash commands.
@@ -57,7 +43,7 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 		if len(cmd.Args) == 0 {
 			return "Usage: /plan <task>", true
 		}
-		deps.Ag().SetPlanMode(true)
+		deps.SetPlanMode(true)
 		parts := make([]string, 0, 2)
 		if deps.BaseSystemPrompt != nil {
 			if base := strings.TrimSpace(deps.BaseSystemPrompt()); base != "" {
@@ -71,36 +57,6 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 		return "", false
 	})
 
-	// $skill-name for each loaded skill.
-	for _, sk := range deps.Skills.SkillCommands() {
-		name := sk.Name
-		p.RegisterDynamic(name, func(_ context.Context, cmd *Command) (string, bool) {
-			sk, ok := deps.Skills.Skill(name)
-			if !ok {
-				return fmt.Sprintf("Skill %q not found.", name), true
-			}
-			st.MsgStart = deps.CtxMgr.Len()
-			deps.CtxMgr.Add("user", sk.Context)
-			deps.Skills.MarkSkillLoaded(name)
-			if len(cmd.Args) == 0 {
-				st.MsgStart = -1
-				return fmt.Sprintf("Loaded skill %q.", name), true
-			}
-			deps.CtxMgr.Add("user", strings.Join(cmd.Args, " "))
-			st.MsgEnd = deps.CtxMgr.Len()
-			st.WantsAgent = true
-			return "", false
-		})
-	}
-
-	// Skill tool OnLoad callback.
-	if t, err := deps.ToolRegistry.Get("skill"); err == nil {
-		if loader, ok := t.(skillLoadCallbackTool); ok {
-			loader.SetOnLoad(func(name string) {
-				deps.Skills.MarkSkillLoaded(name)
-			})
-		}
-	}
 }
 
 func planModePrompt() string {
@@ -120,28 +76,32 @@ End by asking for approval to leave plan mode and implement. Do not write code o
 </plan-mode>`
 }
 
-// ForceSummarize compacts context now. When force is true, bypasses
-// the NeedsSummarization token-budget check (for explicit user invocation).
+// ForceSummarize compacts context now. When force is true, it bypasses the
+// automatic token-budget threshold used by normal lifecycle calls.
 func ForceSummarize(ctxMgr *ctxmgr.Manager, force bool) (string, error) {
-	count, tokens, hasSummary := ctxMgr.Stats()
-	if count <= 2 {
+	before := ctxMgr.Status()
+	if before.Messages <= 2 {
 		return "Conversation too short, nothing to compact.", nil
 	}
-	if !force && !ctxMgr.NeedsSummarization() {
-		return fmt.Sprintf("Not needed: %d messages, ~%d tokens", count, tokens), nil
+	var compacted bool
+	var err error
+	if force {
+		compacted, err = ctxMgr.Summarize()
+	} else {
+		compacted, err = ctxMgr.AutoCompactIfNeeded()
 	}
-	if err := ctxMgr.Summarize(); err != nil {
+	if err != nil {
 		return "", err
 	}
-	_, newTokens, _ := ctxMgr.Stats()
-	if newTokens >= tokens {
-		return fmt.Sprintf("Already compact: %d messages, ~%d tokens", count, tokens), nil
+	if !compacted {
+		return fmt.Sprintf("Not needed: %d messages, ~%d tokens", before.Messages, before.Tokens), nil
 	}
+	after := ctxMgr.Status()
 	action := "Compacted"
-	if hasSummary {
+	if before.HasArchive {
 		action = "Summary updated"
 	}
-	return fmt.Sprintf("%s: %d messages, ~%d → ~%d tokens", action, count, tokens, newTokens), nil
+	return fmt.Sprintf("%s: %d messages, ~%d → ~%d tokens", action, before.Messages, before.Tokens, after.Tokens), nil
 }
 
 // ContextReport returns a detailed context window breakdown.
@@ -163,52 +123,123 @@ var barChars = map[string]string{
 }
 
 func formatContextReport(r ctxmgr.ContextReport) string {
-	used := r.SystemPrompt + r.ToolDefTokens + r.TodoText + r.SkillList + r.Messages
+	used := r.SystemPrompt + r.ToolDefTokens + r.TodoText + r.SkillList + r.Memory + r.Archive + r.Messages
 	free := max(r.Budget-used, 0)
 	pct := func(n int) string {
 		if r.Budget == 0 {
-			return ""
+			return "—"
 		}
-		return fmt.Sprintf("(%.0f%%)", float64(n)/float64(r.Budget)*100)
+		value := float64(n) / float64(r.Budget) * 100
+		if n > 0 && value < 1 {
+			return "<1%"
+		}
+		return fmt.Sprintf("%.0f%%", value)
 	}
 	item := func(ch, label string, n int) string {
-		return barChars[ch] + " " + label + ": " + text.FormatTokens(n) + " " + pct(n)
+		return fmt.Sprintf("  %s %-10s %8s %6s", barChars[ch], label, text.FormatTokens(n), pct(n))
 	}
 
 	bar := buildBar(r.Budget, []barSegment{
 		{size: r.SystemPrompt, kind: "sys"},
 		{size: r.ToolDefTokens + r.TodoText, kind: "tools"},
 		{size: r.SkillList, kind: "skills"},
-		{size: r.Messages, kind: "msgs"},
+		{size: r.Memory + r.Archive + r.Messages, kind: "msgs"},
 		{size: free, kind: "free"},
-	}, 20)
-	out := fmt.Sprintf("%s  %s / %s\n\n%s  %s\n%s  %s\n\n%s",
-		bar, text.FormatTokens(used), text.FormatTokens(r.Budget),
+	}, 24)
+	summary := "none"
+	if r.HasArchive {
+		summary = "available"
+	}
+	messageCount := r.UserMessages + r.AssistantMsgs + r.ToolResults
+	out := fmt.Sprintf("Context Window\n  %s\n  Used %s / %s (%s) · Free %s (%s)\n\nBreakdown\n%s\n%s\n%s\n%s\n\nConversation\n  Tools      %s\n  Messages   %s · %s user · %s assistant · %s tool results\n  Summary    %s",
+		bar,
+		text.FormatTokens(used), text.FormatTokens(r.Budget), pct(used), text.FormatTokens(free), pct(free),
 		item("sys", "System", r.SystemPrompt),
 		item("tools", "Tools", r.ToolDefTokens),
 		item("msgs", "Messages", r.Messages),
 		item("skills", "Skills", r.SkillList),
-		fmt.Sprintf("%d tools · %d msgs · %d archived  %s Free: %s",
-			r.ToolDefCount, r.UserMessages+r.AssistantMsgs+r.ToolResults, r.Archived,
-			text.FormatTokens(free), pct(free)),
+		formatCount(r.ToolDefCount), formatCount(messageCount), formatCount(r.UserMessages),
+		formatCount(r.AssistantMsgs), formatCount(r.ToolResults), summary,
 	)
-	if r.CacheHitTokens > 0 || r.CacheMissTokens > 0 {
-		out += fmt.Sprintf("\n%s Cache: hit %s / miss %s · %.0f%%",
+	hasCacheUsage := r.CacheHitTokens > 0 || r.CacheMissTokens > 0
+	hasTurnCache := r.PrefixTurn.Requests > 0
+	if hasCacheUsage || hasTurnCache {
+		out += "\n\nCache"
+	}
+	if hasCacheUsage {
+		out += fmt.Sprintf("\n  %s %-12s %3.0f%% hit · Hit %s · Miss %s",
 			barChars["cache"],
-			text.FormatTokens(r.CacheHitTokens), text.FormatTokens(r.CacheMissTokens),
-			r.CacheHitRatio*100)
+			"Session", r.CacheHitRatio*100,
+			text.FormatTokens(r.CacheHitTokens), text.FormatTokens(r.CacheMissTokens))
+	}
+	if hasTurnCache {
+		total := r.PrefixTurn.HitTokens + r.PrefixTurn.MissTokens
+		ratio := float64(0)
+		if total > 0 {
+			ratio = float64(r.PrefixTurn.HitTokens) / float64(total) * 100
+		}
+		out += fmt.Sprintf("\n  %s %-12s %3.0f%% hit · %s calls · Hit %s · Miss %s",
+			barChars["cache"], "Last turn", ratio, formatCount(r.PrefixTurn.Requests),
+			text.FormatTokens(r.PrefixTurn.HitTokens), text.FormatTokens(r.PrefixTurn.MissTokens))
+	}
+	if call := r.PrefixTurn.PeakMiss; call.MissTokens > 0 {
+		out += fmt.Sprintf("\n  %s %-12s %s miss · %s",
+			barChars["sub"], "Peak miss", text.FormatTokens(call.MissTokens),
+			formatPrefixMissParts(call.Parts))
+	}
+	if call := r.PrefixTurn.LowestHit; call.Request > 0 {
+		out += fmt.Sprintf("\n  %s %-12s %.0f%% hit · Hit %s · Miss %s",
+			barChars["sub"], "Lowest hit", cacheHitRatio(call)*100,
+			text.FormatTokens(call.HitTokens), text.FormatTokens(call.MissTokens))
 	}
 	if r.SubCount > 0 {
 		subRatio := ""
 		if total := r.SubCacheHit + r.SubCacheMiss; total > 0 {
 			subRatio = fmt.Sprintf(" · hit %.0f%%", float64(r.SubCacheHit)/float64(total)*100)
 		}
-		out += fmt.Sprintf("\n%s Subagents: %d runs · %s tokens · hit %s / miss %s%s",
-			barChars["sub"], r.SubCount,
+		out += fmt.Sprintf("\n\nSubagents\n  %s %s runs · %s tokens · Hit %s · Miss %s%s",
+			barChars["sub"], formatCount(r.SubCount),
 			text.FormatTokens(r.SubTokens), text.FormatTokens(r.SubCacheHit),
 			text.FormatTokens(r.SubCacheMiss), subRatio)
 	}
 	return out
+}
+
+func cacheHitRatio(call ctxmgr.PrefixCallStats) float64 {
+	total := call.HitTokens + call.MissTokens
+	if total == 0 {
+		return 0
+	}
+	return float64(call.HitTokens) / float64(total)
+}
+
+func formatCount(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+func formatPrefixMissParts(parts []string) string {
+	labels := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "cold-start":
+			labels = append(labels, "first request; cache not established")
+		case "tail/provider":
+			labels = append(labels, "stable prefix unchanged; new content or provider cache")
+		case "system":
+			labels = append(labels, "system prompt changed")
+		case "tools":
+			labels = append(labels, "tool definitions changed")
+		case "history":
+			labels = append(labels, "previous history was rewritten")
+		default:
+			labels = append(labels, part)
+		}
+	}
+	return strings.Join(labels, "; ")
 }
 
 func buildBar(total int, segments []barSegment, width int) string {
@@ -230,17 +261,17 @@ func buildBar(total int, segments []barSegment, width int) string {
 			break
 		}
 	}
-	var out strings.Builder
+	var cells []string
 	for i, segment := range segments {
 		char := barChars[segment.kind]
 		if char == "" {
 			char = " "
 		}
 		for range allocated[i] {
-			fmt.Fprintf(&out, "%s ", char)
+			cells = append(cells, char)
 		}
 	}
-	return out.String()
+	return "[ " + strings.Join(cells, " ") + " ]"
 }
 
 // clearSkillContext removes skill messages from the previous turn.

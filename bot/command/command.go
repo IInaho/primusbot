@@ -2,6 +2,8 @@ package command
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	ctxmgr "nekocode/bot/contextmgr"
 )
@@ -10,19 +12,63 @@ import (
 type Handler struct {
 	parser *Parser
 	skill  *skillState
+	ctxMgr *ctxmgr.Manager
+}
+
+// SkillRegistration is the command-facing representation of an extension
+// skill. The extension module owns discovery and loaded-state updates.
+type SkillRegistration struct {
+	Name       string
+	Load       func() (string, bool)
+	MarkLoaded func()
 }
 
 // New creates a command handler and registers built-in and dynamic commands.
 func New(deps Deps) *Handler {
-	h := &Handler{parser: NewParser(), skill: &skillState{MsgStart: -1}}
+	h := &Handler{parser: NewParser(), skill: &skillState{MsgStart: -1}, ctxMgr: deps.CtxMgr}
 	h.RegisterAll(deps)
 	return h
 }
 
-// RegisterAll (re)registers built-in and dynamic skill commands, e.g. after
-// a configuration reload. The skill state is preserved.
+// RegisterAll (re)registers built-in commands. Dynamic skills are installed
+// separately by RegisterSkills, and their state is preserved.
 func (h *Handler) RegisterAll(deps Deps) {
+	h.ctxMgr = deps.CtxMgr
 	registerAll(h.parser, deps, h.skill)
+}
+
+// RegisterSkills replaces all dynamic dollar commands with the extension's
+// current skill set.
+func (h *Handler) RegisterSkills(skills []SkillRegistration) {
+	h.parser.ClearPrefix(DollarPrefix)
+	for _, registration := range skills {
+		sk := registration
+		h.parser.RegisterDynamic(sk.Name, func(_ context.Context, cmd *Command) (string, bool) {
+			if h.ctxMgr == nil {
+				return "Skill context is unavailable.", true
+			}
+			if sk.Load == nil {
+				return fmt.Sprintf("Skill %q not found.", sk.Name), true
+			}
+			content, ok := sk.Load()
+			if !ok {
+				return fmt.Sprintf("Skill %q not found.", sk.Name), true
+			}
+			h.skill.MsgStart = h.ctxMgr.Len()
+			h.ctxMgr.Add("user", content)
+			if sk.MarkLoaded != nil {
+				sk.MarkLoaded()
+			}
+			if len(cmd.Args) == 0 {
+				h.skill.MsgStart = -1
+				return fmt.Sprintf("Loaded skill %q.", sk.Name), true
+			}
+			h.ctxMgr.Add("user", strings.Join(cmd.Args, " "))
+			h.skill.MsgEnd = h.ctxMgr.Len()
+			h.skill.WantsAgent = true
+			return "", false
+		})
+	}
 }
 
 // Parser exposes the command registry used by extension and session commands.

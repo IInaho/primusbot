@@ -120,7 +120,7 @@ func TestClear(t *testing.T) {
 	m.Add("assistant", "world")
 	m.state.ctx.Archive = "old summary"
 	m.state.ctx.Hints = "old hints"
-	m.Clear()
+	m.Reset()
 	snapshot := m.Snapshot()
 	if n := len(snapshot.Messages); n != 0 {
 		t.Errorf("after Clear: len = %d, want 0", n)
@@ -133,7 +133,7 @@ func TestClear(t *testing.T) {
 func TestFreshStart(t *testing.T) {
 	m := newHistoryManager()
 	m.Add("user", "hello")
-	m.FreshStart()
+	m.ResetHistory()
 	if n := len(m.Snapshot().Messages); n != 0 {
 		t.Errorf("after FreshStart: len = %d, want 0", n)
 	}

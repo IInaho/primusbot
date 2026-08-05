@@ -6,10 +6,10 @@ import (
 
 	"nekocode/bot/agent/internal/kernel"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/runner"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools"
-	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/runner"
 	"nekocode/logger"
 )
 
@@ -62,13 +62,13 @@ func (s *runState) addTokens(cfg RunConfig) func(int, int) {
 }
 
 func (s *runState) meta(ctxMgr *ctxmgr.Manager) runMeta {
-	hit, miss := ctxMgr.CacheStats()
+	status := ctxMgr.Status()
 	return runMeta{
 		totalTokens:     s.totalTokens,
 		toolUseCount:    s.toolUseCount,
 		durationMs:      time.Since(s.startTime).Milliseconds(),
-		cacheHitTokens:  hit,
-		cacheMissTokens: miss,
+		cacheHitTokens:  status.CacheHit,
+		cacheMissTokens: status.CacheMiss,
 		sensitiveOps:    s.sensitiveOps,
 	}
 }
@@ -150,7 +150,7 @@ func (r *engineRun) stepOnce() bool {
 		return true
 	}
 
-	if err := r.ctxMgr.AutoCompactIfNeeded(); err != nil {
+	if _, err := r.ctxMgr.AutoCompactIfNeeded(); err != nil {
 		r.log("compact error: %v", err)
 		if r.state.lastText != "" {
 			r.result = buildPartialResult(r.state.lastText, r.state.meta(r.ctxMgr))

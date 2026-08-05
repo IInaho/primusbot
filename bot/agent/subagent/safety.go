@@ -3,7 +3,7 @@ package subagent
 import (
 	"strings"
 
-	"nekocode/bot/tools/runtime/core"
+	"nekocode/bot/extension/tool/runtime/core"
 )
 
 var sensitivePathPatterns = []string{

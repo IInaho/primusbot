@@ -6,11 +6,7 @@ import (
 	"strings"
 )
 
-// connectorBootstrapper is the runtime surface needed to start connectors
-// from environment configuration.
-type connectorBootstrapper interface {
-	Connect(context.Context, string, []string) (string, error)
-}
+type connectorConnect func(context.Context, string, []string) (string, error)
 
 // connectorBootstrapStatus reports how one connector was started.
 type connectorBootstrapStatus struct {
@@ -19,7 +15,7 @@ type connectorBootstrapStatus struct {
 }
 
 // connectorBootstrap starts one connector from its environment.
-type connectorBootstrap func(context.Context, connectorBootstrapper, func(string) string) (string, error)
+type connectorBootstrap func(context.Context, connectorConnect, func(string) string) (string, error)
 
 // connectorBootstraps maps every known connector to its bootstrap.
 var connectorBootstraps = map[string]connectorBootstrap{
@@ -31,7 +27,7 @@ var connectorBootstraps = map[string]connectorBootstrap{
 // bootstrapConnectors makes the daemon self-contained. NEKOCODE_CONNECTORS
 // selects one or more transports; each transport can bootstrap credentials
 // from its own environment variables or start from persisted connect.json.
-func bootstrapConnectors(ctx context.Context, rt connectorBootstrapper, getenv func(string) string) ([]connectorBootstrapStatus, error) {
+func bootstrapConnectors(ctx context.Context, connect connectorConnect, getenv func(string) string) ([]connectorBootstrapStatus, error) {
 	names, err := selectedConnectors(getenv)
 	if err != nil {
 		return nil, err
@@ -42,7 +38,7 @@ func bootstrapConnectors(ctx context.Context, rt connectorBootstrapper, getenv f
 		if boot == nil {
 			return nil, fmt.Errorf("unknown connector %q", name)
 		}
-		message, err := boot(ctx, rt, getenv)
+		message, err := boot(ctx, connect, getenv)
 		if err != nil {
 			return nil, err
 		}
@@ -84,27 +80,27 @@ func selectedConnectors(getenv func(string) string) ([]string, error) {
 	return names, nil
 }
 
-func bootstrapFeishu(ctx context.Context, rt connectorBootstrapper, getenv func(string) string) (string, error) {
-	return bootstrapCredentialPair(ctx, rt, "feishu",
+func bootstrapFeishu(ctx context.Context, connect connectorConnect, getenv func(string) string) (string, error) {
+	return bootstrapCredentialPair(ctx, connect, "feishu",
 		"NEKOCODE_FEISHU_APP_ID", getenv("NEKOCODE_FEISHU_APP_ID"),
 		"NEKOCODE_FEISHU_APP_SECRET", getenv("NEKOCODE_FEISHU_APP_SECRET"), nil, true)
 }
 
-func bootstrapTelegram(ctx context.Context, rt connectorBootstrapper, getenv func(string) string) (string, error) {
+func bootstrapTelegram(ctx context.Context, connect connectorConnect, getenv func(string) string) (string, error) {
 	token := strings.TrimSpace(getenv("NEKOCODE_TELEGRAM_BOT_TOKEN"))
 	if token != "" {
-		if _, err := rt.Connect(ctx, "telegram", []string{"add", token}); err != nil {
+		if _, err := connect(ctx, "telegram", []string{"add", token}); err != nil {
 			return "", fmt.Errorf("telegram: save bot token: %w", err)
 		}
 	}
-	return rt.Connect(ctx, "telegram", nil)
+	return connect(ctx, "telegram", nil)
 }
 
-func bootstrapQQBot(ctx context.Context, rt connectorBootstrapper, getenv func(string) string) (string, error) {
-	if err := configureQQBotSandbox(ctx, rt, getenv); err != nil {
+func bootstrapQQBot(ctx context.Context, connect connectorConnect, getenv func(string) string) (string, error) {
+	if err := configureQQBotSandbox(ctx, connect, getenv); err != nil {
 		return "", err
 	}
-	return bootstrapCredentialPair(ctx, rt, "qqbot",
+	return bootstrapCredentialPair(ctx, connect, "qqbot",
 		"NEKOCODE_QQBOT_APP_ID", getenv("NEKOCODE_QQBOT_APP_ID"),
 		"NEKOCODE_QQBOT_APP_SECRET", getenv("NEKOCODE_QQBOT_APP_SECRET"),
 		[]string{"start"}, false)
@@ -113,13 +109,13 @@ func bootstrapQQBot(ctx context.Context, rt connectorBootstrapper, getenv func(s
 // bootstrapCredentialPair validates a credential pair, saves it when present,
 // and starts the connector with startArgs. QQBot's "add" already starts the
 // connection, so its startAfterAdd is false and "add"'s own message is kept.
-func bootstrapCredentialPair(ctx context.Context, rt connectorBootstrapper, name, idEnv, id, secretEnv, secret string, startArgs []string, startAfterAdd bool) (string, error) {
+func bootstrapCredentialPair(ctx context.Context, connect connectorConnect, name, idEnv, id, secretEnv, secret string, startArgs []string, startAfterAdd bool) (string, error) {
 	id, secret, err := credentialPair(id, secret, idEnv, secretEnv)
 	if err != nil {
 		return "", err
 	}
 	if id != "" {
-		message, err := rt.Connect(ctx, name, []string{"add", id, secret})
+		message, err := connect(ctx, name, []string{"add", id, secret})
 		if err != nil {
 			return "", fmt.Errorf("%s: save credentials: %w", name, err)
 		}
@@ -127,7 +123,7 @@ func bootstrapCredentialPair(ctx context.Context, rt connectorBootstrapper, name
 			return message, nil
 		}
 	}
-	message, err := rt.Connect(ctx, name, startArgs)
+	message, err := connect(ctx, name, startArgs)
 	if err != nil {
 		return "", fmt.Errorf("%s: start connector: %w", name, err)
 	}
@@ -144,7 +140,7 @@ func credentialPair(id, secret, idEnv, secretEnv string) (string, string, error)
 	return id, secret, nil
 }
 
-func configureQQBotSandbox(ctx context.Context, rt connectorBootstrapper, getenv func(string) string) error {
+func configureQQBotSandbox(ctx context.Context, connect connectorConnect, getenv func(string) string) error {
 	sandbox := strings.ToLower(strings.TrimSpace(getenv("NEKOCODE_QQBOT_SANDBOX")))
 	if sandbox == "" {
 		return nil
@@ -157,7 +153,7 @@ func configureQQBotSandbox(ctx context.Context, rt connectorBootstrapper, getenv
 	default:
 		return fmt.Errorf("NEKOCODE_QQBOT_SANDBOX must be true or false")
 	}
-	if _, err := rt.Connect(ctx, "qqbot", []string{"sandbox", sandbox}); err != nil {
+	if _, err := connect(ctx, "qqbot", []string{"sandbox", sandbox}); err != nil {
 		return fmt.Errorf("qqbot: configure sandbox: %w", err)
 	}
 	return nil

@@ -1,8 +1,12 @@
 package contextmgr
 
 import (
+	"context"
+
 	"nekocode/bot/contextmgr/token"
+	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
+	"nekocode/logger"
 	"nekocode/protocol"
 )
 
@@ -21,17 +25,38 @@ func (m *Manager) Build() []types.Message {
 	runtimePrompt := m.buildLayer4()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
+	return m.buildLocked(runtimePrompt, false)
+}
+
+// BuildRequest assembles one model request and records its cache-relevant
+// shape in the same state snapshot. Model callers should use this instead of
+// pairing Build and prefix observation manually.
+func (m *Manager) BuildRequest(toolDefs []types.ToolDef) []types.Message {
+	runtimePrompt := m.buildLayer4()
+	m.state.mu.Lock()
+	defer m.state.mu.Unlock()
+	out := m.buildLocked(runtimePrompt, true)
+	system := m.state.ctx.BuildLayer0()
+	system = append(system, m.state.ctx.BuildLayer1()...)
+	history := m.state.ctx.BuildLayer2()
+	history = append(history, m.buildLayer3()...)
+	m.state.prefix.Observe(buildPrefixShape(system, history, toolDefs))
+	return out
+}
+
+func (m *Manager) buildLocked(runtimePrompt string, preserveSource bool) []types.Message {
 	out := m.state.ctx.BuildLayer0()
 	out = append(out, m.state.ctx.BuildLayer1()...)
 	out = append(out, m.state.ctx.BuildLayer2()...)
 	out = append(out, m.buildLayer3()...)
 	if runtimePrompt != "" {
-		out = append(out, types.Message{Role: "system", Content: runtimePrompt})
+		out = append(out, types.Message{Role: "system", Content: runtimePrompt, Source: types.MessageSourceVolatileTail})
 	}
 	out = append(out, m.state.ctx.BuildLayer5()...)
-
-	for i := range out {
-		out[i].Source = ""
+	if !preserveSource {
+		for i := range out {
+			out[i].Source = ""
+		}
 	}
 	return out
 }
@@ -39,39 +64,17 @@ func (m *Manager) Build() []types.Message {
 // buildLayer3 returns the visible (post-compaction-boundary) history with
 // orphaned tool calls/results filtered out.
 func (m *Manager) buildLayer3() []types.Message {
-	return m.filterValidMessages(m.visibleHistory())
-}
-
-// SetRuntimePromptProvider sets the Layer 4 provider: an ephemeral
-// system-message factory called for every model-context build. Its output
-// is excluded from snapshots so resumed sessions always see the current
-// environment.
-func (m *Manager) SetRuntimePromptProvider(provider func() string) {
-	m.runtimeMu.Lock()
-	m.runtimePrompt = provider
-	m.runtimeMu.Unlock()
+	return m.filterValidMessages(m.state.ctx.Messages)
 }
 
 // buildLayer4 renders the runtime environment block via the registered
 // provider ("" when none is set).
 func (m *Manager) buildLayer4() string {
-	m.runtimeMu.RLock()
 	provider := m.runtimePrompt
-	m.runtimeMu.RUnlock()
 	if provider == nil {
 		return ""
 	}
 	return provider()
-}
-
-func (m *Manager) visibleHistory() []types.Message {
-	if m.state.ctx.CompactBoundary <= 0 {
-		return m.state.ctx.Messages
-	}
-	if m.state.ctx.CompactBoundary >= len(m.state.ctx.Messages) {
-		return nil
-	}
-	return m.state.ctx.Messages[m.state.ctx.CompactBoundary:]
 }
 
 func (m *Manager) filterValidMessages(kept []types.Message) []types.Message {
@@ -138,11 +141,28 @@ func (m *Manager) SetHints(hints string) {
 	m.state.ctx.Hints = hints
 }
 
-func (m *Manager) SetContextWindow(budget int) {
+// ModelContext contains the context settings that change together when the
+// active model changes.
+type ModelContext struct {
+	Window          int
+	CompactionModel provider.LLM
+}
+
+// ConfigureModel updates model-dependent context settings atomically.
+func (m *Manager) ConfigureModel(cfg ModelContext) {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
-	if budget > 0 {
-		m.state.contextWindow = budget
+	if cfg.Window > 0 {
+		m.state.contextWindow = cfg.Window
+	}
+	m.state.tracker.ResetCache()
+	m.state.prefix.Reset()
+	if m.state.compressor != nil {
+		var summarizer Summarizer
+		if cfg.CompactionModel != nil {
+			summarizer = makeSummarizer(context.Background(), cfg.CompactionModel)
+		}
+		m.state.compressor.summarizer = summarizer
 	}
 }
 
@@ -152,56 +172,60 @@ func (m *Manager) SetTodos(items []protocol.TodoItem) {
 	m.state.ctx.LoadTodos(items)
 }
 
-func (m *Manager) AllTasksDone() bool {
-	m.state.mu.RLock()
-	defer m.state.mu.RUnlock()
-	return m.state.ctx.AllTasksDone()
-}
-
-func (m *Manager) HasTasks() bool {
-	m.state.mu.RLock()
-	defer m.state.mu.RUnlock()
-	return m.state.ctx.HasTasks()
-}
-
 func (m *Manager) Len() int {
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
-	n := len(m.state.ctx.Messages)
-	if m.state.ctx.CompactBoundary > 0 && m.state.ctx.CompactBoundary < n {
-		return n - m.state.ctx.CompactBoundary
-	}
-	return n
+	return len(m.state.ctx.Messages)
 }
 
-func (m *Manager) Stats() (int, int, bool) {
+type Status struct {
+	Messages     int
+	Tokens       int
+	Budget       int
+	HasArchive   bool
+	CacheHit     int
+	CacheMiss    int
+	HasTasks     bool
+	TasksDone    bool
+	CompactCount int
+}
+
+// Status returns one coherent snapshot of context occupancy and session usage.
+func (m *Manager) Status() Status {
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
-	return len(m.state.ctx.Messages), m.totalTokenEstimate(), m.state.ctx.Archive != ""
+	hit, miss := m.state.tracker.CacheStats()
+	return Status{
+		Messages: len(m.state.ctx.Messages), Tokens: m.estimatedTokens(),
+		Budget: m.state.contextWindow, HasArchive: m.state.ctx.Archive != "",
+		CacheHit: hit, CacheMiss: miss,
+		HasTasks: m.state.ctx.HasTasks(), TasksDone: m.state.ctx.AllTasksDone(),
+		CompactCount: m.state.compactCount,
+	}
 }
 
-func (m *Manager) RecordUsage(prompt, completion int) {
+func (m *Manager) RecordUsage(prompt int) {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
-	m.state.tracker.RecordUsage(prompt, completion)
+	m.state.tracker.RecordPrompt(prompt)
+}
+
+// BeginModelTurn starts cache diagnostics for one user conversation. It keeps
+// the prior request shape so the next request can still detect prefix changes.
+func (m *Manager) BeginModelTurn() {
+	m.state.mu.Lock()
+	defer m.state.mu.Unlock()
+	m.state.prefix.BeginTurn()
 }
 
 func (m *Manager) RecordCache(hit, miss int) {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
 	m.state.tracker.RecordCache(hit, miss)
-}
-
-func (m *Manager) ResetCache() {
-	m.state.mu.Lock()
-	defer m.state.mu.Unlock()
-	m.state.tracker.ResetCache()
-}
-
-func (m *Manager) TokenUsage() (int, int) {
-	m.state.mu.RLock()
-	defer m.state.mu.RUnlock()
-	return m.totalTokenEstimate(), m.state.contextWindow
+	diagnosis := m.state.prefix.RecordCache(hit, miss)
+	if miss > 0 {
+		logger.Log("prefix cache miss: tokens=%d changed=%v", miss, diagnosis.Parts)
+	}
 }
 
 func (m *Manager) RecordSubagent(tokens, hit, miss int) {
@@ -210,20 +234,20 @@ func (m *Manager) RecordSubagent(tokens, hit, miss int) {
 	m.state.tracker.RecordSubagent(tokens, hit, miss)
 }
 
-func (m *Manager) CacheStats() (hit, miss int) {
-	m.state.mu.RLock()
-	defer m.state.mu.RUnlock()
-	return m.state.tracker.CacheStats()
-}
-
-func (m *Manager) visibleMessages() []types.Message {
-	visible := m.state.ctx.Messages
-	if m.state.ctx.CompactBoundary > 0 && m.state.ctx.Archive != "" && m.state.ctx.CompactBoundary < len(visible) {
-		visible = visible[m.state.ctx.CompactBoundary:]
-	}
-	return visible
-}
-
 func (m *Manager) totalTokenEstimate() int {
-	return token.EstimateTokens(m.visibleMessages()) + token.EstimateString(m.state.ctx.Archive)
+	return token.EstimateString(m.state.ctx.SystemPrompt) +
+		token.EstimateString(m.state.ctx.Skills) +
+		token.EstimateString(m.state.ctx.Memory) +
+		token.EstimateString(m.state.ctx.Archive) +
+		token.EstimateTokens(m.state.ctx.Messages) +
+		token.EstimateString(m.state.ctx.Todo) +
+		token.EstimateString(m.state.ctx.Hints)
+}
+
+func (m *Manager) estimatedTokens() int {
+	estimated := m.totalTokenEstimate()
+	if calibrated := m.state.tracker.PromptEstimate(); calibrated > estimated {
+		return calibrated
+	}
+	return estimated
 }

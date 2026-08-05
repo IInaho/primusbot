@@ -24,9 +24,8 @@ bot/
 ├── agent/subagent/      # 子 Agent 执行引擎
 ├── contextmgr/          # 上下文、压缩、memory、token 统计
 ├── provider/            # LLM 协议、客户端工厂、stream/http 类型
-├── tools/               # 工具定义、注册、执行（builtin/ 实现 + runtime/ 执行编排）
 ├── policy/              # 策略系统：Policy、Hook 引擎（Registry/builtin/plugin）、ledger、budget、tool semantics
-├── extension/           # plugin、skill、mcp 扩展实现与管理
+├── extension/           # plugin、skill、mcp、tool 能力实现、执行内核与统一管理
 ├── command/             # slash command 注册和生命周期命令
 ├── session/             # 会话持久化
 ├── prompt/              # system/plan prompt 构建
@@ -46,7 +45,7 @@ bot/
 - `extension.Manager` 是扩展系统唯一的高层入口；`bot` 不直接持有 plugin/skill/mcp 子 Manager。
 - `plugin` 只管理插件清单、安装和启停状态；扩展激活由 `extension.Manager` 统一编排。
 - `mcp.Manager` 同时拥有 server 和对应工具的生命周期，外层不手工同步工具切片。
-- `extension.Manager` 直接满足 `command.SkillProvider`，`bot` 不增加 Skill provider 包装层。
+- Skill 发现、上下文格式化和 loaded 状态归 `extension.Manager`；command 只接收动态命令注册数据。
 - 无引用的 alias 包应删除；内部新代码应直接依赖真实实现包。
 
 ## 目录结构
@@ -129,6 +128,9 @@ nekocode/
 │   │   │       ├── executor.md     #         executor prompt
 │   │   │       ├── researcher.md   #         researcher prompt
 │   │   │       └── verify.md       #         verify prompt
+│   ├── checkpoint/                 #   回合级文件快照与 rewind
+│   │   ├── checkpoint.go           #     锚点、写前快照、恢复与索引
+│   │   └── checkpoint_test.go      #     新增/修改/删除恢复验收
 │   ├── config/                     #   配置管理
 │   │   └── config.go               #     Config + Load()
 │   ├── command/                    #   斜杠命令系统
@@ -187,10 +189,9 @@ nekocode/
 │   │   ├── extension.go            #     入口：Manager（插件/Skill/Hook/Agent/MCP 生命周期）
 │   │   ├── extension_commands.go   #     /plugin 命令与安装交互
 │   │   ├── mcp/                    #     MCP 客户端
-│   │   │   ├── mcp.go              #       入口：Manager（server + tool 生命周期 + 健康状态）
+│   │   │   ├── mcp.go              #       入口：Manager（server 生命周期 + 能力发现 + 健康状态）
 │   │   │   ├── client.go           #       client：进程连接句柄（Start/Close/ListTools/CallTool）
 │   │   │   ├── types.go            #       ServerConfig 等类型定义
-│   │   │   └── tool.go             #       mcpTool 适配器
 │   │   ├── plugin/                 #     Plugin 系统
 │   │   │   ├── plugin.go           #       入口：Plugin 核心类型 + Manager（清单与状态）
 │   │   │   ├── plugin_commands.go  #       插件命令展示与安装预览
@@ -199,13 +200,36 @@ nekocode/
 │   │   │   ├── manifest.go         #       Manifest 解析（plugin.json）
 │   │   │   ├── source.go           #       源解析 / env 展开 / 远程获取
 │   │   │   └── format.go           #       插件展示文本
-│   │   └── skill/                  #     Skill 系统
-│   │       ├── skill.go            #       入口：Skill 核心类型 + Manager（加载、上下文刷新、skill tool 接线）
-│   │       ├── registry.go         #       skill registry（包内）
-│   │       ├── load.go             #       获取链：目录发现 → 读取 → 解析 → 内置技能（go:embed）
-│   │       ├── format.go           #       格式化
-│   │       ├── tool.go             #       技能工具适配
-│   │       └── bundled/            #       内置技能文件
+│   │   ├── skill/                  #     Skill 系统
+│   │   │   ├── skill.go            #       入口：Skill 核心类型 + Manager（加载、上下文刷新、skill tool 接线）
+│   │   │   ├── registry.go         #       skill registry（包内）
+│   │   │   ├── load.go             #       获取链：目录发现 → 读取 → 解析 → 内置技能（go:embed）
+│   │   │   ├── format.go           #       格式化
+│   │   │   ├── tool.go             #       技能工具适配
+│   │   │   └── bundled/            #       内置技能文件
+│   │   └── tool/                   #     工具能力与执行内核
+│   │       ├── tools.go            #       Registry + 统一注册元数据
+│   │       ├── builtin/            #       内置工具实现
+│   │       │   ├── capability/     #         MCP constant-schema 代理工具
+│   │       │   ├── catalog/        #         Toolbox 工具与生命周期
+│   │       │   ├── filesystem/     #         read/write/edit/list/tree/glob/grep
+│   │       │   ├── shell/          #         Bash 执行 + 危险分级
+│   │       │   ├── web/            #         web_search / web_fetch / html2md
+│   │       │   ├── media/          #         image_gen（即梦文生图）
+│   │       │   ├── task/           #         子 Agent 任务工具
+│   │       │   ├── todo/           #         todo_write 工具
+│   │       │   ├── question/       #         question 工具
+│   │       │   ├── diff/           #         diff 工具
+│   │       │   └── index/          #         代码索引工具（条件注册）
+│   │       └── runtime/            #       工具执行编排
+│   │           ├── core/           #         Tool 接口 + ToolCallItem/Result + Descriptor
+│   │           ├── runner/         #         执行引擎（单工具/批量/预览/权限）
+│   │           ├── execution/      #         执行状态 + 缓存 + 文件快照
+│   │           ├── permission/     #         权限确认
+│   │           ├── sandbox/        #         沙箱隔离
+│   │           ├── workspace/      #         工作区访问控制
+│   │           ├── taskbridge/     #         task 工具到 subagent 的桥接
+│   │           └── toolutil/       #         路径/文本等通用工具
 │   ├── prompt/                     #   System Prompt 构建
 │   │   ├── prompt.go               #     入口：Builder + New
 │   │   ├── system_zh.md            #     中文 System Prompt 模板
@@ -214,28 +238,6 @@ nekocode/
 │   ├── session/                    #   Session 管理
 │   │   ├── session.go              #     入口：Manager + New(cwd)
 │   │   └── snapshot.go             #     Snapshot / Meta 持久化与 context 映射
-│   └── tools/                      #   工具系统
-│       ├── tools.go                #     入口：工具注册表
-│       ├── builtin/                #     内置工具实现
-│       │   ├── catalog/            #       Toolbox 工具与生命周期
-│       │   ├── filesystem/         #       read/write/edit/list/tree/glob/grep
-│       │   ├── shell/              #       Bash 执行 + 危险分级
-│       │   ├── web/                #       web_search / web_fetch / html2md
-│       │   ├── media/              #       image_gen（即梦文生图）
-│       │   ├── task/               #       子 Agent 任务工具
-│       │   ├── todo/               #       todo_write 工具
-│       │   ├── question/           #       question 工具
-│       │   ├── diff/               #       diff 工具
-│       │   └── index/              #       代码索引工具（条件注册）
-│       └── runtime/                #     工具执行编排
-│           ├── core/               #       Tool 接口 + ToolCallItem/Result + Descriptor
-│           ├── runner/             #       执行引擎（单工具/批量/预览/权限）
-│           ├── execution/          #       执行状态 + 缓存 + 文件快照
-│           ├── permission/         #       权限确认
-│           ├── sandbox/            #       沙箱隔离
-│           ├── workspace/          #       工作区访问控制
-│           ├── taskbridge/         #       task 工具到 subagent 的桥接
-│           └── toolutil/           #       路径/文本等通用工具
 ├── interaction/connect/            # 外部 IM connector
 │   ├── connect.go                  #   入口：connector 基座和事件分发
 │   ├── pairing.go/store.go         #   配对状态与 connect.json 分段配置
@@ -285,9 +287,9 @@ nekocode/
 
 ## Runtime 控制契约
 
-`runtime.New(runner)` 只要求一个 `Runner`：`Run(context.Context, input, RunHost)`。流输出、工具/子 Agent 事件、phase、todo、approval 和 question 都经本次调用独占的 `RunHost` 传递；命令在一次同步生命周期中返回完整结果。
+`runtime.New(runner, services)` 只要求 Runner 实现 `Run(context.Context, input, RunHost)`；可选应用能力由组合根通过 `runtime.Services` 显式提供。流输出、工具/子 Agent 事件、phase、todo、approval 和 question 都经本次调用独占的 `RunHost` 传递；命令在一次同步生命周期中返回完整结果。
 
-`Manager` 是 UI/HTTP/connector 的唯一交互入口，核心方法为 `StartRun`、`SteerRun`、`CancelRun`、`Status`、`LookupRun`、`Events`、`DecideApproval` 和 `AnswerQuestion`。`Commander`、`Steerer`、`MetricsProvider`、`ModelService`、`ContextService`、`ExtensionService`、`ConfigurationService`、`SessionService` 均为 Runner 侧可选能力；UI 先读 `Capabilities()`，再直接调用同一个 Manager 的只读方法，不接触底层 service 实例。关闭统一使用 `Close() error`，connector、Runner 和 recorder 的错误不会被吞掉。
+`Manager` 是 UI/HTTP/connector 的唯一交互入口，核心方法为 `StartRun`、`SteerRun`、`CancelRun`、`Status`、`LookupRun`、`Events`、`DecideApproval` 和 `AnswerQuestion`。命令、Steering、Metrics、Model、Context、Extension、Configuration 和 Session 是 `runtime.Services` 中的显式函数字段；UI 先读 `Capabilities()`，再直接调用同一个 Manager 的只读方法。关闭统一使用 `Close() error`，connector、Runner 和 recorder 的错误不会被吞掉。
 
 事件协议版本为 `2.0`，每个事件携带单调 `sequence`；订阅可用 `EventFilter.After` 续传。协议错误使用稳定 `ErrorCode`。标准应用由 `runtime/standard.New()` 装配完整 Bot、事件录制和 connector；`examples/web-assistant` 则展示只组合 web 工具的独立应用。
 
@@ -301,7 +303,7 @@ nekocode/
 New()
   ├── initConfig()        → config.Load() + prompt.New()
   ├── initCtxMgr()        → contextmgr.New() + index.Apply()
-  ├── initSession()       → session.New(cwd)
+  ├── initSession()       → session.New(cwd) + checkpoint.New()
   └── rebuildRuntime()
       ├── initToolRegistry()     → catalog.NewToolbox() + 条件工具
       ├── initPolicy()           → policy.New() + builtin.Register()
@@ -376,17 +378,24 @@ Agent 循环硬限制：
 
 ### Build 管线
 
-1. Layer 0: SystemPrompt + Skills（静态前缀）
-2. Layer 0: Memory（项目记忆，内容通过 content.Content.Memory 字段承载）
-3. Layer 0.5: Archive（压缩摘要）
-4. Layer 1: Messages（全部保留，不再截断；Compactor 负责压缩）
-5. Layer 2: Todo + Hints（动态层）
+1. Layer 0: SystemPrompt + Skills（会话内静态前缀）
+2. Layer 1: Memory（项目记忆）
+3. Layer 2: Archive（压缩摘要）
+4. Layer 3: Messages（全部保留，不再截断；Compactor 负责压缩）
+5. Layer 4: Runtime Environment（日期、进程、workspace 等易变事实）
+6. Layer 5: Todo + Hints（动态尾部）
+
+请求发出前，`contextmgr` 对稳定段生成 prefix shape：system（Layer 0-1）、
+tools 和 history（Layer 2-3）。History 只追加视为前缀兼容；旧消息被改写、删除或压缩
+才归因为 history 变化。Layer 4-5 不进入稳定指纹。Provider 上报 cache miss 后，最近一次
+system/tools/history 变化会记录到 ContextReport，并由 `/context` 展示。
 
 ### Manager 关键方法
 
 | 方法 | 说明 |
 |------|------|
 | `Build()` | 组装完整消息列表（含孤儿过滤） |
+| `BuildRequest()` | 原子组装模型请求并记录 system/tools/history 稳定形状 |
 | `New(Config)` | 使用同一配置协议创建主 Agent 或子 Agent 上下文 |
 | `AutoCompactIfNeeded()` | 自动压缩看门狗 |
 | `Summarize()` | 手动触发完整压缩 + Archive 合并 |
@@ -429,30 +438,33 @@ type Tool interface {
 
 ### 工具注册
 
-`bot/tools/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension 加载后注册 `skill` 工具。`bot/bot.go` 只负责工具注册表、Extension manager 和 command parser 的组装。
+`bot/extension/tool/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension manager 统一注册 `skill` 和 constant-schema `capability` 工具。`bot/bot.go` 只负责 Extension、Agent 和 command parser 的顶层组装。
+
+`Registry` 除了保存 `Tool`，还集中保存 preview 与 delegated-call target 等执行元数据。模型侧名称仍是固定的 `capability`，但解析后的 canonical identity 会随 `ToolCallItem` 贯穿权限、Pre/Post Hook、quota、Ledger、audit、结果和 UI 回调。Runner 和 Policy 都不通过 optional interface 或硬编码 MCP 参数来推断行为。
 
 ### 内置工具
 
 | 工具 | 模式 | 危险等级 | 位置 |
 |------|------|----------|------|
-| shell | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `bot/tools/builtin/shell/` |
-| process | Sequential | Safe，管理既有托管进程 | `bot/tools/builtin/shell/` |
-| read | Parallel | Safe | `bot/tools/builtin/filesystem/read/` |
-| write | Sequential | Write | `bot/tools/builtin/filesystem/write/` |
-| edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `bot/tools/builtin/filesystem/edit/` |
-| list | Parallel | Safe | `bot/tools/builtin/filesystem/list/` |
-| glob | Parallel | Safe | `bot/tools/builtin/filesystem/search/` |
-| grep | Parallel | Safe | `bot/tools/builtin/filesystem/search/` |
-| web_search | Parallel | Safe | `bot/tools/builtin/web/` |
-| web_fetch | Parallel | Safe | `bot/tools/builtin/web/` |
-| question | Sequential | Safe | `bot/tools/builtin/question/` |
-| diff | Parallel | Safe | `bot/tools/builtin/diff/` |
-| task | Parallel | Safe | `bot/tools/builtin/task/` |
-| todo_write | Sequential | Safe | `bot/tools/builtin/todo/` |
-| tree | Parallel | Safe | `bot/tools/builtin/filesystem/tree/` |
-| index | Parallel | Safe（条件注册） | `bot/tools/builtin/index/` |
-| image_gen | Sequential | Safe（条件注册） | `bot/tools/builtin/media/` |
+| shell | Sequential | 智能分级（Safe～Forbidden），多层沙箱隔离 | `bot/extension/tool/builtin/shell/` |
+| process | Sequential | Safe，管理既有托管进程 | `bot/extension/tool/builtin/shell/` |
+| read | Parallel | Safe | `bot/extension/tool/builtin/filesystem/read/` |
+| write | Sequential | Write | `bot/extension/tool/builtin/filesystem/write/` |
+| edit | Sequential | Write（oldString/newString 内容锚定 + gofmt lint） | `bot/extension/tool/builtin/filesystem/edit/` |
+| list | Parallel | Safe | `bot/extension/tool/builtin/filesystem/list/` |
+| glob | Parallel | Safe | `bot/extension/tool/builtin/filesystem/search/` |
+| grep | Parallel | Safe | `bot/extension/tool/builtin/filesystem/search/` |
+| web_search | Parallel | Safe | `bot/extension/tool/builtin/web/` |
+| web_fetch | Parallel | Safe | `bot/extension/tool/builtin/web/` |
+| question | Sequential | Safe | `bot/extension/tool/builtin/question/` |
+| diff | Parallel | Safe | `bot/extension/tool/builtin/diff/` |
+| task | Parallel | Safe | `bot/extension/tool/builtin/task/` |
+| todo_write | Sequential | Safe | `bot/extension/tool/builtin/todo/` |
+| tree | Parallel | Safe | `bot/extension/tool/builtin/filesystem/tree/` |
+| index | Parallel | Safe（条件注册） | `bot/extension/tool/builtin/index/` |
+| image_gen | Sequential | Safe（条件注册） | `bot/extension/tool/builtin/media/` |
 | skill | Parallel | Safe（动态注册） | `bot/extension/skill/` |
+| capability | Sequential | 按真实 MCP `mcp__server__tool` 目标执行权限匹配 | `bot/extension/tool/builtin/capability/` |
 
 ### 工具系统子包
 
@@ -468,6 +480,7 @@ type Tool interface {
 | `builtin/question/` | 用户提问工具 |
 | `builtin/diff/` | Diff 工具 |
 | `builtin/index/` | 代码索引工具（条件注册） |
+| `builtin/capability/` | MCP constant-schema 能力发现、检查与调用代理 |
 | `runtime/core/` | Tool 接口 + ToolCallItem/Result + Descriptor |
 | `runtime/runner/` | 工具执行引擎（单工具/批量/预览/权限） |
 | `runtime/execution/` | 执行状态 + 缓存 + 文件快照 |
@@ -516,9 +529,10 @@ runtime 的内部字段。
 
 `bot/extension/`：
 - 唯一高层入口是 `Manager`（`extension.go`）：`New(Config{Context, Tools, Policy, ContextWindow})` 后调用 `Load()`
-- 统一激活和停用插件提供的 Skills / Agents / Hooks / MCP Servers
+- 统一装配 builtin tools、Skills、Agents、Hooks、MCP Servers 与模型侧 capability 代理
 - 插件安装、启停和 Reload 都经过同一条生命周期；Skill 每次只按当前启用插件集合重载一次
 - 通过 `Snapshot()` 一次返回管理视图状态，并提供 Skill 查询、插件启停等精简子方法
+- `tool/` 是 Extension 领域内的稳定调用 ABI 与执行内核；具体能力实现依赖它，Agent 不需要理解 MCP、Skill 或 Plugin 的内部协议
 
 `bot/extension/plugin/`：
 - 入口是 `Manager`（`plugin.go`）：只拥有 registry、安装管线和启停状态
@@ -540,10 +554,11 @@ runtime 的内部字段。
 ## MCP 客户端
 
 `bot/extension/mcp/`：
-- 唯一入口是 `Manager`（`mcp.go`）：`New(toolRegistry)`；`Add`/`Remove`/`Close` 同时管理 server 和工具
+- 唯一入口是 `Manager`（`mcp.go`）：`New()`；`Add`/`Remove`/`Close` 管理 server 生命周期与动态能力清单
 - JSON-RPC 2.0 协议
 - Server 生命周期管理（启动/初始化/tool 列举/关闭）
-- `tools.Tool` 接口适配（包内 `mcpTool`）
+- MCP 工具不再逐个注册给 provider；`extension/tool/builtin/capability` 直接绑定 Manager，通过固定 schema 的单一工具完成 list / inspect / call
+- capability 的真实目标由 Registry 注册元数据解析为 `mcp__server__tool`，并作为 effective identity 贯穿权限与治理链路；Runner 不感知 MCP 参数格式
 - stable owner ID 与展示名称分离；config MCP 优先，同名插件 MCP 会被拒绝
 
 ## Skill 系统
@@ -644,15 +659,15 @@ Model
 | 探索分数 | `bot/policy/exploration/` | 工具事件驱动的分数衰减与恢复 |
 | 工具配额 | `bot/policy/policy.go` | Policy 私有的单轮读取配额 |
 | LLM 网关 | `bot/provider/` | OpenAI/Anthropic 双协议，统一接口 |
-| 工具系统 | `bot/tools/` | Registry + builtin 实现 + runtime 执行编排 |
-| 工具注册 | `bot/tools/builtin/catalog/` | Toolbox 内置工具组装与关闭 |
-| 工具执行 | `bot/tools/runtime/runner/` | 执行引擎（单工具/批量/预览/权限） |
-| 文件系统工具 | `bot/tools/builtin/filesystem/` | read/write/edit/list/tree/glob/grep |
-| Shell/Process 工具 | `bot/tools/builtin/shell/` | Shell 执行、托管进程与风险分级 |
-| Web 工具 | `bot/tools/builtin/web/` | web_search/web_fetch/html2md |
-| 媒体工具 | `bot/tools/builtin/media/` | image_gen（即梦文生图） |
-| 任务工具 | `bot/tools/builtin/task/`, `bot/tools/builtin/todo/` | sub-agent task 与 todo_write |
-| 代码索引工具 | `bot/tools/builtin/index/` | 代码索引（条件注册） |
+| 工具系统 | `bot/extension/tool/` | Registry + builtin 实现 + runtime 执行编排 |
+| 工具注册 | `bot/extension/tool/builtin/catalog/` | Toolbox 内置工具组装与关闭 |
+| 工具执行 | `bot/extension/tool/runtime/runner/` | 执行引擎（单工具/批量/预览/权限） |
+| 文件系统工具 | `bot/extension/tool/builtin/filesystem/` | read/write/edit/list/tree/glob/grep |
+| Shell/Process 工具 | `bot/extension/tool/builtin/shell/` | Shell 执行、托管进程与风险分级 |
+| Web 工具 | `bot/extension/tool/builtin/web/` | web_search/web_fetch/html2md |
+| 媒体工具 | `bot/extension/tool/builtin/media/` | image_gen（即梦文生图） |
+| 任务工具 | `bot/extension/tool/builtin/task/`, `bot/extension/tool/builtin/todo/` | sub-agent task 与 todo_write |
+| 代码索引工具 | `bot/extension/tool/builtin/index/` | 代码索引（条件注册） |
 | 上下文管理 | `bot/contextmgr/` | Build 管线 + 五级压缩 + token 估算 |
 | Project Memory | `bot/contextmgr/memory/` | 项目 Memory 文件加载与 prompt 注入 |
 | Plugin 系统 | `bot/extension/plugin/` | manager 编排 + manifest/registry |
@@ -662,6 +677,7 @@ Model
 | 内置 Hook | `bot/policy/builtin/` | 9 个内置 Hook 实现 |
 | 声明式 Hook | `bot/policy/plugin/` | JSON 配置驱动 Hook |
 | 命令系统 | `bot/command/` | 斜杠命令解析 |
+| 文件回滚 | `bot/checkpoint/` | 用户回合锚点、write/edit 写前快照、最近 10 个有效回合与 `/rewind` |
 | 诊断日志 | `logger/` | 项目文件日志（时间戳 + subagent 标签） |
 | 工具语义 | `bot/policy/semantics/` | Semantics 分类（SourceProducing/Mutating/Verifying） |
 | Session 持久化 | `bot/session/` | Manager、Snapshot 与 JSON 存取 |

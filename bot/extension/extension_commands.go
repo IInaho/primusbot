@@ -11,7 +11,12 @@ import (
 type InstallConfirm func(source string, plugin *plugin.Plugin, remote bool) bool
 
 // RegisterCommands installs the /plugin command family.
-func (m *Manager) RegisterCommands(p *command.Parser, confirm InstallConfirm) {
+func (m *Manager) RegisterCommands(handler *command.Handler, confirm InstallConfirm) {
+	m.mu.Lock()
+	m.commands = handler
+	m.syncSkillCommandsLocked()
+	m.mu.Unlock()
+	p := handler.Parser()
 	p.Register("plugin", func(ctx context.Context, cmd *command.Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			return plugin.Usage(), true
@@ -97,6 +102,7 @@ func (m *Manager) uninstallPlugin(ctx context.Context, args []string) string {
 		return fmt.Sprintf("Uninstall failed: %v", err)
 	}
 	m.skills.Reload(m.plugins.SkillDirs())
+	m.syncSkillCommandsLocked()
 	return fmt.Sprintf("Uninstalled plugin %q.", name)
 }
 
@@ -140,6 +146,7 @@ func (m *Manager) install(ctx context.Context, source string) string {
 		return "Install failed: " + err.Error()
 	}
 	m.skills.Reload(m.plugins.SkillDirs())
+	m.syncSkillCommandsLocked()
 	m.mu.Unlock()
 
 	return plugin.InstallResult(p)

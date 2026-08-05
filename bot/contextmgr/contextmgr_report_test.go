@@ -7,9 +7,11 @@ import (
 )
 
 func TestManagerReport(t *testing.T) {
-	m := New(Config{SystemPrompt: "system", ContextWindow: 10_000})
-	baseSystemTokens := m.Report().SystemPrompt
-	m.SetRuntimePromptProvider(func() string { return "runtime environment metadata" })
+	baseSystemTokens := New(Config{SystemPrompt: "system", ContextWindow: 10_000}).Report().SystemPrompt
+	m := New(Config{
+		SystemPrompt: "system", ContextWindow: 10_000,
+		RuntimePrompt: func() string { return "runtime environment metadata" },
+	})
 	m.Add("user", "hello")
 	m.AddAssistantResponse("world", "")
 	m.AddToolResultsBatch([]ToolResultMsg{{

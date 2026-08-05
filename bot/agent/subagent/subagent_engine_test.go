@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider/types"
-	"nekocode/bot/tools/runtime/core"
 )
 
 func TestBuildTaskPromptKeepsHandoffOutOfSystemRole(t *testing.T) {

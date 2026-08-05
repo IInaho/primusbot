@@ -2,23 +2,9 @@ package mcp
 
 import (
 	"context"
+	"strings"
 	"testing"
-
-	"nekocode/bot/tools"
 )
-
-func assertNames(t *testing.T, registry *tools.Registry, want ...string) {
-	t.Helper()
-	names := registry.Names()
-	if len(names) != len(want) {
-		t.Fatalf("tool names = %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("tool names = %v, want %v", names, want)
-		}
-	}
-}
 
 func TestManagerAddServer(t *testing.T) {
 	mockTools := []toolDef{
@@ -28,13 +14,17 @@ func TestManagerAddServer(t *testing.T) {
 	cmd, cleanup := startMockMCP(t, mockTools)
 	defer cleanup()
 
-	registry := tools.New()
-	m := New(registry)
-
+	m := New()
 	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	assertNames(t, registry, "srv__alpha", "srv__beta")
+
+	list := m.ListCapabilities()
+	for _, want := range []string{"srv:", "- alpha", "- beta"} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("capabilities missing %q: %s", want, list)
+		}
+	}
 
 	h := m.Health()["srv"]
 	if h.Status != StatusReady || h.ToolCount != 2 {
@@ -42,17 +32,16 @@ func TestManagerAddServer(t *testing.T) {
 	}
 
 	m.Close()
-	assertNames(t, registry)
+	if got := m.ListCapabilities(); got != "No MCP servers configured." {
+		t.Fatalf("after close, list = %q", got)
+	}
 }
 
 func TestManagerAddServerStartFailure(t *testing.T) {
-	registry := tools.New()
-	m := New(registry)
-
+	m := New()
 	if err := m.Add(context.Background(), "config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"}); err == nil {
 		t.Fatal("Add should fail for a missing command")
 	}
-	assertNames(t, registry)
 
 	h, ok := m.Health()["bad"]
 	if !ok {
@@ -60,6 +49,9 @@ func TestManagerAddServerStartFailure(t *testing.T) {
 	}
 	if h.Status != StatusError || h.Error == "" {
 		t.Errorf("health = %+v, want error status with message", h)
+	}
+	if !strings.Contains(m.ListCapabilities(), "bad (error") {
+		t.Fatal("errored server should be listed with its status")
 	}
 }
 
@@ -69,22 +61,21 @@ func TestManagerRemoveServer(t *testing.T) {
 	})
 	defer cleanup()
 
-	registry := tools.New()
-	m := New(registry)
-
+	m := New()
 	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
 	m.Remove("plugin:p:srv")
-	assertNames(t, registry)
 	if _, ok := m.Health()["srv"]; ok {
 		t.Error("health should be cleared after RemoveServer")
+	}
+	if _, err := m.CallServerTool(context.Background(), "srv", "alpha", nil); err == nil {
+		t.Fatal("removed server must not route calls")
 	}
 
 	// Removing an unknown server is a no-op.
 	m.Remove("plugin:p:srv")
-	assertNames(t, registry)
 }
 
 func TestManagerReAddReplacesTools(t *testing.T) {
@@ -99,9 +90,7 @@ func TestManagerReAddReplacesTools(t *testing.T) {
 	})
 	defer cleanup2()
 
-	registry := tools.New()
-	m := New(registry)
-
+	m := New()
 	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
 		t.Fatalf("first Add: %v", err)
 	}
@@ -109,10 +98,10 @@ func TestManagerReAddReplacesTools(t *testing.T) {
 		t.Fatalf("second Add: %v", err)
 	}
 
-	assertNames(t, registry, "srv__gamma")
-
-	m.Close()
-	assertNames(t, registry)
+	list := m.ListCapabilities()
+	if !strings.Contains(list, "- gamma") || strings.Contains(list, "- alpha") {
+		t.Fatalf("re-added server tools = %s, want only gamma", list)
+	}
 }
 
 func TestManagerRejectsDuplicateNameFromDifferentOwner(t *testing.T) {
@@ -125,22 +114,19 @@ func TestManagerRejectsDuplicateNameFromDifferentOwner(t *testing.T) {
 	})
 	defer cleanup2()
 
-	registry := tools.New()
-	m := New(registry)
+	m := New()
 	if err := m.Add(context.Background(), "plugin:p:srv", "srv", ServerConfig{Command: cmd1.Path}); err != nil {
 		t.Fatalf("add plugin server: %v", err)
 	}
 	if err := m.Add(context.Background(), "config:srv", "srv", ServerConfig{Command: cmd2.Path}); err == nil {
 		t.Fatal("duplicate display name should be rejected")
 	}
-	assertNames(t, registry, "srv__alpha")
 
 	// Removing an owner that never started must not affect the active server.
 	m.Remove("config:srv")
-	assertNames(t, registry, "srv__alpha")
-
-	m.Remove("plugin:p:srv")
-	assertNames(t, registry)
+	if _, err := m.CallServerTool(context.Background(), "srv", "alpha", nil); err != nil {
+		t.Fatalf("active server broken by removing a non-owner: %v", err)
+	}
 }
 
 func TestManagerClose(t *testing.T) {
@@ -149,9 +135,7 @@ func TestManagerClose(t *testing.T) {
 	})
 	defer cleanup()
 
-	registry := tools.New()
-	m := New(registry)
-
+	m := New()
 	if err := m.Add(context.Background(), "config:a", "a", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add a: %v", err)
 	}
@@ -159,7 +143,6 @@ func TestManagerClose(t *testing.T) {
 	_ = m.Add(context.Background(), "config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"})
 
 	m.Close()
-	assertNames(t, registry)
 	if len(m.Health()) != 0 {
 		t.Errorf("health should be empty, got %v", m.Health())
 	}

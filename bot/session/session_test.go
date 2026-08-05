@@ -33,16 +33,14 @@ func TestExportMessages(t *testing.T) {
 func TestSnapshotCaptureContext(t *testing.T) {
 	sess := &Snapshot{}
 	snap := ctxmgr.ManagerSnapshot{
-		SystemPrompt:    "sys",
-		Skills:          "skills",
-		Memory:          "mem",
-		Archive:         "arch",
-		Messages:        []types.Message{{Role: "user", Content: "hi"}},
-		CompactBoundary: 3,
-		Budget:          100,
+		SystemPrompt: "sys",
+		Skills:       "skills",
+		Memory:       "mem",
+		Archive:      "arch",
+		Messages:     []types.Message{{Role: "user", Content: "hi"}},
+		Budget:       100,
 		Tracker: token.State{
 			LastPromptTokens: 1000,
-			LastCompTokens:   200,
 			NewMessageTokens: 50,
 			CacheHitTokens:   70,
 			CacheMissTokens:  30,
@@ -62,18 +60,23 @@ func TestSnapshotCaptureContext(t *testing.T) {
 	if !reflect.DeepEqual(sess.LoadedSkills, []string{"a", "b"}) {
 		t.Fatalf("loaded skills = %+v", sess.LoadedSkills)
 	}
-	if sess.TrackerPrompt != 1000 || sess.TrackerCompletion != 200 || sess.TrackerNewTokens != 50 || sess.CacheHitTokens != 70 || sess.CacheMissTokens != 30 || sess.SubCount != 2 || sess.SubTokens != 500 || sess.SubCacheHit != 40 || sess.SubCacheMiss != 60 {
+	if sess.TrackerPrompt != 1000 || sess.TrackerCompletion != 0 || sess.TrackerNewTokens != 50 || sess.CacheHitTokens != 70 || sess.CacheMissTokens != 30 || sess.SubCount != 2 || sess.SubTokens != 500 || sess.SubCacheHit != 40 || sess.SubCacheMiss != 60 {
 		t.Fatalf("tracker fields not applied: %+v", sess)
 	}
 }
 
 func TestSnapshotContextSnapshot(t *testing.T) {
 	sess := &Snapshot{
-		SystemPrompt:      "sys",
-		Skills:            "skills",
-		Memory:            "mem",
-		Archive:           "arch",
-		CompactBoundary:   2,
+		SystemPrompt:    "sys",
+		Skills:          "skills",
+		Memory:          "mem",
+		Archive:         "arch",
+		CompactBoundary: 2,
+		Messages: []types.Message{
+			{Role: "user", Content: "hidden one"},
+			{Role: "assistant", Content: "hidden two"},
+			{Role: "user", Content: "visible"},
+		},
 		ContextWindow:     50,
 		TrackerPrompt:     1000,
 		TrackerCompletion: 200,
@@ -86,13 +89,16 @@ func TestSnapshotContextSnapshot(t *testing.T) {
 		SubCacheMiss:      60,
 	}
 	got := sess.ContextSnapshot()
-	if got.SystemPrompt != "sys" || got.Skills != "skills" || got.Budget != 50 || got.CompactBoundary != 2 {
+	if got.SystemPrompt != "sys" || got.Skills != "skills" || got.Budget != 50 {
 		t.Fatalf("snapshot mismatch: %+v", got)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Content != "visible" {
+		t.Fatalf("legacy boundary was not normalized: %+v", got.Messages)
 	}
 	if got.Tracker.CacheHitTokens != 70 || got.Tracker.CacheMissTokens != 30 || got.Tracker.Sub.Count != 2 || got.Tracker.Sub.TotalTokens != 500 {
 		t.Fatalf("tracker mismatch: %+v", got.Tracker)
 	}
-	if got.Tracker.LastPromptTokens != 1000 || got.Tracker.LastCompTokens != 200 || got.Tracker.NewMessageTokens != 50 {
+	if got.Tracker.LastPromptTokens != 1000 || got.Tracker.NewMessageTokens != 50 {
 		t.Fatalf("tracker token state mismatch: %+v", got.Tracker)
 	}
 }

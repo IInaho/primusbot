@@ -214,14 +214,14 @@ func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runL
 }
 
 func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input string, host runHost) (string, bool) {
-	if r.commander == nil {
+	if r.services.ExecuteCommand == nil {
 		return input, true
 	}
 	sessionID := ""
-	if r.sessions != nil {
-		sessionID = r.sessions.CurrentSessionID()
+	if r.services.CurrentSessionID != nil {
+		sessionID = r.services.CurrentSessionID()
 	}
-	result, err := r.commander.ExecuteCommand(ctx, input, host)
+	result, err := r.services.ExecuteCommand(ctx, input, host)
 	if err != nil {
 		r.finishRun(runID, "", err)
 		return "", false
@@ -229,8 +229,8 @@ func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input strin
 	if result.Output != "" {
 		host.system(result.Output, SourceRef{Kind: "bot"})
 	}
-	if r.sessions != nil {
-		nextSessionID := r.sessions.CurrentSessionID()
+	if r.services.CurrentSessionID != nil {
+		nextSessionID := r.services.CurrentSessionID()
 		// Only announce a real switch to another non-empty session (e.g.
 		// /sessions <id>). Commands like /model leave the session empty via
 		// saveSession's no-message cleanup; announcing that would wipe the

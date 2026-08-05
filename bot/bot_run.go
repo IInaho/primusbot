@@ -7,7 +7,7 @@ import (
 	agentcore "nekocode/bot/agent"
 	"nekocode/bot/config"
 	"nekocode/bot/extension/plugin"
-	"nekocode/bot/tools/runtime/permission"
+	"nekocode/bot/extension/tool/runtime/permission"
 	"nekocode/protocol"
 )
 
@@ -50,16 +50,24 @@ func (b *Bot) Run(ctx context.Context, input string, host RunHost) (string, erro
 }
 
 func (b *Bot) runAgent(input string, onStep func(ev protocol.StepEvent)) (string, error) {
+	sessionID := b.sess.CurrentID()
+	if b.checkpoints != nil {
+		if _, err := b.checkpoints.Begin(sessionID); err != nil {
+			return "", err
+		}
+	}
 	ag := b.getAgent()
 	result := ag.Run(input, onStep)
+	var checkpointErr error
+	if b.checkpoints != nil {
+		checkpointErr = b.checkpoints.Finish(sessionID)
+	}
 	ag.Executor().SetPlanMode(false)
 	b.ctxMgr.SetSystemPrompt(b.promptBuilder.BuildStatic())
-	var compactionErr error
-	if b.ctxMgr.NeedsSummarization() {
-		compactionErr = b.ctxMgr.Summarize()
-	}
+	_, compactionErr := b.ctxMgr.AutoCompactIfNeeded()
 	result.Error = errors.Join(
 		result.Error,
+		checkpointErr,
 		compactionErr,
 		b.saveSession(),
 	)

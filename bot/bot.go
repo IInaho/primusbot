@@ -8,19 +8,20 @@ import (
 	"sync"
 
 	"nekocode/bot/agent"
+	"nekocode/bot/checkpoint"
 	"nekocode/bot/command"
 	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/contextmgr/memory"
 	"nekocode/bot/extension"
+	"nekocode/bot/extension/tool/builtin/catalog"
+	"nekocode/bot/extension/tool/runtime/permission"
+	"nekocode/bot/extension/tool/runtime/workspace"
 	"nekocode/bot/policy"
 	"nekocode/bot/policy/builtin"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider"
 	"nekocode/bot/session"
-	"nekocode/bot/tools/builtin/catalog"
-	"nekocode/bot/tools/runtime/permission"
-	"nekocode/bot/tools/runtime/workspace"
 	"nekocode/protocol"
 )
 
@@ -49,6 +50,7 @@ type Bot struct {
 	cmd           *command.Handler
 	ext           *extension.Manager
 	sess          *session.Manager
+	checkpoints   *checkpoint.Manager
 	mu            sync.Mutex
 	hostMu        sync.RWMutex
 	runHost       RunHost
@@ -113,8 +115,8 @@ func (b *Bot) initCtxMgr() error {
 		SystemPrompt:  systemPrompt,
 		ContextWindow: b.cfg.EffectiveContextWindow(),
 		Memory:        memFile,
+		RuntimePrompt: b.promptBuilder.BuildEnvironment,
 	})
-	b.ctxMgr.SetRuntimePromptProvider(b.promptBuilder.BuildEnvironment)
 	return nil
 }
 
@@ -129,10 +131,6 @@ func (b *Bot) rebuildRuntime() error {
 	b.initPolicy()
 
 	b.toolbox.Workspace().Configure(b.cwd, b.configuredWorkspaceRoots())
-	if b.ctxMgr != nil && b.cfg != nil {
-		b.ctxMgr.SetContextWindow(b.cfg.EffectiveContextWindow())
-	}
-
 	b.initExtensions()
 	b.initAgent()
 	b.initCommands()
@@ -182,13 +180,16 @@ func (b *Bot) initAgent() {
 	})
 	compactionModel.SetDisableThinking(true)
 	compactionModel.SetMaxTokens(2000)
-	b.ctxMgr.SetCompactionModel(compactionModel)
+	b.ctxMgr.ConfigureModel(ctxmgr.ModelContext{
+		Window: b.cfg.EffectiveContextWindow(), CompactionModel: compactionModel,
+	})
 
 	b.ag = agent.New(context.Background(), agent.Config{
-		Context: b.ctxMgr,
-		Model:   llmClient,
-		Tools:   b.toolbox.Registry,
-		Policy:  b.policy,
+		Context:     b.ctxMgr,
+		Model:       llmClient,
+		Tools:       b.toolbox.Registry,
+		Policy:      b.policy,
+		Checkpoints: b.checkpoints,
 		Output: agent.Output{
 			Text:   b.stream,
 			Reason: b.reasoning,
@@ -203,11 +204,13 @@ func (b *Bot) initAgent() {
 			},
 		},
 	})
+	ask, todos := b.ag.ToolInteraction()
+	b.toolbox.WireInteraction(ask, todos)
 	b.configureAgent(b.ag)
 
 	// Inject the permission engine into the shell tool so builtin sandbox
 	// rules (e.g. pnpm dev → network) are applied.
-	b.toolbox.SetSandboxProfiler(b.ag.SandboxProfiler())
+	b.toolbox.SetSandboxEngine(b.ag.SandboxEngine())
 
 	b.wireTaskTool(fm, compactionModel, b.ag)
 }
@@ -215,21 +218,20 @@ func (b *Bot) initAgent() {
 func (b *Bot) initCommands() {
 	deps := command.Deps{
 		CtxMgr:            b.ctxMgr,
-		Ag:                func() command.PlanModeController { return b.getAgent().Executor() },
-		Skills:            b.ext,
+		SetPlanMode:       func(enabled bool) { b.getAgent().Executor().SetPlanMode(enabled) },
 		ToolRegistry:      b.toolbox.Registry,
 		BaseSystemPrompt:  b.promptBuilder.BuildStatic,
 		GetConfigFn:       b.model,
 		ListModelsFn:      b.cfg.AllModelNames,
 		SwitchModel:       b.SwitchModel,
 		ResetConversation: b.resetConversation,
+		Rewind:            b.rewindCheckpoint,
 	}
 	if b.cmd == nil {
 		b.cmd = command.New(deps)
 	} else {
 		b.cmd.RegisterAll(deps)
 	}
-
-	b.ext.RegisterCommands(b.cmd.Parser(), b.confirmInstall)
+	b.ext.RegisterCommands(b.cmd, b.confirmInstall)
 	b.registerSessionCommands(b.cmd.Parser())
 }

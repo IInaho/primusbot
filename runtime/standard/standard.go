@@ -41,5 +41,6 @@ func FromBot(core *bot.Bot) *controlruntime.Manager {
 	if core == nil {
 		panic("runtime/standard: nil bot")
 	}
-	return controlruntime.New(adapt(core))
+	adapter := adapt(core)
+	return controlruntime.New(adapter, adapter.services())
 }

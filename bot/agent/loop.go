@@ -92,6 +92,7 @@ func (r *loopRunner) runTurn(input string, callback RunCallback) (finished bool)
 func (r *loopRunner) startRun(input string) {
 	a := r.agent
 	a.Reset()
+	a.deps.ctxMgr.BeginModelTurn()
 	a.deps.ctxMgr.Add("user", input, "user")
 }
 

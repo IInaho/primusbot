@@ -75,8 +75,10 @@ NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前�
 | `/help` | 显示帮助 |
 | `/new` | 开始新对话（自动带上前一段对话的摘要） |
 | `/clear` | 清空全部对话历史 |
-| `/context` | 查看上下文用量和明细 |
+| `/context` | 查看上下文用量、缓存命中率及最近一次 prefix miss 的 system/tools/history 归因 |
 | `/summarize` | 立即压缩上下文（对话太长时用） |
+| `/rewind [turn]` | 回滚指定回合及之后由 write/edit 产生的文件改动；省略 turn 时回滚最近回合 |
+| `/rewind list` | 查看最近 10 个有文件改动的回合、时间和变更文件 |
 | `/model` | 列出所有模型；`/model <名字>` 切换模型 |
 | `/config` | 显示当前使用的服务商和模型 |
 | `/plan <任务>` | 让 AI 先出方案，你确认后再动手 |
@@ -249,7 +251,9 @@ MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数�
 - 每个服务需要一个启动命令（`command`)，可以带 `args`（参数）和 `env`（环境变量）
 - `enabled` 设为 `false` 可临时停用而不删除配置
 - 目前支持 stdio 方式（本地进程）的 MCP 服务
-- 配置后重启 NekoCode 生效，服务提供的工具会自动出现在 AI 的工具箱里
+- 配置后重启 NekoCode 生效
+- 模型通过统一的 `capability` 工具使用 MCP 服务（先 `list` 看可用工具，再 `call` 调用）；服务上下线不会改变模型的工具列表，缓存更稳定
+- 权限规则按真实工具名书写（如 `fs__read_file`)，裸工具名即可，不需要 `(...)` 修饰符
 
 ## 八、配置文件一览
 
@@ -323,6 +327,7 @@ NekoCode 对有风险的操作默认会征求你的同意，规则按 **拒绝 >
   }
   ```
 
+- **MCP 工具规则**：模型通过 `capability` 代理调用 MCP 工具，但规则按 canonical **真实工具名**（`mcp__服务名__工具名`，如 `mcp__fs__read_file`）匹配和书写；审批弹窗、Hook、审计与 Ledger 也使用该名称，裸工具名即可（如 `"allow": ["mcp__fs__read_file"]`)，不需要 `(...)` 修饰符
 - **审批时记住**：弹窗里选「始终允许」，同类操作以后自动放行（记录在项目 `.nekocode/permissions.json` 里，删除该文件可清空）
 
 ## 十、常见问题

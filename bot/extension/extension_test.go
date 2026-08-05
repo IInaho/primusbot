@@ -4,12 +4,15 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"nekocode/bot/command"
+	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
-	"nekocode/bot/tools"
 )
 
 func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
@@ -40,18 +43,27 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 	}
 
 	registry := tools.New()
+	contextManager := ctxmgr.New(ctxmgr.Config{})
 	manager := New(Config{
-		Context: ctxmgr.New(ctxmgr.Config{}), Tools: registry,
+		Context: contextManager, Tools: registry,
 		Policy: policy.New(), ContextWindow: 32_000,
 	})
 	manager.Load()
 	defer manager.Close()
+	commands := command.New(command.Deps{
+		CtxMgr: contextManager, ToolRegistry: registry,
+		GetConfigFn: func() config.ModelConfig { return config.ModelConfig{} },
+	})
+	manager.RegisterCommands(commands, nil)
 
 	if got := manager.Snapshot(); len(got.Plugins) != 1 {
 		t.Fatalf("plugins = %d, want 1", len(got.Plugins))
 	}
 	if _, ok := manager.Skill("demo-skill"); !ok {
 		t.Fatal("plugin skill was not exposed through the extension entry point")
+	}
+	if !slices.Contains(commands.Names(), "$demo-skill") {
+		t.Fatal("plugin skill command was not registered")
 	}
 	if !registry.Has("skill") {
 		t.Fatal("skill tool was not registered")
@@ -63,12 +75,18 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 	if _, ok := manager.Skill("demo-skill"); ok {
 		t.Fatal("disabled plugin skill is still exposed")
 	}
+	if slices.Contains(commands.Names(), "$demo-skill") {
+		t.Fatal("disabled plugin skill command remained registered")
+	}
 
 	if err := manager.SetPluginEnabled("demo", true); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := manager.Skill("demo-skill"); !ok {
 		t.Fatal("re-enabled plugin skill was not restored")
+	}
+	if !slices.Contains(commands.Names(), "$demo-skill") {
+		t.Fatal("re-enabled plugin skill command was not restored")
 	}
 
 	if err := os.RemoveAll(pluginDir); err != nil {
@@ -80,6 +98,9 @@ func TestManagerOwnsPluginSkillLifecycle(t *testing.T) {
 	}
 	if _, ok := manager.Skill("demo-skill"); ok {
 		t.Fatal("reload retained a removed plugin skill")
+	}
+	if slices.Contains(commands.Names(), "$demo-skill") {
+		t.Fatal("reload retained a removed plugin skill command")
 	}
 }
 

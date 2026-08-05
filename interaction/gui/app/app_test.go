@@ -38,7 +38,12 @@ func TestReadImageBase64RejectsSymlinkOutsideSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rt := controlruntime.New(&imageSessionRunner{cwd: cwd})
+	runner := &imageSessionRunner{cwd: cwd}
+	rt := controlruntime.New(runner, controlruntime.Services{
+		CurrentSessionID: runner.CurrentSessionID,
+		ListSessions:     runner.ListSessions,
+		SessionMessages:  runner.SessionMessages,
+	})
 	app := &App{ctx: context.Background(), rt: rt}
 	if _, err := app.ReadImageBase64(link); err == nil || !strings.Contains(err.Error(), "outside allowed") {
 		t.Fatalf("ReadImageBase64 error = %v, want path rejection", err)
@@ -139,7 +144,7 @@ func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan co
 		allowEscalate: allowEscalate,
 		replies:       make(chan controlruntime.ConfirmReply, 1),
 	}
-	rt := controlruntime.New(bot)
+	rt := controlruntime.New(bot, controlruntime.Services{})
 	t.Cleanup(func() {
 		if err := rt.Close(); err != nil {
 			t.Error(err)

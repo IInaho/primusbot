@@ -1,10 +1,47 @@
 package prompt
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+// This golden locks the immutable provider prefix byte-for-byte. Adding a
+// date, environment probe, map-rendered block, or any other dynamic content
+// to system_zh.md/BuildStatic must fail here and be reviewed explicitly.
+func TestStaticPromptBytesAreStable(t *testing.T) {
+	runtimeCalls := 0
+	first := &Builder{
+		staticPrefix: systemPrompt,
+		cwd:          "/first",
+		now: func() time.Time {
+			runtimeCalls++
+			return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		},
+		osRelease: func() string { runtimeCalls++; return "first-os" },
+		env:       func() Environment { runtimeCalls++; return Environment{Cwd: "/first"} },
+	}
+	second := &Builder{
+		staticPrefix: systemPrompt,
+		cwd:          "/second",
+		now: func() time.Time {
+			runtimeCalls++
+			return time.Date(2030, 12, 31, 0, 0, 0, 0, time.UTC)
+		},
+		osRelease: func() string { runtimeCalls++; return "second-os" },
+		env:       func() Environment { runtimeCalls++; return Environment{Cwd: "/second"} },
+	}
+	one, two := first.BuildStatic(), second.BuildStatic()
+	if one != two || runtimeCalls != 0 {
+		t.Fatalf("BuildStatic depends on runtime state: equal=%v runtimeCalls=%d", one == two, runtimeCalls)
+	}
+	const wantSHA256 = "851258099b8bb59bc4fb3bb8596841fb7ef2a8c209e912a99ff463380c4c4215"
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(one))); got != wantSHA256 {
+		t.Fatalf("static prompt bytes changed: sha256=%s, want %s", got, wantSHA256)
+	}
+}
 
 func TestBuilderInjectsEnvironmentBlock(t *testing.T) {
 	b := &Builder{

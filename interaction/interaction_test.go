@@ -48,7 +48,7 @@ func TestToolBriefUnquotesBashCommandPreview(t *testing.T) {
 }
 
 func TestToolBriefKeepsFullLongShellCommand(t *testing.T) {
-	cmd := `go test ./interaction/tui/... ./bot/... ./runtime/... ./interaction/gui/app/... ./bot/tools/... ./bot/agent/... ./bot/contextmgr/...`
+	cmd := `go test ./interaction/tui/... ./bot/... ./runtime/... ./interaction/gui/app/... ./bot/extension/tool/... ./bot/agent/... ./bot/contextmgr/...`
 	got := ToolBrief("shell", `{"command":"`+cmd+`"}`)
 	if got != cmd {
 		t.Fatalf("shell args should keep full command:\ngot  %q\nwant %q", got, cmd)

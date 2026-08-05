@@ -2,7 +2,6 @@ package standard
 
 import (
 	"context"
-	"io"
 
 	"nekocode/bot"
 	"nekocode/bot/extension"
@@ -120,7 +119,7 @@ func (a *adapter) ListSessions() []controlruntime.SessionMeta {
 
 func (a *adapter) SessionMessages() []controlruntime.DisplayMessage {
 	snapshot := a.bot.Conversation()
-	return viewmodel.DisplayMessages(snapshot.Messages, snapshot.CompactBoundary)
+	return viewmodel.DisplayMessages(snapshot.Messages)
 }
 
 func (a *adapter) ResumeSession(id string) error {
@@ -143,19 +142,31 @@ func (a *adapter) Close() error {
 	return a.bot.Close()
 }
 
-var (
-	_ controlruntime.Runner               = (*adapter)(nil)
-	_ controlruntime.Commander            = (*adapter)(nil)
-	_ controlruntime.Steerer              = (*adapter)(nil)
-	_ controlruntime.MetricsProvider      = (*adapter)(nil)
-	_ controlruntime.ModelService         = (*adapter)(nil)
-	_ controlruntime.ModelMutator         = (*adapter)(nil)
-	_ controlruntime.ContextService       = (*adapter)(nil)
-	_ controlruntime.ExtensionService     = (*adapter)(nil)
-	_ controlruntime.ExtensionMutator     = (*adapter)(nil)
-	_ controlruntime.ConfigurationService = (*adapter)(nil)
-	_ controlruntime.ConfigurationMutator = (*adapter)(nil)
-	_ controlruntime.SessionService       = (*adapter)(nil)
-	_ controlruntime.SessionMutator       = (*adapter)(nil)
-	_ io.Closer                           = (*adapter)(nil)
-)
+func (a *adapter) services() controlruntime.Services {
+	return controlruntime.Services{
+		ExecuteCommand:         a.ExecuteCommand,
+		CommandNames:           a.CommandNames,
+		Steer:                  a.Steer,
+		Metrics:                a.Metrics,
+		CurrentModel:           a.CurrentModel,
+		SwitchModel:            a.SwitchModel,
+		ContextSnapshot:        a.ContextSnapshot,
+		MemoryView:             a.MemoryView,
+		SkillManagementView:    a.SkillManagementView,
+		SelectSkill:            a.SelectSkill,
+		ClearSelectedSkill:     a.ClearSelectedSkill,
+		RefreshSkillManagement: a.RefreshSkillManagement,
+		SetPluginEnabled:       a.SetPluginEnabled,
+		ConfigView:             a.ConfigView,
+		ApplyConfig:            a.ApplyConfig,
+		CurrentSessionID:       a.CurrentSessionID,
+		ListSessions:           a.ListSessions,
+		SessionMessages:        a.SessionMessages,
+		ResumeSession:          a.ResumeSession,
+		NewSession:             a.NewSession,
+		DeleteSession:          a.DeleteSession,
+		Close:                  a.Close,
+	}
+}
+
+var _ controlruntime.Runner = (*adapter)(nil)

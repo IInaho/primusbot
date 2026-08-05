@@ -10,15 +10,15 @@ func TestToMessagesConsolidatesSystemContext(t *testing.T) {
 	got, system := toMessages([]types.Message{
 		{Role: "system", Content: "stable"},
 		{Role: "user", Content: "request"},
-		{Role: "system", Content: "runtime"},
+		{Role: "system", Content: "runtime", Source: types.MessageSourceVolatileTail},
 		{Role: "assistant", Content: "answer"},
-		{Role: "system", Content: "current hint"},
+		{Role: "system", Content: "current hint", Source: types.MessageSourceVolatileTail},
 	})
-	if system != "stable\n\nruntime\n\ncurrent hint" {
-		t.Fatalf("system context was not consolidated in order: %q", system)
+	if system != "stable" {
+		t.Fatalf("volatile tail was hoisted into system context: %q", system)
 	}
-	if len(got) != 2 || got[0].Role != "user" || got[1].Role != "assistant" {
-		t.Fatalf("non-system history order changed: %+v", got)
+	if len(got) != 4 || got[0].Role != "user" || got[1].Role != "user" || got[2].Role != "assistant" || got[3].Role != "user" {
+		t.Fatalf("volatile tail position changed: %+v", got)
 	}
 }
 

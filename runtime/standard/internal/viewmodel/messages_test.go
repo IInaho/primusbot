@@ -18,7 +18,7 @@ func TestDisplayMessagesKeepsPersistentToolBlocks(t *testing.T) {
 		{Role: "tool", ToolCallID: "read-call", Content: "read output"},
 		{Role: "tool", ToolCallID: "edit-call", Content: "edit output"},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || got[0].Content != "" {
 		t.Fatalf("display messages = %+v, want one assistant tool block message", got)
 	}
@@ -37,7 +37,7 @@ func TestDisplayMessagesNormalizesLegacyTerminalOutput(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "shell-call", Content: "vite\n\rtransforming..."},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || len(got[0].Blocks) != 1 {
 		t.Fatalf("display messages = %+v, want one shell block", got)
 	}
@@ -73,7 +73,7 @@ func TestDisplayMessagesCoalescesAssistantToolTurn(t *testing.T) {
 		{Role: "assistant", Content: "已提交。e0e5307。"},
 	}
 
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 2 {
 		t.Fatalf("display messages len = %d, want user + one assistant: %+v", len(got), got)
 	}
@@ -102,7 +102,7 @@ func TestDisplayMessagesKeepsDiffToolBlock(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "diff-call", Content: "[/tmp/a.go#diff]\n-1:old\n+1:new\n"},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || len(got[0].Blocks) != 1 {
 		t.Fatalf("display messages = %+v, want diff block", got)
 	}
@@ -121,7 +121,7 @@ func TestDisplayMessagesKeepsProcessToolBlock(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "process-call", Content: "status: done\nexit_code: 0"},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || len(got[0].Blocks) != 1 {
 		t.Fatalf("display messages = %+v, want process block", got)
 	}
@@ -135,7 +135,7 @@ func TestDisplayMessagesFiltersInternalMessages(t *testing.T) {
 		{Role: "user", Source: "hint", Content: "hidden"},
 		{Role: "user", Content: "visible"},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || got[0].Content != "visible" {
 		t.Fatalf("display messages = %+v, want visible user only", got)
 	}
@@ -151,7 +151,7 @@ func TestDisplayMessagesCarriesToolArgs(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "bash-call", Content: "file.txt"},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || len(got[0].Blocks) != 1 {
 		t.Fatalf("display messages = %+v, want one assistant bash block", got)
 	}
@@ -171,7 +171,7 @@ func TestDisplayMessagesCarriesToolErrorState(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "bash-call", Content: "command failed: exit status 1", IsError: true},
 	}
-	got := DisplayMessages(msgs, 0)
+	got := DisplayMessages(msgs)
 	if len(got) != 1 || len(got[0].Blocks) != 1 {
 		t.Fatalf("display messages = %+v, want one assistant bash block", got)
 	}

@@ -1,8 +1,8 @@
 package agent
 
 import (
+	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/policy"
-	"nekocode/bot/tools/runtime/core"
 	"nekocode/logger"
 	"nekocode/protocol"
 )
@@ -27,7 +27,7 @@ func newTurnRunner(agent *Agent) *turnRunner {
 // facts, and stages hints left by the previous lifecycle event.
 func (r *turnRunner) prepareTurn(input string) error {
 	a := r.agent
-	if err := a.deps.ctxMgr.AutoCompactIfNeeded(); err != nil {
+	if _, err := a.deps.ctxMgr.AutoCompactIfNeeded(); err != nil {
 		return err
 	}
 	r.beginTurn(input)
@@ -40,12 +40,12 @@ func (r *turnRunner) beginTurn(input string) {
 		a.applyTurnHints(nil)
 		return
 	}
-	usedTokens, contextWindow := a.deps.ctxMgr.TokenUsage()
+	status := a.deps.ctxMgr.Status()
 	a.deps.gov.BeginTurn(policy.Turn{
 		Input:     input,
-		HasTasks:  a.deps.ctxMgr.HasTasks(),
-		TasksDone: a.deps.ctxMgr.AllTasksDone(),
-	}, usedTokens, contextWindow)
+		HasTasks:  status.HasTasks,
+		TasksDone: status.TasksDone,
+	}, status.Tokens, status.Budget)
 	a.applyTurnHints(nil)
 }
 

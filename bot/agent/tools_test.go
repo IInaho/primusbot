@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/policy"
-	"nekocode/bot/tools/runtime/core"
 	"nekocode/protocol"
 )
 
@@ -53,6 +53,56 @@ func TestFilterToolCallsAppliesPreToolPolicyBlock(t *testing.T) {
 	}
 	if got := filtered.Blocked[0]; got != "read blocked" {
 		t.Fatalf("blocked reason = %q, want read blocked", got)
+	}
+}
+
+func TestFilterToolCallsUsesEffectiveDelegatedIdentity(t *testing.T) {
+	a := newTestAgent()
+	a.deps.gov.Register(policy.Hook{
+		Name:  "block-remote-delete",
+		Point: policy.PreToolUse,
+		On: func(s policy.State) *policy.Result {
+			if s.Facts().Tool.Name != "mcp__github__delete_repository" {
+				return nil
+			}
+			return &policy.Result{BlockTool: &policy.BlockTool{Reason: "remote delete blocked"}}
+		},
+	})
+
+	filtered := a.toolRunner.filterToolCalls([]core.ToolCallItem{{
+		Name:          "capability",
+		Args:          map[string]any{"action": "call"},
+		EffectiveName: "mcp__github__delete_repository",
+		EffectiveArgs: map[string]any{"repo": "demo"},
+	}})
+	if len(filtered.Allowed) != 0 || filtered.Blocked[0] != "remote delete blocked" {
+		t.Fatalf("delegated policy identity was lost: %+v", filtered)
+	}
+}
+
+func TestRecordToolResultsUsesEffectiveDelegatedIdentity(t *testing.T) {
+	a := newTestAgent()
+	var gotName string
+	var gotRepo any
+	a.deps.gov.Register(policy.Hook{
+		Name:  "capture-remote",
+		Point: policy.PostToolUse,
+		On: func(s policy.State) *policy.Result {
+			gotName = s.Facts().Tool.Name
+			gotRepo = s.Facts().Tool.Args["repo"]
+			return nil
+		},
+	})
+	calls := []core.ToolCallItem{{
+		ID:            "1",
+		Name:          "capability",
+		Args:          map[string]any{"action": "call"},
+		EffectiveName: "mcp__github__create_issue",
+		EffectiveArgs: map[string]any{"repo": "demo"},
+	}}
+	a.toolRunner.recordToolResults(calls, nil, []core.ToolCallResult{{ID: "1", Name: "mcp__github__create_issue", Output: "ok"}})
+	if gotName != "mcp__github__create_issue" || gotRepo != "demo" {
+		t.Fatalf("post-tool identity = %q %v", gotName, gotRepo)
 	}
 }
 
@@ -264,5 +314,19 @@ func TestEmitStartCallbacksMarksBlockedCalls(t *testing.T) {
 	}
 	if blockedOutput != "blocked" {
 		t.Fatalf("blocked output = %q, want reason", blockedOutput)
+	}
+}
+
+func TestEmitStartCallbacksUsesEffectiveDelegatedIdentity(t *testing.T) {
+	var got protocol.StepEvent
+	emitStartCallbacks([]core.ToolCallItem{{
+		ID:            "1",
+		Name:          "capability",
+		Args:          map[string]any{"action": "call"},
+		EffectiveName: "mcp__github__create_issue",
+		EffectiveArgs: map[string]any{"repo": "demo"},
+	}}, nil, func(ev protocol.StepEvent) { got = ev })
+	if got.ToolName != "mcp__github__create_issue" || !strings.Contains(got.ToolArgs, "demo") {
+		t.Fatalf("start callback identity = %+v", got)
 	}
 }

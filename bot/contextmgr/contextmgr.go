@@ -15,30 +15,25 @@ import (
 type Manager struct {
 	state *managerState
 
-	// runtimePrompt is evaluated for every Build and is intentionally not part
-	// of ManagerSnapshot. It carries volatile process state (cwd, date, sandbox
-	// roots) without freezing it into a saved session.
-	runtimeMu     sync.RWMutex
-	runtimePrompt func() string
-}
+	// compactionMu serializes slow summary operations without blocking normal
+	// context reads and writes for the duration of the model call.
+	compactionMu sync.Mutex
 
-type compactor interface {
-	AutoCompactIfNeeded() error
-	NeedsSummarization() bool
-	Summarize() error
-	SetSummarizer(Summarizer)
+	// runtimePrompt is evaluated for every Build and excluded from snapshots.
+	runtimePrompt func() string
 }
 
 type managerState struct {
 	mu sync.RWMutex
 
-	ctx             contextContent
-	contextWindow   int
-	tracker         *token.Tracker
-	compactCount    int
-	trimCount       int
-	compressor      compactor
-	compactionModel provider.LLM
+	ctx           contextContent
+	contextWindow int
+	tracker       *token.Tracker
+	prefix        prefixTracker
+	revision      uint64
+	compactCount  int
+	trimCount     int
+	compressor    *replacementCompactor
 }
 
 type Config struct {
@@ -47,6 +42,7 @@ type Config struct {
 	Memory          *memory.File
 	Summarizer      Summarizer
 	CompactionModel provider.LLM
+	RuntimePrompt   func() string
 }
 
 func makeSummarizer(ctx context.Context, client provider.LLM) Summarizer {
@@ -68,11 +64,10 @@ func New(cfg Config) *Manager {
 		ctx.Memory = cfg.Memory.Build()
 	}
 	m := &Manager{state: &managerState{
-		ctx:             ctx,
-		tracker:         &token.Tracker{},
-		contextWindow:   cfg.ContextWindow,
-		compactionModel: cfg.CompactionModel,
-	}}
+		ctx:           ctx,
+		tracker:       &token.Tracker{},
+		contextWindow: cfg.ContextWindow,
+	}, runtimePrompt: cfg.RuntimePrompt}
 	summarizer := cfg.Summarizer
 	if summarizer == nil && cfg.CompactionModel != nil {
 		summarizer = makeSummarizer(context.Background(), cfg.CompactionModel)
@@ -82,5 +77,5 @@ func New(cfg Config) *Manager {
 }
 
 func (m *Manager) initCompressor(summarizer Summarizer) {
-	m.state.compressor = newReplacementCompactor(m.state, summarizer)
+	m.state.compressor = newReplacementCompactor(summarizer)
 }

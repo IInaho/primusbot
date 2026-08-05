@@ -72,23 +72,17 @@ func TestBuild_EmptyContent(t *testing.T) {
 	}
 }
 
-func TestBuild_UsesCompactBoundary(t *testing.T) {
+func TestBuild_IncludesArchiveAndActiveHistory(t *testing.T) {
 	m := newContextManager()
 	m.state.ctx.Archive = "summary of old context"
 	m.state.ctx.Messages = []types.Message{
-		{Role: "user", Content: "old user"},
-		{Role: "assistant", Content: "old assistant"},
 		{Role: "user", Content: "visible user"},
 		{Role: "assistant", Content: "visible assistant"},
 	}
-	m.state.ctx.CompactBoundary = 2
 
 	msgs := m.Build()
 	foundArchive := false
 	for _, msg := range msgs {
-		if strings.Contains(msg.Content, "old user") || strings.Contains(msg.Content, "old assistant") {
-			t.Fatalf("Build exported compacted history message: %+v", msg)
-		}
 		if strings.Contains(msg.Content, "[Archive]") && strings.Contains(msg.Content, "summary of old context") {
 			foundArchive = true
 		}
@@ -109,9 +103,8 @@ func TestBuild_EmptyState(t *testing.T) {
 }
 
 func TestBuild_ReevaluatesRuntimePromptWithoutPersistingIt(t *testing.T) {
-	m := newContextManager()
 	value := "runtime-one"
-	m.SetRuntimePromptProvider(func() string { return value })
+	m := New(Config{SystemPrompt: "test prompt", RuntimePrompt: func() string { return value }})
 
 	first := m.Build()
 	if !containsContent(first, "runtime-one") {
@@ -136,10 +129,9 @@ func TestBuild_ReevaluatesRuntimePromptWithoutPersistingIt(t *testing.T) {
 // tail after the history — ahead of the history it would break the
 // provider's cached prefix on every change.
 func TestBuild_PlacesRuntimePromptAfterHistory(t *testing.T) {
-	m := newContextManager()
+	m := New(Config{SystemPrompt: "test prompt", RuntimePrompt: func() string { return "runtime" }})
 	m.state.ctx.Memory = "memory"
 	m.state.ctx.Archive = "archive"
-	m.SetRuntimePromptProvider(func() string { return "runtime" })
 	m.Add("user", "request")
 
 	msgs := m.Build()
@@ -169,44 +161,42 @@ func containsContent(msgs []types.Message, content string) bool {
 	return false
 }
 
-func TestSetContextWindow(t *testing.T) {
+func TestConfigureModel(t *testing.T) {
 	m := newContextManager()
 
-	m.SetContextWindow(10000)
+	m.ConfigureModel(ModelContext{Window: 10000})
 	if m.state.contextWindow != 10000 {
 		t.Errorf("budget = %d, want 10000", m.state.contextWindow)
 	}
-	m.SetContextWindow(0)
-	m.SetContextWindow(-1)
+	m.ConfigureModel(ModelContext{Window: 0})
+	m.ConfigureModel(ModelContext{Window: -1})
 	if m.state.contextWindow != 10000 {
 		t.Errorf("non-positive budget should not change value: got %d", m.state.contextWindow)
 	}
 }
 
 func TestAllTasksDone_Empty(t *testing.T) {
-	if !newContextManager().AllTasksDone() {
+	if !newContextManager().Status().TasksDone {
 		t.Error("empty todos should be 'done'")
 	}
 }
 
-func TestLenAndStats(t *testing.T) {
+func TestLenAndStatus(t *testing.T) {
 	m := newContextManager()
 	m.Add("user", "hello")
 
 	if n := m.Len(); n != 1 {
 		t.Errorf("Len = %d, want 1", n)
 	}
-	_, tokens, _ := m.Stats()
-	if tokens <= 0 {
+	if status := m.Status(); status.Tokens <= 0 {
 		t.Error("tokens should be > 0 after adding messages")
 	}
 }
 
 func TestTokenUsage(t *testing.T) {
 	m := newContextManager()
-	m.SetContextWindow(10000)
-	_, budget := m.TokenUsage()
-	if budget != 10000 {
+	m.ConfigureModel(ModelContext{Window: 10000})
+	if budget := m.Status().Budget; budget != 10000 {
 		t.Errorf("budget = %d, want 10000", budget)
 	}
 }

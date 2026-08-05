@@ -132,9 +132,6 @@ func compactConfirmArgs(req controlruntime.ConfirmRequest) map[string]any {
 		if replaceAll, ok := req.Args["replaceAll"].(bool); ok {
 			m["replaceAll"] = replaceAll
 		}
-		if revert, ok := req.Args["revert"].(bool); ok {
-			m["revert"] = revert
-		}
 	case "write":
 		if p, ok := req.Args["path"].(string); ok {
 			m["path"] = p

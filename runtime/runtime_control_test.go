@@ -40,7 +40,7 @@ func TestManagerCancelsCompletedRunContext(t *testing.T) {
 			close(contextDone)
 		}()
 		return "done", nil
-	}))
+	}), Services{})
 
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"}, Text: "run",
@@ -62,7 +62,7 @@ func TestSteerCallbackDoesNotDeadlockWithCancel(t *testing.T) {
 		steerStarted: make(chan struct{}),
 		invoke:       make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{Steer: runner.Steer})
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"}, Text: "run",
 	})
@@ -109,7 +109,7 @@ func TestCancelInterruptsBlockingSteerer(t *testing.T) {
 		started:      make(chan struct{}),
 		steerStarted: make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{Steer: runner.Steer})
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"}, Text: "run",
 	})
@@ -145,7 +145,7 @@ func TestCancelDeadlineDefersTerminalUntilLeaseDrains(t *testing.T) {
 		steerStarted: make(chan struct{}),
 		invoke:       make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{Steer: runner.Steer})
 	runID, err := rt.StartRun(context.Background(), Input{
 		Source: SourceRef{Kind: "test"}, Text: "run",
 	})
@@ -529,7 +529,7 @@ func TestCancelAndClosePreserveCancellationTerminal(t *testing.T) {
 		release: make(chan struct{}),
 		closed:  make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{Close: runner.Close})
 	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"})
 	if err != nil {
 		t.Fatal(err)

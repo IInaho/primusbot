@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
 	"nekocode/bot/policy/builtin"
-	"nekocode/bot/tools"
 )
 
 func newTestAgent() *Agent {

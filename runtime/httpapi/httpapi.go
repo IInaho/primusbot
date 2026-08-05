@@ -20,34 +20,17 @@ type Runtime interface {
 	Runs(limit int) []controlruntime.RunSnapshot
 	Status() controlruntime.RuntimeStatus
 	Capabilities() controlruntime.CapabilityManifest
-}
-
-type connectorRuntime interface {
 	ConnectView() controlruntime.ConnectView
 	Connect(context.Context, string, []string) (string, error)
 	Disconnect(string) (string, error)
-}
-
-type metricsRuntime interface {
 	Metrics() controlruntime.MetricsSnapshot
-}
-
-type contextRuntime interface {
 	ContextSnapshot() controlruntime.ContextSnapshot
 	MemoryView(controlruntime.MemoryScope) controlruntime.MemoryView
-}
-
-type sessionRuntime interface {
 	ListSessions() []controlruntime.SessionMeta
 	SessionMessages() []controlruntime.DisplayMessage
-}
-
-type modelRuntime interface {
 	CurrentModel() controlruntime.ModelSelection
-}
-
-type commandRuntime interface {
 	CommandCatalog() []string
+	ReplayEvents(context.Context, controlruntime.EventFilter) (<-chan controlruntime.Event, error)
 }
 
 type Server struct {
@@ -109,10 +92,6 @@ type connectRequest struct {
 	Args []string `json:"args,omitempty"`
 }
 
-type replayRuntime interface {
-	ReplayEvents(ctx context.Context, filter controlruntime.EventFilter) (<-chan controlruntime.Event, error)
-}
-
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	status := s.rt.Status()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -144,17 +123,15 @@ func (s *Server) handleCurrentRun(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(connectorRuntime)
-	if !ok || !s.rt.Capabilities().Connectors {
+	if !s.rt.Capabilities().Connectors {
 		writeError(w, http.StatusNotImplemented, "connector capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.ConnectView())
+	writeJSON(w, http.StatusOK, s.rt.ConnectView())
 }
 
 func (s *Server) handleConnectCommand(w http.ResponseWriter, r *http.Request) {
-	rt, ok := s.rt.(connectorRuntime)
-	if !ok || !s.rt.Capabilities().Connectors {
+	if !s.rt.Capabilities().Connectors {
 		writeError(w, http.StatusNotImplemented, "connector capability unavailable")
 		return
 	}
@@ -163,7 +140,7 @@ func (s *Server) handleConnectCommand(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp, err := rt.Connect(r.Context(), r.PathValue("name"), req.Args)
+	resp, err := s.rt.Connect(r.Context(), r.PathValue("name"), req.Args)
 	if err != nil {
 		writeRuntimeError(w, err)
 		return
@@ -172,12 +149,11 @@ func (s *Server) handleConnectCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDisconnectCommand(w http.ResponseWriter, r *http.Request) {
-	rt, ok := s.rt.(connectorRuntime)
-	if !ok || !s.rt.Capabilities().Connectors {
+	if !s.rt.Capabilities().Connectors {
 		writeError(w, http.StatusNotImplemented, "connector capability unavailable")
 		return
 	}
-	resp, err := rt.Disconnect(r.PathValue("name"))
+	resp, err := s.rt.Disconnect(r.PathValue("name"))
 	if err != nil {
 		writeRuntimeError(w, err)
 		return
@@ -186,66 +162,59 @@ func (s *Server) handleDisconnectCommand(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleModel(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(modelRuntime)
-	if !ok || !s.rt.Capabilities().Models {
+	if !s.rt.Capabilities().Models {
 		writeError(w, http.StatusNotImplemented, "model capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.CurrentModel())
+	writeJSON(w, http.StatusOK, s.rt.CurrentModel())
 }
 
 func (s *Server) handleCommands(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(commandRuntime)
-	if !ok || !s.rt.Capabilities().Commands {
+	if !s.rt.Capabilities().Commands {
 		writeError(w, http.StatusNotImplemented, "command capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"commands": rt.CommandCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"commands": s.rt.CommandCatalog()})
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(metricsRuntime)
-	if !ok || !s.rt.Capabilities().Metrics {
+	if !s.rt.Capabilities().Metrics {
 		writeError(w, http.StatusNotImplemented, "metrics capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.Metrics())
+	writeJSON(w, http.StatusOK, s.rt.Metrics())
 }
 
 func (s *Server) handleContext(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(contextRuntime)
-	if !ok || !s.rt.Capabilities().Context {
+	if !s.rt.Capabilities().Context {
 		writeError(w, http.StatusNotImplemented, "context capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.ContextSnapshot())
+	writeJSON(w, http.StatusOK, s.rt.ContextSnapshot())
 }
 
 func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request) {
-	rt, ok := s.rt.(contextRuntime)
-	if !ok || !s.rt.Capabilities().Context {
+	if !s.rt.Capabilities().Context {
 		writeError(w, http.StatusNotImplemented, "context capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, rt.MemoryView(controlruntime.MemoryScope(r.URL.Query().Get("scope"))))
+	writeJSON(w, http.StatusOK, s.rt.MemoryView(controlruntime.MemoryScope(r.URL.Query().Get("scope"))))
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(sessionRuntime)
-	if !ok || !s.rt.Capabilities().Sessions {
+	if !s.rt.Capabilities().Sessions {
 		writeError(w, http.StatusNotImplemented, "session capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": rt.ListSessions()})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.rt.ListSessions()})
 }
 
 func (s *Server) handleSessionMessages(w http.ResponseWriter, _ *http.Request) {
-	rt, ok := s.rt.(sessionRuntime)
-	if !ok || !s.rt.Capabilities().Sessions {
+	if !s.rt.Capabilities().Sessions {
 		writeError(w, http.StatusNotImplemented, "session capability unavailable")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": rt.SessionMessages()})
+	writeJSON(w, http.StatusOK, map[string]any{"messages": s.rt.SessionMessages()})
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
@@ -348,11 +317,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	var events <-chan controlruntime.Event
 	var err error
 	if r.URL.Query().Get("replay") == "1" || filter.After > 0 {
-		if replayRT, ok := s.rt.(replayRuntime); ok {
-			events, err = replayRT.ReplayEvents(r.Context(), filter)
-		} else {
-			events, err = s.rt.Events(r.Context(), filter)
-		}
+		events, err = s.rt.ReplayEvents(r.Context(), filter)
 	} else {
 		events, err = s.rt.Events(r.Context(), filter)
 	}

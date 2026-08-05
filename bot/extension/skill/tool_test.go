@@ -39,6 +39,9 @@ description: A test skill
 	if !strings.Contains(out, "<skill_content") || !strings.Contains(out, "# Test Body") {
 		t.Errorf("output missing content: %s", out)
 	}
+	if !reg.IsLoaded("test-skill") {
+		t.Fatal("skill tool should mark the loaded state directly")
+	}
 
 	// Missing name.
 	_, err = tool.Execute(context.Background(), nil)
@@ -54,16 +57,11 @@ description: A test skill
 
 	// Already loaded.
 	reg.MarkLoaded("test-skill")
-	loadCalls := 0
-	tool.SetOnLoad(func(string) { loadCalls++ })
 	out, err = tool.Execute(context.Background(), map[string]any{"name": "test-skill"})
 	if err != nil {
 		t.Fatalf("already loaded should not error: %v", err)
 	}
 	if !strings.Contains(out, "<skill_content") || !strings.Contains(out, "# Test Body") {
 		t.Errorf("loaded skill should be recoverable after compaction: %s", out)
-	}
-	if loadCalls != 0 {
-		t.Errorf("reloading content should not repeat loaded-state callback: %d", loadCalls)
 	}
 }

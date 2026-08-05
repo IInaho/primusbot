@@ -7,9 +7,9 @@ import (
 	agentcore "nekocode/bot/agent"
 	"nekocode/bot/agent/subagent"
 	"nekocode/bot/config"
+	"nekocode/bot/extension/tool/runtime/taskbridge"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider"
-	"nekocode/bot/tools/runtime/taskbridge"
 	"nekocode/protocol"
 )
 
@@ -18,15 +18,7 @@ func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, 
 	ctxMgr := b.ctxMgr
 	contextWindow := b.cfg.EffectiveContextWindow()
 
-	t, err := registry.Get("task")
-	if err != nil {
-		return
-	}
-	taskTool, ok := t.(taskbridge.TaskRunnerTool)
-	if !ok {
-		return
-	}
-	taskTool.Wire(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
+	b.toolbox.WireTaskRunner(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
 		subLLM := provider.New(provider.Config{
 			APIKey: fm.APIKey, BaseURL: fm.BaseURL, Model: fm.Model, Protocol: fm.Protocol,
 		})

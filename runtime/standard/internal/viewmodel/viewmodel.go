@@ -121,7 +121,7 @@ func memorySections(content string) []controlruntime.MemorySection {
 }
 
 func ContextSnapshot(report contextmgr.ContextReport) controlruntime.ContextSnapshot {
-	used := report.SystemPrompt + report.ToolDefTokens + report.TodoText + report.SkillList + report.Messages
+	used := report.SystemPrompt + report.ToolDefTokens + report.TodoText + report.SkillList + report.Memory + report.Archive + report.Messages
 	free := max(report.Budget-used, 0)
 	percentUsed := 0.0
 	if report.Budget > 0 {
@@ -146,6 +146,8 @@ func ContextSnapshot(report contextmgr.ContextReport) controlruntime.ContextSnap
 			{Key: "tools", Label: "工具定义", Tokens: report.ToolDefTokens, Tone: "blue"},
 			{Key: "todo", Label: "待办", Tokens: report.TodoText, Tone: "orange"},
 			{Key: "skills", Label: "Skills", Tokens: report.SkillList, Tone: "yellow"},
+			{Key: "memory", Label: "Memory", Tokens: report.Memory, Tone: "muted"},
+			{Key: "archive", Label: "归档摘要", Tokens: report.Archive, Tone: "muted"},
 			{Key: "messages", Label: "对话消息", Tokens: report.Messages, Tone: "violet"},
 			{Key: "free", Label: "剩余", Tokens: free, Tone: "free"},
 		},

@@ -20,6 +20,7 @@ func (m *Manager) Add(role, content string, source ...string) {
 	defer m.state.mu.Unlock()
 	m.state.ctx.Messages = append(m.state.ctx.Messages, types.Message{Role: role, Content: content, Source: s})
 	m.state.tracker.AddNew(len(role) + len(content))
+	m.state.revision++
 }
 
 func (m *Manager) AddAssistantResponse(content, reasoning string) {
@@ -31,6 +32,7 @@ func (m *Manager) AddAssistantResponse(content, reasoning string) {
 		ReasoningContent: reasoning,
 	})
 	m.state.tracker.AddNew(len("assistant") + len(content) + len(reasoning))
+	m.state.revision++
 }
 
 func (m *Manager) AddAssistantToolCall(content, reasoning string, toolCalls []types.ToolCall) {
@@ -47,6 +49,7 @@ func (m *Manager) AddAssistantToolCall(content, reasoning string, toolCalls []ty
 		tcBytes += len(tc.ID) + len(tc.Function.Name) + len(tc.Function.Arguments)
 	}
 	m.state.tracker.AddNew(len("assistant") + len(content) + len(reasoning) + tcBytes)
+	m.state.revision++
 }
 
 func (m *Manager) AddToolResultsBatch(results []ToolResultMsg) {
@@ -66,15 +69,23 @@ func (m *Manager) AddToolResultsBatch(results []ToolResultMsg) {
 		})
 		m.state.tracker.AddNew(len(role) + len(content) + len(r.Message.ToolCallID))
 	}
+	if len(results) > 0 {
+		m.state.revision++
+	}
 }
 
-func (m *Manager) Clear() {
+// Reset clears both active history and its compaction archive.
+func (m *Manager) Reset() {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
 	m.clearLocked()
 	m.state.ctx.Archive = ""
 	m.state.ctx.Hints = ""
 	m.state.tracker.Restore(token.State{})
+	m.state.prefix.Reset()
+	m.state.compactCount = 0
+	m.state.trimCount = 0
+	m.state.revision++
 }
 
 func (m *Manager) TruncateTo(n int) {
@@ -86,9 +97,8 @@ func (m *Manager) TruncateTo(n int) {
 	if n < len(m.state.ctx.Messages) {
 		logger.Log("truncate_to: dropped %d messages (kept %d, was %d)", len(m.state.ctx.Messages)-n, n, len(m.state.ctx.Messages))
 		m.state.ctx.Messages = m.state.ctx.Messages[:n]
-	}
-	if m.state.ctx.CompactBoundary > n {
-		m.state.ctx.CompactBoundary = n
+		m.state.revision++
+		m.state.tracker.RecordPrompt(m.totalTokenEstimate())
 	}
 }
 
@@ -100,17 +110,13 @@ func (m *Manager) RemoveMessages(startIdx, endIdx int) {
 	}
 	n := endIdx - startIdx + 1
 	m.state.ctx.Messages = append(m.state.ctx.Messages[:startIdx], m.state.ctx.Messages[endIdx+1:]...)
+	m.state.revision++
+	m.state.tracker.RecordPrompt(m.totalTokenEstimate())
 	logger.Log("remove_messages: dropped %d messages [%d:%d] (total now %d)", n, startIdx, endIdx, len(m.state.ctx.Messages))
-	if m.state.ctx.CompactBoundary > startIdx {
-		if m.state.ctx.CompactBoundary <= endIdx {
-			m.state.ctx.CompactBoundary = startIdx
-		} else {
-			m.state.ctx.CompactBoundary -= n
-		}
-	}
 }
 
-func (m *Manager) FreshStart() {
+// ResetHistory clears active history while preserving the compaction archive.
+func (m *Manager) ResetHistory() {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
 	n := len(m.state.ctx.Messages)
@@ -118,11 +124,14 @@ func (m *Manager) FreshStart() {
 	logger.Log("fresh_start: clearing all %d messages", n)
 	m.state.ctx.Hints = ""
 	m.state.tracker.Restore(token.State{})
+	m.state.prefix.Reset()
+	m.state.compactCount = 0
+	m.state.trimCount = 0
+	m.state.revision++
 }
 
 func (m *Manager) clearLocked() {
 	m.state.ctx.Messages = make([]types.Message, 0)
-	m.state.ctx.CompactBoundary = 0
 	m.state.ctx.Todo = ""
 	m.state.ctx.TodoItems = nil
 }

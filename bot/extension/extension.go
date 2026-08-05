@@ -8,25 +8,28 @@ import (
 	"sync"
 
 	"nekocode/bot/agent/subagent"
+	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/plugin"
 	"nekocode/bot/extension/skill"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/builtin/capability"
 	"nekocode/bot/policy"
-	"nekocode/bot/tools"
 	"nekocode/logger"
 )
 
 // Manager is the public extension entry point. Child managers remain private
 // so extension activation always follows one lifecycle.
 type Manager struct {
-	mu      sync.Mutex
-	ops     sync.Mutex
-	skills  *skill.Manager
-	plugins *plugin.Manager
-	mcp     *mcp.Manager
-	policy  *policy.Policy
-	active  map[string]activePlugin
+	mu       sync.Mutex
+	ops      sync.Mutex
+	skills   *skill.Manager
+	plugins  *plugin.Manager
+	mcp      *mcp.Manager
+	policy   *policy.Policy
+	active   map[string]activePlugin
+	commands *command.Handler
 }
 
 // Snapshot is the read-only state used by management views.
@@ -53,13 +56,22 @@ type activePlugin struct {
 
 // New creates the unified extension manager.
 func New(config Config) *Manager {
-	return &Manager{
+	m := &Manager{
 		skills:  skill.New(config.Context, config.Tools, config.ContextWindow),
 		plugins: plugin.New(),
-		mcp:     mcp.New(config.Tools),
+		mcp:     mcp.New(),
 		policy:  config.Policy,
 		active:  make(map[string]activePlugin),
 	}
+	// MCP tools reach the model through one constant-schema proxy registered
+	// once here — adding/removing servers never changes the tool list, which
+	// keeps the provider's cached prompt prefix stable.
+	if config.Tools != nil {
+		config.Tools.RegisterWithOptions(capability.New(m.mcp), tools.RegistrationOptions{
+			ResolveTarget: capability.ResolveTarget,
+		})
+	}
+	return m
 }
 
 // Load discovers plugins, activates enabled extensions, and loads the
@@ -77,6 +89,7 @@ func (m *Manager) Load() {
 		}
 	}
 	m.skills.Load(m.plugins.SkillDirs())
+	m.syncSkillCommandsLocked()
 }
 
 // Reload rebuilds plugin runtime state from disk and preserves loaded skills.
@@ -94,6 +107,7 @@ func (m *Manager) Reload() {
 		}
 	}
 	m.skills.Reload(m.plugins.SkillDirs())
+	m.syncSkillCommandsLocked()
 }
 
 // Close stops plugin runtime extensions and every MCP process.
@@ -132,16 +146,36 @@ func (m *Manager) Skill(name string) (skill.Command, bool) {
 	return skill.Command{Name: sk.Name, Context: skill.FormatForContext(sk)}, true
 }
 
-// SkillCommands returns all skills available to command registration.
-func (m *Manager) SkillCommands() []skill.Command {
+// CommandSkills returns all skills available to command registration.
+func (m *Manager) CommandSkills() []command.SkillRegistration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.commandSkillsLocked()
+}
+
+func (m *Manager) commandSkillsLocked() []command.SkillRegistration {
 	list := m.skills.List()
-	out := make([]skill.Command, 0, len(list))
+	out := make([]command.SkillRegistration, 0, len(list))
 	for _, sk := range list {
-		out = append(out, skill.Command{Name: sk.Name, Context: skill.FormatForContext(sk)})
+		name := sk.Name
+		out = append(out, command.SkillRegistration{
+			Name: name,
+			Load: func() (string, bool) {
+				command, ok := m.Skill(name)
+				return command.Context, ok
+			},
+			MarkLoaded: func() {
+				m.MarkSkillLoaded(name)
+			},
+		})
 	}
 	return out
+}
+
+func (m *Manager) syncSkillCommandsLocked() {
+	if m.commands != nil {
+		m.commands.RegisterSkills(m.commandSkillsLocked())
+	}
 }
 
 func (m *Manager) MarkSkillLoaded(name string) {
@@ -201,6 +235,7 @@ func (m *Manager) setPluginEnabled(ctx context.Context, name string, enabled boo
 		m.deactivateLocked(name)
 	}
 	m.skills.Reload(m.plugins.SkillDirs())
+	m.syncSkillCommandsLocked()
 	return true, nil
 }
 

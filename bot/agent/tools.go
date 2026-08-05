@@ -9,11 +9,11 @@ import (
 	"github.com/google/uuid"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/taskbridge"
+	"nekocode/bot/extension/tool/runtime/toolutil"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
-	"nekocode/bot/tools/runtime/core"
-	"nekocode/bot/tools/runtime/taskbridge"
-	"nekocode/bot/tools/runtime/toolutil"
 	"nekocode/logger"
 	"nekocode/protocol"
 )
@@ -33,6 +33,9 @@ func (r *toolRunner) executeAndFeedback(calls []core.ToolCallItem, textContent s
 		callback(protocol.StepEvent{Action: protocol.StepActionThink, Output: textContent})
 	}
 
+	for i := range calls {
+		calls[i] = r.agent.deps.toolRegistry.EnrichCall(calls[i])
+	}
 	filtered := r.filterToolCalls(calls)
 
 	cleanupSubagents, deniedSubagents, kept := r.prepareSubagentCallbacks(filtered.Allowed, filtered.AllowedIdx, callback)
@@ -76,7 +79,7 @@ func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem) filteredCalls {
 		Blocked: make(map[int]string),
 	}
 	for i, c := range calls {
-		if r.applyPreToolPolicy(c, out.Blocked, i, &out.PreToolHints) {
+		if r.applyPreToolPolicy(effectiveToolCall(c), out.Blocked, i, &out.PreToolHints) {
 			continue
 		}
 
@@ -84,6 +87,13 @@ func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem) filteredCalls {
 		out.AllowedIdx = append(out.AllowedIdx, i)
 	}
 	return out
+}
+
+func effectiveToolCall(call core.ToolCallItem) core.ToolCallItem {
+	name, args := call.Effective()
+	call.Name = name
+	call.Args = args
+	return call
 }
 
 func (r *toolRunner) applyPreToolPolicy(c core.ToolCallItem, blocked map[int]string, idx int, hints *[]*policy.Hint) bool {
@@ -140,6 +150,7 @@ func emitStartCallbacks(calls []core.ToolCallItem, blocked map[int]string, callb
 		return
 	}
 	for i, c := range calls {
+		c = effectiveToolCall(c)
 		action := protocol.StepActionToolStart
 		preview, _ := c.Args["_preview"].(string)
 		if reason, ok := blocked[i]; ok {
@@ -155,7 +166,8 @@ func mergeResults(calls []core.ToolCallItem, blocked map[int]string, execResults
 	execIdx := 0
 	for i := range calls {
 		if msg, ok := blocked[i]; ok {
-			results[i] = core.ToolCallResult{ID: calls[i].ID, Name: calls[i].Name, Error: msg}
+			name, _ := calls[i].Effective()
+			results[i] = core.ToolCallResult{ID: calls[i].ID, Name: name, Error: msg}
 			continue
 		}
 		results[i] = execResults[execIdx]
@@ -167,13 +179,14 @@ func mergeResults(calls []core.ToolCallItem, blocked map[int]string, execResults
 func emitResultCallbacks(calls []core.ToolCallItem, blocked map[int]string, results []core.ToolCallResult, callback RunCallback) []types.Message {
 	msgs := make([]types.Message, len(results))
 	for i, r := range results {
+		call := effectiveToolCall(calls[i])
 		content := r.EffectiveOutput()
 		msgs[i] = types.Message{Content: content, ToolCallID: r.ID, IsError: r.Error != ""}
 		if callback != nil {
 			if _, isBlocked := blocked[i]; isBlocked {
 				continue
 			}
-			callback(protocol.StepEvent{Action: protocol.StepActionExecuteTool, CallID: r.ID, ToolName: r.Name, ToolArgs: core.FormatArgs(calls[i].Args), Output: content, IsError: r.Error != ""})
+			callback(protocol.StepEvent{Action: protocol.StepActionExecuteTool, CallID: r.ID, ToolName: r.Name, ToolArgs: core.FormatArgs(call.Args), Output: content, IsError: r.Error != ""})
 		}
 	}
 	return msgs
@@ -201,6 +214,7 @@ func (r *toolRunner) recordToolResults(calls []core.ToolCallItem, blocked map[in
 	}
 	events := make([]policy.ToolResult, 0, len(calls))
 	for i, tc := range calls {
+		tc = effectiveToolCall(tc)
 		if msg, ok := blocked[i]; ok {
 			events = append(events, policy.ToolResult{
 				Name:        tc.Name,
@@ -223,7 +237,8 @@ func (r *toolRunner) recordToolResults(calls []core.ToolCallItem, blocked map[in
 func (r *toolRunner) addToolResultsAndHints(calls []core.ToolCallItem, msgs []types.Message, preToolHints []*policy.Hint) {
 	toolResults := make([]ctxmgr.ToolResultMsg, len(msgs))
 	for i, m := range msgs {
-		toolResults[i] = ctxmgr.ToolResultMsg{Message: m, ToolName: calls[i].Name}
+		name, _ := calls[i].Effective()
+		toolResults[i] = ctxmgr.ToolResultMsg{Message: m, ToolName: name}
 	}
 	r.agent.deps.ctxMgr.AddToolResultsBatch(toolResults)
 

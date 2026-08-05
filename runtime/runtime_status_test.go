@@ -17,12 +17,12 @@ type contextRunner struct {
 func (b *contextRunner) ContextSnapshot() ContextSnapshot  { return b.snapshot }
 func (b *contextRunner) MemoryView(MemoryScope) MemoryView { return b.memory }
 
-func TestManagerDiscoversRunnerCapabilities(t *testing.T) {
+func TestManagerUsesExplicitRunnerCapabilities(t *testing.T) {
 	runner := &contextRunner{
 		snapshot: ContextSnapshot{Budget: 100, Used: 40},
 		memory:   MemoryView{Scope: MemoryScopeProject, Path: "/tmp/memory.md"},
 	}
-	rt := New(runner)
+	rt := New(runner, Services{ContextSnapshot: runner.ContextSnapshot, MemoryView: runner.MemoryView})
 
 	if !rt.Capabilities().Context {
 		t.Fatal("context capability not discovered")
@@ -38,7 +38,7 @@ func TestManagerDiscoversRunnerCapabilities(t *testing.T) {
 func TestManagerReportsUnsupportedOptionalCapabilities(t *testing.T) {
 	rt := New(RunnerFunc(func(_ context.Context, _ string, _ RunHost) (string, error) {
 		return "", nil
-	}))
+	}), Services{})
 
 	if rt.Capabilities().Models {
 		t.Fatal("unexpected model capability")
@@ -60,7 +60,37 @@ func TestNewRejectsNilRunner(t *testing.T) {
 			t.Fatal("New(nil) did not panic")
 		}
 	}()
-	New(nil)
+	New(nil, Services{})
+}
+
+type modelServiceRunner struct{ testBot }
+
+func (*modelServiceRunner) CurrentModel() ModelSelection {
+	return ModelSelection{Model: "runner-method"}
+}
+
+func TestOptionalServicesRequireExplicitComposition(t *testing.T) {
+	runner := &modelServiceRunner{}
+	plain := New(runner, Services{})
+	if plain.Capabilities().Models || plain.CurrentModel() != (ModelSelection{}) {
+		t.Fatal("New must not discover optional services from runner methods")
+	}
+
+	explicit := New(runner, Services{
+		CurrentModel: func() ModelSelection { return ModelSelection{Model: "explicit"} },
+	})
+	if !explicit.Capabilities().Models || explicit.CurrentModel().Model != "explicit" {
+		t.Fatal("New did not expose the supplied model service")
+	}
+}
+
+func TestNewRejectsIncompleteServiceGroups(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("New accepted an incomplete context service group")
+		}
+	}()
+	New(&modelServiceRunner{}, Services{ContextSnapshot: func() ContextSnapshot { return ContextSnapshot{} }})
 }
 
 type reentrantModelMutator struct {
@@ -95,7 +125,7 @@ func (r *reentrantModelMutator) SwitchModel(name string) (ModelSelection, error)
 
 func TestMutationDoesNotHoldRuntimeStateLockAcrossRunnerCall(t *testing.T) {
 	runner := &reentrantModelMutator{called: make(chan struct{})}
-	rt := New(runner)
+	rt := New(runner, Services{SwitchModel: runner.SwitchModel})
 	runner.runtime = rt
 
 	done := make(chan error, 1)
@@ -117,7 +147,7 @@ func TestMutationDoesNotHoldRuntimeStateLockAcrossRunnerCall(t *testing.T) {
 func TestInteractionResolutionHonorsCancelledContext(t *testing.T) {
 	rt := New(RunnerFunc(func(context.Context, string, RunHost) (string, error) {
 		return "", nil
-	}))
+	}), Services{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -135,7 +165,7 @@ func TestCloseWaitsForActiveMutation(t *testing.T) {
 		release: make(chan struct{}),
 		closed:  make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{SwitchModel: runner.SwitchModel, Close: runner.Close})
 	mutationDone := make(chan error, 1)
 	go func() {
 		_, err := rt.SwitchModel("next")
@@ -198,7 +228,7 @@ func (r *liveMetricsRunner) unblock() {
 
 func TestMetricsUpdatedPublishedWhileRunActive(t *testing.T) {
 	runner := newLiveMetricsRunner()
-	rt := New(runner)
+	rt := New(runner, Services{Metrics: runner.Metrics})
 	t.Cleanup(func() {
 		runner.unblock()
 		if err := rt.Close(); err != nil {

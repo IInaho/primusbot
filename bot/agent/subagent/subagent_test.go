@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nekocode/bot/tools"
+	"nekocode/bot/extension/tool"
 )
 
 func TestNewWiresEngineDependencies(t *testing.T) {

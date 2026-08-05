@@ -67,7 +67,7 @@ func renderConfirmEdit() string {
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "edit",
 		Args: map[string]any{
-			"path": "bot/tools/builtin/tool_edit.go",
+			"path": "bot/extension/tool/builtin/tool_edit.go",
 		},
 		Kind: controlruntime.ConfirmKindPermission,
 	}, nil)
@@ -178,7 +178,7 @@ func renderToolBlocks() string {
 			Type:     block.BlockTool,
 			ToolName: "edit",
 			ToolArgs: "tool_edit.go",
-			Content:  "[bot/tools/builtin/tool_edit.go#C5E8]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)",
+			Content:  "[bot/extension/tool/builtin/tool_edit.go#C5E8]\n 318:    fmt.Println(\"Alice active:\", alice.Active)\n-318:    fmt.Println(\"Alice active:\", alice.Active)\n+319:    fmt.Println(\"Alice active status:\", alice.Active)",
 			Done:     true,
 		},
 		{
@@ -336,7 +336,7 @@ func renderAssistantWithEdit() string {
 	m.SetBlocks([]block.ContentBlock{
 		{
 			Type: block.BlockTool, ToolName: "edit", ToolArgs: "tool_edit.go",
-			Content: "[bot/tools/builtin/tool_edit.go#C5E8]\n 120:    desc := \"Edit text in files using simple replacements...\"\n-120:    desc := \"Edit text in files using simple replacements...\"\n+121:    desc := \"Edit files using oldString/newString content anchors...\"\n 125:    maxTokens := 5000\n-125:    maxTokens := 5000\n+126:    maxTokens := 8000", Done: true,
+			Content: "[bot/extension/tool/builtin/tool_edit.go#C5E8]\n 120:    desc := \"Edit text in files using simple replacements...\"\n-120:    desc := \"Edit text in files using simple replacements...\"\n+121:    desc := \"Edit files using oldString/newString content anchors...\"\n 125:    maxTokens := 5000\n-125:    maxTokens := 5000\n+126:    maxTokens := 8000", Done: true,
 		},
 		{
 			Type:     block.BlockTool,

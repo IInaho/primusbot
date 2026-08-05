@@ -61,7 +61,28 @@ func (b *testBot) steerCount() int { b.mu.Lock(); defer b.mu.Unlock(); return b.
 func (b *testBot) abortCount() int { b.mu.Lock(); defer b.mu.Unlock(); return b.aborts }
 
 func newTestRuntime(b *testBot) *Manager {
-	return New(b)
+	return New(b, testBotServices(b))
+}
+
+func testBotServices(b *testBot) Services {
+	return Services{
+		ExecuteCommand: b.ExecuteCommand,
+		CommandNames:   b.CommandNames,
+		Steer:          b.Steer,
+		Metrics:        b.Metrics,
+		Close:          b.Close,
+	}
+}
+
+func sessionRunnerServices(r *sessionCommandRunner) Services {
+	services := testBotServices(&r.testBot)
+	services.CurrentSessionID = r.CurrentSessionID
+	services.ListSessions = r.ListSessions
+	services.SessionMessages = r.SessionMessages
+	services.ResumeSession = r.ResumeSession
+	services.NewSession = r.NewSession
+	services.DeleteSession = r.DeleteSession
+	return services
 }
 
 type statusPublishingConnector struct {
@@ -215,7 +236,8 @@ func TestManagerCloseIsIdempotent(t *testing.T) {
 
 func TestManagerReturnsRunnerCloseError(t *testing.T) {
 	closeErr := errors.New("runner close failed")
-	rt := New(&failingCloseRunner{err: closeErr})
+	runner := &failingCloseRunner{err: closeErr}
+	rt := New(runner, Services{Close: runner.Close})
 	if err := rt.Close(); !errors.Is(err, closeErr) {
 		t.Fatalf("Close error = %v, want %v", err, closeErr)
 	}
@@ -230,7 +252,7 @@ func TestManagerCloseWaitsForRunnerExit(t *testing.T) {
 		release: make(chan struct{}),
 		closed:  make(chan struct{}),
 	}
-	rt := New(runner)
+	rt := New(runner, Services{Close: runner.Close})
 	if _, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "run"}); err != nil {
 		t.Fatal(err)
 	}

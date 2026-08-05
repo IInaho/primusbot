@@ -26,7 +26,7 @@ func env(values map[string]string) func(string) string {
 
 func TestBootstrapConnectorsDisabledWithoutConfiguration(t *testing.T) {
 	rt := &bootstrapRuntime{}
-	statuses, err := bootstrapConnectors(context.Background(), rt, env(nil))
+	statuses, err := bootstrapConnectors(context.Background(), rt.Connect, env(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestBootstrapConnectorsDisabledWithoutConfiguration(t *testing.T) {
 
 func TestBootstrapConnectorsSelectsTelegram(t *testing.T) {
 	rt := &bootstrapRuntime{}
-	statuses, err := bootstrapConnectors(context.Background(), rt, env(map[string]string{
+	statuses, err := bootstrapConnectors(context.Background(), rt.Connect, env(map[string]string{
 		"NEKOCODE_CONNECTORS":         "telegram",
 		"NEKOCODE_TELEGRAM_BOT_TOKEN": " token ",
 		"NEKOCODE_FEISHU_APP_ID":      "ignored",
@@ -58,7 +58,7 @@ func TestBootstrapConnectorsSelectsTelegram(t *testing.T) {
 
 func TestBootstrapConnectorsSupportsMultipleTransports(t *testing.T) {
 	rt := &bootstrapRuntime{}
-	statuses, err := bootstrapConnectors(context.Background(), rt, env(map[string]string{
+	statuses, err := bootstrapConnectors(context.Background(), rt.Connect, env(map[string]string{
 		"NEKOCODE_CONNECTORS":        "feishu, qqbot,feishu",
 		"NEKOCODE_FEISHU_APP_ID":     "cli_app",
 		"NEKOCODE_FEISHU_APP_SECRET": "secret",
@@ -83,7 +83,7 @@ func TestBootstrapConnectorsSupportsMultipleTransports(t *testing.T) {
 
 func TestBootstrapConnectorsStartsPersistedConfiguration(t *testing.T) {
 	rt := &bootstrapRuntime{}
-	_, err := bootstrapConnectors(context.Background(), rt, env(map[string]string{
+	_, err := bootstrapConnectors(context.Background(), rt.Connect, env(map[string]string{
 		"NEKOCODE_CONNECTORS": "feishu,telegram,qqbot",
 	}))
 	if err != nil {
@@ -104,7 +104,7 @@ func TestBootstrapConnectorsRejectsInvalidConfiguration(t *testing.T) {
 		{"NEKOCODE_CONNECTORS": "qqbot", "NEKOCODE_QQBOT_SANDBOX": "maybe"},
 	} {
 		rt := &bootstrapRuntime{}
-		if _, err := bootstrapConnectors(context.Background(), rt, env(values)); err == nil {
+		if _, err := bootstrapConnectors(context.Background(), rt.Connect, env(values)); err == nil {
 			t.Fatalf("bootstrapConnectors(%v) succeeded", values)
 		}
 	}

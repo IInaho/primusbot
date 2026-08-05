@@ -9,10 +9,12 @@ type ContextReport struct {
 	SystemPrompt    int
 	TodoText        int
 	SkillList       int
+	Memory          int
+	Archive         int
 	ToolDefTokens   int
 	Messages        int
+	HasArchive      bool
 	Archived        int
-	ClearedMarkers  int
 	CompactCount    int
 	TrimCount       int
 	ToolDefCount    int
@@ -27,6 +29,7 @@ type ContextReport struct {
 	SubTokens       int
 	SubCacheHit     int
 	SubCacheMiss    int
+	PrefixTurn      PrefixTurnStats
 }
 
 func (m *Manager) Report() ContextReport {
@@ -38,11 +41,11 @@ func (m *Manager) Report() ContextReport {
 	r.SystemPrompt = token.EstimateString(m.state.ctx.SystemPrompt) + token.EstimateString(runtimePrompt)
 	r.TodoText = token.EstimateString(m.state.ctx.Todo)
 	r.SkillList = token.EstimateString(m.state.ctx.Skills)
+	r.Memory = token.EstimateString(m.state.ctx.Memory)
+	r.Archive = token.EstimateString(m.state.ctx.Archive)
 
-	for i := m.state.ctx.CompactBoundary; i < len(m.state.ctx.Messages); i++ {
-		msg := m.state.ctx.Messages[i]
+	for _, msg := range m.state.ctx.Messages {
 		if msg.Content == clearedMarker {
-			r.ClearedMarkers++
 			continue
 		}
 		switch msg.Role {
@@ -58,8 +61,9 @@ func (m *Manager) Report() ContextReport {
 			r.ToolResults++
 		}
 	}
-	r.Messages = token.EstimateTokens(m.state.ctx.Messages[m.state.ctx.CompactBoundary:])
-	r.Archived = m.state.ctx.CompactBoundary
+	r.Messages = token.EstimateTokens(m.state.ctx.Messages)
+	r.HasArchive = m.state.ctx.Archive != ""
+	r.Archived = m.state.trimCount
 	r.CompactCount = m.state.compactCount
 	r.TrimCount = m.state.trimCount
 	r.Budget = m.state.contextWindow
@@ -70,5 +74,6 @@ func (m *Manager) Report() ContextReport {
 	r.SubTokens = sub.TotalTokens
 	r.SubCacheHit = sub.CacheHitTokens
 	r.SubCacheMiss = sub.CacheMissTokens
+	r.PrefixTurn = m.state.prefix.TurnStats()
 	return r
 }

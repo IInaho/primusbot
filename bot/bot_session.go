@@ -3,16 +3,21 @@ package bot
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"nekocode/bot/checkpoint"
 	"nekocode/bot/command"
 	"nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/policy/ledger"
 	"nekocode/bot/session"
 )
 
 func (b *Bot) initSession() {
 	b.sess = session.New(b.cwd)
+	b.checkpoints = checkpoint.New("")
+	b.checkpoints.Activate(b.sess.CurrentID(), nil, 0)
 }
 
 func (b *Bot) registerSessionCommands(p *command.Parser) {
@@ -58,6 +63,10 @@ func (b *Bot) saveSession() error {
 		loadedSkills = b.ext.Snapshot().LoadedSkills
 	}
 	snapshot.CaptureContext(b.ctxMgr.Snapshot(), promptTokens, completionTokens, loadedSkills)
+	if b.checkpoints != nil {
+		snapshot.CheckpointTurns = b.checkpoints.Index(snapshot.ID)
+		snapshot.CheckpointNext = b.checkpoints.Next(snapshot.ID)
+	}
 	snapshot.Ledger = b.ledgerSnapshot()
 	err := b.sess.Save(snapshot)
 	b.syncPolicySessionID()
@@ -93,6 +102,9 @@ func (b *Bot) resumeSession(id string) (*session.Snapshot, error) {
 		return nil, err
 	}
 	b.ctxMgr.Restore(snapshot.ContextSnapshot())
+	if b.checkpoints != nil {
+		b.checkpoints.Activate(snapshot.ID, snapshot.CheckpointTurns, snapshot.CheckpointNext)
+	}
 	// Session files may contain a prompt from an older NekoCode version. Keep
 	// conversation state, but always pair it with the current stable rules;
 	// volatile environment data is injected separately on every Build.
@@ -137,21 +149,19 @@ func (b *Bot) resetConversation(keepSummary bool) (string, error) {
 	var previousContext contextmgr.ManagerSnapshot
 	if keepSummary {
 		previousContext = b.ctxMgr.Snapshot()
-		count, oldTokens, _ := b.ctxMgr.Stats()
-		if count <= 2 {
+		before := b.ctxMgr.Status()
+		if before.Messages <= 2 {
 			result = "New session started."
 		} else {
-			if b.ctxMgr.NeedsSummarization() {
-				if err := b.ctxMgr.Summarize(); err != nil {
-					return "", err
-				}
+			if _, err := b.ctxMgr.AutoCompactIfNeeded(); err != nil {
+				return "", err
 			}
-			_, newTokens, hasSummary := b.ctxMgr.Stats()
+			after := b.ctxMgr.Status()
 			summary := "no summary"
-			if hasSummary {
+			if after.HasArchive {
 				summary = "with summary"
 			}
-			result = fmt.Sprintf("%d messages, ~%d tokens → %s (~%d tokens)", count, oldTokens, summary, newTokens)
+			result = fmt.Sprintf("%d messages, ~%d tokens → %s (~%d tokens)", before.Messages, before.Tokens, summary, after.Tokens)
 		}
 	}
 	if err := b.closeSessionRuntime(b.sess.CurrentID()); err != nil {
@@ -161,11 +171,14 @@ func (b *Bot) resetConversation(keepSummary bool) (string, error) {
 		return "", err
 	}
 	if keepSummary {
-		b.ctxMgr.FreshStart()
+		b.ctxMgr.ResetHistory()
 	} else {
-		b.ctxMgr.Clear()
+		b.ctxMgr.Reset()
 	}
-	b.sess.StartNew()
+	newSession := b.sess.StartNew()
+	if b.checkpoints != nil {
+		b.checkpoints.Activate(newSession.ID, nil, 0)
+	}
 	if b.ext != nil {
 		b.ext.ClearLoadedSkills()
 	}
@@ -184,7 +197,10 @@ func (b *Bot) ensureSessionIdentity() {
 		return
 	}
 	if b.sess.CurrentID() == "" {
-		b.sess.StartNew()
+		newSession := b.sess.StartNew()
+		if b.checkpoints != nil {
+			b.checkpoints.Activate(newSession.ID, nil, 0)
+		}
 	}
 	b.syncPolicySessionID()
 }
@@ -196,8 +212,13 @@ func (b *Bot) DeleteSession(id string) error {
 	if err := b.sess.Delete(id); err != nil {
 		return err
 	}
+	if b.checkpoints != nil {
+		if err := b.checkpoints.Delete(id); err != nil {
+			return err
+		}
+	}
 	if b.sess.CurrentID() == id {
-		b.ctxMgr.Clear()
+		b.ctxMgr.Reset()
 		b.sess.ClearCurrent()
 		if b.ext != nil {
 			b.ext.ClearLoadedSkills()
@@ -211,6 +232,74 @@ func (b *Bot) DeleteSession(id string) error {
 		b.syncPolicySessionID()
 	}
 	return nil
+}
+
+func (b *Bot) rewindCheckpoint(turn string) (string, error) {
+	if b.checkpoints == nil || b.sess == nil {
+		return "", fmt.Errorf("checkpoint rewind is unavailable")
+	}
+	if turn == "list" {
+		return b.formatCheckpointHistory()
+	}
+	result, err := b.checkpoints.Rewind(b.sess.CurrentID(), turn)
+	if err != nil {
+		return "", err
+	}
+	if ag := b.getAgent(); ag != nil {
+		state := ag.ToolExecutionState()
+		for _, path := range result.Paths {
+			state.FileCache.Invalidate(path)
+		}
+		state.SnapshotStore = execution.NewSnapshotStore()
+	}
+	return fmt.Sprintf("Rewound to turn %s: restored %d files.", result.Turn, result.Files), nil
+}
+
+func (b *Bot) formatCheckpointHistory() (string, error) {
+	history, err := b.checkpoints.History(b.sess.CurrentID())
+	if err != nil {
+		return "", err
+	}
+	if len(history) == 0 {
+		return "No rewind checkpoints available.", nil
+	}
+	var out strings.Builder
+	out.WriteString("Rewind checkpoints (newest first):\n")
+	for _, turn := range history {
+		created, modified, deleted := 0, 0, 0
+		for _, change := range turn.Changes {
+			switch change.Kind {
+			case "created":
+				created++
+			case "deleted":
+				deleted++
+			default:
+				modified++
+			}
+		}
+		fmt.Fprintf(&out, "\nTurn %s  %s  %d files (+%d ~%d -%d)\n",
+			turn.Turn, turn.CreatedAt.Local().Format("01-02 15:04"), len(turn.Changes), created, modified, deleted)
+		for _, change := range turn.Changes {
+			path := change.Path
+			if relative, relErr := filepath.Rel(b.cwd, path); relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				path = relative
+			}
+			fmt.Fprintf(&out, "  %s %s\n", checkpointChangeMark(change.Kind), path)
+		}
+	}
+	out.WriteString("\n/rewind <turn> to restore that turn and all newer turns")
+	return out.String(), nil
+}
+
+func checkpointChangeMark(kind string) string {
+	switch kind {
+	case "created":
+		return "A"
+	case "deleted":
+		return "D"
+	default:
+		return "M"
+	}
 }
 
 func formatSessionList(sessions []session.Meta) string {

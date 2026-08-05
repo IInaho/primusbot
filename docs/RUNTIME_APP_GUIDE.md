@@ -6,7 +6,7 @@
 先记住三个边界：
 
 1. `runtime.Manager` 是上层交互的唯一实例入口。
-2. AI 应用只必须实现 `runtime.Runner`，其他能力按需实现。
+2. AI 应用只必须实现 `runtime.Runner`，其他能力通过 `runtime.Services` 显式装配。
 3. UI 只依赖 `nekocode/runtime`，不依赖 `bot` 或 `runtime/internal`。
 
 ## 1. 先选择入口
@@ -15,8 +15,8 @@
 | --- | --- | --- |
 | 使用完整 NekoCode | `standard.New()` | UI 或启动代码 |
 | 使用完整 Bot，但不启用默认录制和 Connector | `standard.FromBot(bot)` | 启动代码 |
-| 自定义提示词和工具 | `runtime.New(agentrunner.New(agent))` | Agent 组装 |
-| 接入其他推理引擎 | `runtime.New(runner)` | `Runner.Run` |
+| 自定义提示词和工具 | `runtime.New(runner, runner.Services())` | Agent 组装 |
+| 接入其他推理引擎 | `runtime.New(runner, services)` | `Runner.Run` 和 Services |
 | 新增进程内 UI | 接收同一个 `*runtime.Manager` | 事件投影 |
 | 新增远程 UI | `httpapi.New(manager)` | HTTP/SSE 客户端 |
 | 新增消息渠道 | `Manager.RegisterConnector` | `Connector` |
@@ -83,7 +83,7 @@ func main() {
         },
     )
 
-    rt := controlruntime.New(runner)
+    rt := controlruntime.New(runner, controlruntime.Services{})
     defer func() {
         if err := rt.Close(); err != nil {
             log.Printf("close runtime: %v", err)
@@ -160,7 +160,8 @@ assistant := agent.New(context.Background(), agent.Config{
     Tools:   registry,
 })
 
-rt := runtime.New(agentrunner.New(assistant))
+runner := agentrunner.New(assistant)
+rt := runtime.New(runner, runner.Services())
 ```
 
 `agentrunner` 已处理流式文本、推理、工具和子 Agent 事件、取消、指标和关闭。
@@ -229,22 +230,21 @@ Runtime 会串行处理同一个 run 的 `Confirm` 和 `Ask`，UI 同时只需�
 
 ## 6. 可选能力
 
-`runtime.New(runner)` 会从同一个 Runner 实例自动发现能力，不需要注册回调：
+`runtime.New(runner, runtime.Services{})` 只启用核心执行。应用需要命令、Steering、指标、模型、上下文、
+Extension、配置或 Session 时，在组合根通过一个显式 `runtime.Services` 值装配：
 
-| Runner 侧接口 | `Capabilities` 字段 | 用途 |
-| --- | --- | --- |
-| `Commander` | `Commands` | Bot 自有命令 |
-| `Steerer` | `Steering` | run 中途追加输入 |
-| `MetricsProvider` | `Metrics` | token 和上下文指标 |
-| `ModelService` | `Models` | 当前模型 |
-| `ContextService` | `Context` | 上下文和 Memory |
-| `ExtensionService` | `Extensions` | Skill 和 Plugin 状态 |
-| `ConfigurationService` | `Configuration` | 应用配置 |
-| `SessionService` | `Sessions` | 会话和消息 |
-| `io.Closer` | 无 | 释放 Runner 资源 |
+```go
+services := runtime.Services{
+    Steer:        assistant.Steer,
+    Metrics:      assistant.Metrics,
+    CurrentModel: assistant.CurrentModel,
+    Close:        assistant.Close,
+}
+rt := runtime.New(assistant, services)
+```
 
-这些接口属于 **Runner 实现协议**。UI 不获取 Service 实例，而是通过 Manager
-直接查询：
+Manager 根据非 nil 函数字段生成 `Capabilities()`。能力不会通过小接口和类型断言
+自动发现，因此组合关系在初始化代码中是完整、可检查的。UI 仍只通过 Manager 查询：
 
 ```go
 caps := rt.Capabilities()
@@ -274,28 +274,15 @@ Manager 的可选只读方法：
 先用 `Capabilities()` 决定页面和控件是否存在。能力不存在或 Manager 已关闭时，
 只读方法返回对应零值。
 
-写能力由 Runner 独立选择实现：
+写能力同样通过 `Services` 中的函数显式提供：
 
 ```go
-type ModelMutator interface {
-    SwitchModel(string) (ModelSelection, error)
-}
-
-type ExtensionMutator interface {
-    SelectSkill(string) error
-    ClearSelectedSkill()
-    RefreshSkillManagement() SkillManagementView
-    SetPluginEnabled(string, bool) (SkillManagementView, error)
-}
-
-type ConfigurationMutator interface {
-    ApplyConfig(ConfigView) (ConfigView, error)
-}
-
-type SessionMutator interface {
-    ResumeSession(string) error
-    NewSession() (SessionMeta, error)
-    DeleteSession(string) error
+services := runtime.Services{
+    SwitchModel:      assistant.SwitchModel,
+    ApplyConfig:      assistant.ApplyConfig,
+    ResumeSession:    assistant.ResumeSession,
+    NewSession:       assistant.NewSession,
+    DeleteSession:    assistant.DeleteSession,
 }
 ```
 
@@ -308,14 +295,10 @@ UI 仍调用 `Manager.SwitchModel`、`ApplyConfig`、`NewSession` 等方法。Ma
 - `CommandHandled`：命令已完成，本次 run 结束。
 - `CommandContinue`：命令修改状态后，用 `AgentInput` 继续执行 Runner。
 
-建议给应用的可选能力添加编译期断言：
+Runner 本身只需要保留核心协议的编译期断言：
 
 ```go
-var (
-    _ runtime.Runner          = (*assistant)(nil)
-    _ runtime.MetricsProvider = (*assistant)(nil)
-    _ runtime.Steerer         = (*assistant)(nil)
-)
+var _ runtime.Runner = (*assistant)(nil)
 ```
 
 ## 7. Manager 对外能力
@@ -504,7 +487,7 @@ defer func() {
 ```
 
 `standard.New()` 会组装完整 Bot、默认事件录制，以及 Telegram、Feishu、QQBot
-Connector。轻量应用使用 `runtime.New(customRunner)`。
+Connector。轻量应用使用 `runtime.New(customRunner, services)`。
 
 HTTP/SSE：
 
@@ -552,7 +535,7 @@ if err := rt.EnableDefaultEventRecording(); err != nil {
 自定义目录使用 `EnableEventRecording(path)`。空路径是错误，不要忽略。启用时会先
 恢复已有事件、run snapshot 和 sequence，再追加新事件。
 
-装饰 Runner 时要注意 Go 的可选接口发现：
+装饰 Runner 时只需转发核心 `Run`：
 
 ```go
 type limitedAssistant struct {
@@ -572,8 +555,8 @@ func (a *limitedAssistant) Run(
 }
 ```
 
-嵌入具体类型会保留其可选方法。只返回 `runtime.Runner` 的通用 wrapper 会隐藏
-`MetricsProvider`、`Steerer` 等能力；这类中间件必须明确转发要保留的方法。
+可选能力保存在组合根的 `Services` 中，不受 wrapper 方法集影响；需要改变能力时，
+显式替换对应函数字段。
 
 生命周期约束：
 

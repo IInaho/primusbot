@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
 	"nekocode/bot/policy/builtin"
 	"nekocode/bot/provider/types"
-	"nekocode/bot/tools"
 )
 
 func TestRunReturnsAutoCompactErrorBeforeModelCall(t *testing.T) {
@@ -140,7 +140,7 @@ func TestFinishRunInterruptedPreservesWholeCurrentRun(t *testing.T) {
 	ctxMgr.AddAssistantResponse("completed answer after old tool", "")
 	compacted := ctxMgr.Snapshot()
 	compacted.Archive = "summary of the old tool turn"
-	compacted.CompactBoundary = 2
+	compacted.Messages = compacted.Messages[2:]
 	ctxMgr.Restore(compacted)
 
 	a.loopRunner.startRun("long task")
@@ -165,9 +165,18 @@ func TestFinishRunInterruptedPreservesWholeCurrentRun(t *testing.T) {
 	if !reflect.DeepEqual(after, before) {
 		t.Fatalf("interruption changed committed context: before=%+v after=%+v", before, after)
 	}
-	if got := after.Messages[4].Content; got != "long task" {
-		t.Fatalf("current user request was not preserved: %q", got)
+	if !containsMessage(after.Messages, "long task") {
+		t.Fatalf("current user request was not preserved: %+v", after.Messages)
 	}
+}
+
+func containsMessage(messages []types.Message, content string) bool {
+	for _, message := range messages {
+		if message.Content == content {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFinishRunInterruptedBeforeFirstToolPreservesPriorHistoryAndInput(t *testing.T) {

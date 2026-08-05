@@ -68,7 +68,7 @@ type WorkspaceConfig struct {
 }
 
 type Config struct {
-	Active         string                     `json:"active"` // name of the active model
+	Active         string                     `json:"active"`                // name of the active model
 	FlashModel     string                     `json:"flash_model,omitempty"` // optional lightweight model; empty uses the active model
 	Models         []ModelConfig              `json:"models"`
 	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models

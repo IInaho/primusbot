@@ -2,17 +2,58 @@ package bot
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"nekocode/bot/checkpoint"
 	"nekocode/bot/command"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool/builtin/catalog"
+	"nekocode/bot/extension/tool/builtin/shell"
+	"nekocode/bot/extension/tool/runtime/workspace"
 	"nekocode/bot/provider/types"
 	"nekocode/bot/session"
-	"nekocode/bot/tools/builtin/catalog"
-	"nekocode/bot/tools/builtin/shell"
-	"nekocode/bot/tools/runtime/workspace"
 )
+
+func TestFormatCheckpointHistoryShowsTurnAndChangedFiles(t *testing.T) {
+	cwd := t.TempDir()
+	manager := session.New(cwd)
+	cp := checkpoint.New(t.TempDir())
+	cp.Activate(manager.CurrentID(), nil, 0)
+	turn, err := cp.Begin(manager.CurrentID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cwd, "main.go")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Capture(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finish(manager.CurrentID()); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Bot{cwd: cwd, sess: manager, checkpoints: cp}
+	got, err := b.formatCheckpointHistory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Turn " + turn, "1 files (+0 ~1 -0)", "M main.go"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("history missing %q:\n%s", want, got)
+		}
+	}
+}
 
 func TestSessionCommandResumesDirectManager(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
