@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 )
 
 func TestToMessagesConsolidatesSystemContext(t *testing.T) {
@@ -15,7 +16,7 @@ func TestToMessagesConsolidatesSystemContext(t *testing.T) {
 		{Role: "system", Content: "runtime", Source: types.MessageSourceVolatileTail},
 		{Role: "assistant", Content: "answer"},
 		{Role: "system", Content: "current hint", Source: types.MessageSourceVolatileTail},
-	})
+	}, types.ReasoningSettings{})
 	if system != "stable" {
 		t.Fatalf("volatile tail was hoisted into system context: %q", system)
 	}
@@ -67,13 +68,72 @@ func TestBuildRequestUsesProviderDefaultTemperatureUnlessConfigured(t *testing.T
 
 func TestBuildRequestIncludesConfiguredReasoningEffort(t *testing.T) {
 	c := New("", "", "test-model")
-	c.SetReasoningSettings(types.ReasoningSettings{Requested: "medium", Effort: "medium"})
+	c.SetReasoningSettings(types.ReasoningSettings{Requested: "medium", Effort: "medium", ThinkingMode: "adaptive"})
 	data, err := json.Marshal(c.buildRequest(nil, nil, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(data), `"output_config":{"effort":"medium"}`) {
 		t.Fatalf("configured effort missing: %s", data)
+	}
+	if !strings.Contains(string(data), `"thinking":{"type":"adaptive"}`) {
+		t.Fatalf("configured effort did not enable adaptive thinking: %s", data)
+	}
+}
+
+func TestBuildRequestUsesModelThinkingMode(t *testing.T) {
+	c := New("", "", "deepseek-v4-flash")
+	c.SetReasoningSettings(types.ReasoningSettings{Effort: "high", ThinkingMode: "enabled"})
+	data, err := json.Marshal(c.buildRequest(nil, nil, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"thinking":{"type":"enabled"}`) {
+		t.Fatalf("model thinking mode missing: %s", data)
+	}
+}
+
+func TestToMessagesReplaysOnlySignedReasoning(t *testing.T) {
+	settings := types.ReasoningSettings{Replay: reasoning.ReplaySigned}
+	got, _ := toMessages([]types.Message{
+		{Role: "assistant", Content: "plain", ReasoningContent: "unsigned"},
+		{Role: "assistant", ReasoningContent: "signed", ReasoningSignature: "sig", ToolCalls: []types.ToolCall{{
+			ID: "call-1", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
+		}}},
+	}, settings)
+	if _, structured := got[0].Content.([]contentBlock); structured {
+		t.Fatal("plain assistant reasoning must not become a thinking block")
+	}
+	blocks, ok := got[1].Content.([]contentBlock)
+	if !ok || len(blocks) != 2 || blocks[0].Type != "thinking" || blocks[0].Thinking == nil || *blocks[0].Thinking != "signed" || blocks[0].Signature != "sig" {
+		t.Fatalf("signed thinking was not replayed before tool_use: %+v", got[1])
+	}
+}
+
+func TestToMessagesPreservesSignatureOnlyThinkingBlock(t *testing.T) {
+	got, _ := toMessages([]types.Message{{
+		Role: "assistant", ReasoningSignature: "sig", ToolCalls: []types.ToolCall{{
+			ID: "call-1", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
+		}},
+	}}, types.ReasoningSettings{Replay: reasoning.ReplaySigned})
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"thinking":""`) || !strings.Contains(string(data), `"signature":"sig"`) {
+		t.Fatalf("signature-only thinking block was not preserved: %s", data)
+	}
+}
+
+func TestToResponsePreservesThinkingSignature(t *testing.T) {
+	thinking := "inspect first"
+	got := toResponse(&response{Content: []contentBlock{
+		{Type: "thinking", Thinking: &thinking, Signature: "sig"},
+		{Type: "text", Text: "done"},
+	}})
+	message := got.Choices[0].Message
+	if message.ReasoningContent != "inspect first" || message.ReasoningSignature != "sig" || message.Content != "done" {
+		t.Fatalf("response reasoning round trip = %+v", message)
 	}
 }
 

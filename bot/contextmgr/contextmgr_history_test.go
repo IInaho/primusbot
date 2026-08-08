@@ -23,17 +23,21 @@ func TestAdd(t *testing.T) {
 
 func TestAddAssistantResponse(t *testing.T) {
 	m := newHistoryManager()
-	m.AddAssistantResponse("response text", "thinking...")
-	if n := len(m.Snapshot().Messages); n != 1 {
+	m.AddAssistant(types.Message{Content: "response text", ReasoningContent: "thinking...", ReasoningSignature: "sig"})
+	snapshot := m.Snapshot()
+	if n := len(snapshot.Messages); n != 1 {
 		t.Errorf("len = %d, want 1", n)
+	}
+	if got := snapshot.Messages[0]; got.Role != "assistant" || got.ReasoningContent != "thinking..." || got.ReasoningSignature != "sig" {
+		t.Fatalf("stored assistant = %+v", got)
 	}
 }
 
 func TestAddAssistantToolCall(t *testing.T) {
 	m := newHistoryManager()
-	m.AddAssistantToolCall("let me check", "", []types.ToolCall{
+	m.AddAssistant(types.Message{Content: "let me check", ToolCalls: []types.ToolCall{
 		{ID: "tc1", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`}},
-	})
+	}})
 	if n := len(m.Snapshot().Messages); n != 1 {
 		t.Errorf("len = %d, want 1", n)
 	}

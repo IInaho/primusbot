@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"nekocode/bot/config"
 )
 
 func TestNewBuildsRunnableBot(t *testing.T) {
@@ -31,7 +33,8 @@ func TestNewBuildsRunnableBot(t *testing.T) {
 		t.Fatalf("model command menu = %+v, %v", menu, ok)
 	}
 	effortMenu, ok := b.CommandMenu(context.Background(), "/effort")
-	if !ok || effortMenu.Title != "Reasoning effort" || len(effortMenu.Items) != 4 {
+	wantEfforts := config.ReasoningCapabilityFor(b.cfg.ActiveModelConfig()).Values()
+	if !ok || effortMenu.Title != "Reasoning effort" || len(effortMenu.Items) != len(wantEfforts) {
 		t.Fatalf("effort command menu = %+v, %v", effortMenu, ok)
 	}
 	if effortMenu.Items[0].Value != "/effort auto" || !effortMenu.Items[0].Submit ||

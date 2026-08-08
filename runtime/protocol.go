@@ -155,10 +155,11 @@ type SessionMeta struct {
 // DisplayMessage is a persistent conversation projection for interaction
 // surfaces.
 type DisplayMessage struct {
-	Role    string         `json:"role"`
-	Content string         `json:"content"`
-	Blocks  []DisplayBlock `json:"blocks,omitempty"`
-	Images  []ImageRef     `json:"images,omitempty"`
+	Role      string         `json:"role"`
+	Content   string         `json:"content"`
+	Reasoning string         `json:"reasoning,omitempty"`
+	Blocks    []DisplayBlock `json:"blocks,omitempty"`
+	Images    []ImageRef     `json:"images,omitempty"`
 }
 
 type DisplayBlock struct {

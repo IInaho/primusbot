@@ -79,10 +79,12 @@ func (r *Manager) StartRun(ctx context.Context, input Input) (RunID, error) {
 	r.cancelDone = nil
 	r.runDone = make(chan struct{})
 	lease := newRunLease()
+	execution := newRunExecution()
 	r.runLease = lease
+	r.runExecution = execution
 	r.mu.Unlock()
 
-	go r.run(runCtx, runID, input, lease)
+	go r.run(runCtx, runID, input, lease, execution)
 	return runID, nil
 }
 
@@ -178,14 +180,21 @@ func (r *Manager) CancelRun(ctx context.Context, runID RunID) error {
 		go r.publishCancellation(control, "cancelled")
 		return err
 	}
-	r.publishCancellation(control, "cancelled")
+	// Runner shutdown may involve provider cleanup and final usage accounting.
+	// Keep CancelRun responsive while the terminal event is serialized after
+	// that work by publishCancellation.
+	go r.publishCancellation(control, "cancelled")
 	return nil
 }
 
 func (r *Manager) publishCancellation(control cancelControl, message string) {
 	_ = control.lease.wait(context.Background())
+	control.execution.wait()
 	r.approvals.RejectAll()
 	r.questions.RejectAll()
+	if control.execution.hasMetrics() {
+		r.publishMetrics(control.runID)
+	}
 	r.events.Publish(Event{
 		RunID:   control.runID,
 		Type:    EventRunCancelled,
@@ -231,6 +240,7 @@ func (r *Manager) Close() error {
 		runDone := r.runDone
 		cancelDone := r.cancelDone
 		lease := r.runLease
+		execution := r.runExecution
 		r.runLease = nil
 		if active {
 			r.cancelled[runID] = struct{}{}
@@ -256,6 +266,10 @@ func (r *Manager) Close() error {
 			r.approvals.Close()
 			r.questions.Close()
 			_ = lease.wait(context.Background())
+			execution.wait()
+			if execution.hasMetrics() {
+				r.publishMetrics(runID)
+			}
 			r.events.Publish(Event{
 				RunID:   runID,
 				Type:    EventRunCancelled,

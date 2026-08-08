@@ -20,6 +20,19 @@ type LLM interface {
 	GetDisableThinking() bool
 }
 
+// ReasoningSettingsFor returns an optional provider's model contract. Test and
+// third-party providers that do not expose one retain the safe no-replay
+// default.
+func ReasoningSettingsFor(llm LLM) types.ReasoningSettings {
+	configured, ok := llm.(interface {
+		ReasoningSettings() types.ReasoningSettings
+	})
+	if !ok {
+		return types.ReasoningSettings{}
+	}
+	return configured.ReasoningSettings()
+}
+
 // Compile-time checks: both concrete clients must satisfy LLM.
 var (
 	_ LLM = (*anthropic.Client)(nil)

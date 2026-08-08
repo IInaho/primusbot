@@ -39,6 +39,7 @@ type managerState struct {
 	compactCount  int
 	trimCount     int
 	compressor    *replacementCompactor
+	reasoning     types.ReasoningSettings
 	// Append-only projections remember their latest provider-visible value so
 	// unchanged controller state does not add noise to the cached prefix.
 	runtimeProjection appendProjection
@@ -70,6 +71,7 @@ type Config struct {
 	Memory             *memory.File
 	Summarizer         Summarizer
 	CompactionModel    provider.LLM
+	Reasoning          types.ReasoningSettings
 	RuntimePrompt      func() string
 }
 
@@ -143,6 +145,7 @@ func New(cfg Config) *Manager {
 		ctx:           ctx,
 		tracker:       &token.Tracker{},
 		contextWindow: cfg.ContextWindow,
+		reasoning:     cfg.Reasoning,
 	}, runtimePrompt: cfg.RuntimePrompt}
 	summarizer := cfg.Summarizer
 	if summarizer == nil && cfg.CompactionModel != nil {

@@ -184,6 +184,7 @@ func (m *Messages) messageItem(msg message.ChatMessage) Item {
 		return message.NewUserMessageItem(m.sty, msg.Content)
 	case "assistant":
 		a := message.NewAssistantMessageItem(m.sty, msg.Content)
+		a.SetReasoning(msg.Reasoning)
 		if msg.RenderedContent != "" {
 			a.SetRenderedContent(msg.RenderedContent)
 		}

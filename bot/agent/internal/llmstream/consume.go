@@ -28,6 +28,9 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 				s.Request = token.Request
 				continue
 			}
+			if token.ReasoningSignature != "" {
+				s.ReasoningSignature = token.ReasoningSignature
+			}
 			if s.FirstTokenAt.IsZero() {
 				s.FirstTokenAt = time.Now()
 			}

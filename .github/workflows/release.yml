@@ -6,10 +6,38 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Validate release tag and changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          core='(0|[1-9][0-9]*)'
+          prerelease_id='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          prerelease="${prerelease_id}(\.${prerelease_id})*"
+          build='[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*'
+          semver="^v${core}\.${core}\.${core}(-${prerelease})?(\+${build})?$"
+          [[ "$RELEASE_TAG" =~ $semver ]]
+          test "$(git cat-file -t "$GITHUB_REF")" = tag
+          prefix="## ${RELEASE_TAG} - "
+          heading="$(grep -F -m1 -- "$prefix" CHANGELOG.md || true)"
+          release_date="${heading#"$prefix"}"
+          [[ "$heading" == "${prefix}${release_date}" ]]
+          [[ "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+
+  validation:
+    needs: validate-tag
+    uses: ./.github/workflows/go.yml
+
   build-linux:
+    needs: validation
     strategy:
       matrix:
         include:
@@ -20,11 +48,14 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: stable
-      - uses: mlugg/setup-zig@v2
+          go-version-file: go.mod
+          cache: true
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.16.0
 
       - name: Create zig CC wrapper
         run: |
@@ -42,15 +73,17 @@ jobs:
           CC: /tmp/zigcc
           LD_FLAGS: -s -w -X 'nekocode/util/version.Version=${{ github.ref_name }}'
         run: |
-          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-linux-${GOARCH} ./cmd/tui
+          go build -trimpath -ldflags="$LD_FLAGS" -o "dist/nekocode-tui-linux-${GOARCH}" ./cmd/tui
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nekocode-tui-linux-${{ matrix.goarch }}
           path: dist/nekocode-tui-linux-${{ matrix.goarch }}
+          retention-days: 7
 
   build-darwin:
+    needs: validation
     strategy:
       matrix:
         include:
@@ -59,10 +92,11 @@ jobs:
 
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: stable
+          go-version-file: go.mod
+          cache: true
 
       - name: Build
         env:
@@ -71,27 +105,57 @@ jobs:
           CGO_ENABLED: "1"
           LD_FLAGS: -s -w -X 'nekocode/util/version.Version=${{ github.ref_name }}'
         run: |
-          go build -trimpath -ldflags="$LD_FLAGS" -o dist/nekocode-tui-darwin-${GOARCH} ./cmd/tui
+          go build -trimpath -ldflags="$LD_FLAGS" -o "dist/nekocode-tui-darwin-${GOARCH}" ./cmd/tui
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nekocode-tui-darwin-${{ matrix.goarch }}
           path: dist/nekocode-tui-darwin-${{ matrix.goarch }}
+          retention-days: 7
 
   release:
     needs: [build-linux, build-darwin]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
 
+      - name: Assemble release files
+        run: |
+          mkdir -p release
+          find dist -type f -name 'nekocode-tui-*' -exec cp {} release/ \;
+          test "$(find release -type f -name 'nekocode-tui-*' | wc -l)" -eq 4
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: release
+          format: spdx-json
+          output-file: release/sbom.spdx.json
+          syft-version: v1.50.0
+          upload-artifact: false
+
+      - name: Create checksums
+        run: |
+          (cd release && sha256sum nekocode-tui-* sbom.spdx.json > SHA256SUMS)
+
+      - name: Attest release files
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: release/*
+
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
-          files: dist/*/*
+          fail_on_unmatched_files: true
+          files: release/*

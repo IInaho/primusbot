@@ -34,6 +34,8 @@ func New(apiKey, baseURL, model string) *Client {
 type contentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
+	Thinking  *string         `json:"thinking,omitempty"`
+	Signature string          `json:"signature,omitempty"`
 	ID        string          `json:"id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
@@ -53,18 +55,23 @@ type message struct {
 }
 
 type request struct {
-	Model        string        `json:"model"`
-	MaxTokens    int           `json:"max_tokens"`
-	Temperature  float64       `json:"temperature,omitempty"`
-	System       string        `json:"system,omitempty"`
-	Messages     []message     `json:"messages"`
-	Tools        []tool        `json:"tools,omitempty"`
-	Stream       bool          `json:"stream"`
-	OutputConfig *outputConfig `json:"output_config,omitempty"`
+	Model        string          `json:"model"`
+	MaxTokens    int             `json:"max_tokens"`
+	Temperature  float64         `json:"temperature,omitempty"`
+	System       string          `json:"system,omitempty"`
+	Messages     []message       `json:"messages"`
+	Tools        []tool          `json:"tools,omitempty"`
+	Stream       bool            `json:"stream"`
+	OutputConfig *outputConfig   `json:"output_config,omitempty"`
+	Thinking     *thinkingConfig `json:"thinking,omitempty"`
 }
 
 type outputConfig struct {
 	Effort string `json:"effort"`
+}
+
+type thinkingConfig struct {
+	Type string `json:"type"`
 }
 
 type response struct {
@@ -92,8 +99,10 @@ type sseEvent struct {
 }
 
 type textDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
 }
 
 type inputJSONDelta struct {
@@ -118,7 +127,7 @@ func toTools(tools []types.ToolDef) []tool {
 	return out
 }
 
-func toMessages(messages []types.Message) ([]message, string) {
+func toMessages(messages []types.Message, reasoning types.ReasoningSettings) ([]message, string) {
 	var systemPrompt string
 	var out []message
 
@@ -145,8 +154,11 @@ func toMessages(messages []types.Message) ([]message, string) {
 			})
 			continue
 		}
-		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			blocks := make([]contentBlock, 0, len(msg.ToolCalls)+1)
+		if msg.Role == "assistant" && (len(msg.ToolCalls) > 0 || msg.ReasoningSignature != "") {
+			blocks := make([]contentBlock, 0, len(msg.ToolCalls)+2)
+			if content, replay := types.ReasoningForRequest(msg, reasoning); replay {
+				blocks = append(blocks, contentBlock{Type: "thinking", Thinking: &content, Signature: msg.ReasoningSignature})
+			}
 			if msg.Content != "" {
 				blocks = append(blocks, contentBlock{Type: "text", Text: msg.Content})
 			}
@@ -169,11 +181,18 @@ func toMessages(messages []types.Message) ([]message, string) {
 func toResponse(ar *response) *types.Response {
 	resp := &types.Response{ID: ar.ID}
 	var text string
+	var reasoning string
+	var signature string
 	var toolCalls []types.ToolCall
 	for _, block := range ar.Content {
 		switch block.Type {
 		case "text":
 			text += block.Text
+		case "thinking":
+			if block.Thinking != nil {
+				reasoning += *block.Thinking
+			}
+			signature = block.Signature
 		case "tool_use":
 			toolCalls = append(toolCalls, types.ToolCall{
 				ID:   block.ID,
@@ -186,7 +205,8 @@ func toResponse(ar *response) *types.Response {
 		}
 	}
 	resp.Choices = []types.Choice{{
-		Message: types.Message{Role: "assistant", Content: text, ToolCalls: toolCalls},
+		Message: types.Message{Role: "assistant", Content: text, ReasoningContent: reasoning,
+			ReasoningSignature: signature, ToolCalls: toolCalls},
 	}}
 	resp.Usage = normalizeUsage(ar.Usage)
 	return resp
@@ -220,7 +240,8 @@ func intValue(value *int) int {
 // --- public ---
 
 func (c *Client) buildRequest(messages []types.Message, tools []types.ToolDef, stream bool) *request {
-	msgs, sys := toMessages(messages)
+	reasoning := c.ReasoningSettings()
+	msgs, sys := toMessages(messages, reasoning)
 	req := &request{
 		Model:       c.Model,
 		MaxTokens:   c.GetMaxTokens(),
@@ -230,8 +251,11 @@ func (c *Client) buildRequest(messages []types.Message, tools []types.ToolDef, s
 		Tools:       toTools(tools),
 		Stream:      stream,
 	}
-	if reasoning := c.ReasoningSettings(); !reasoning.Disabled && reasoning.Effort != "" {
+	if !reasoning.Disabled && reasoning.Effort != "" {
 		req.OutputConfig = &outputConfig{Effort: reasoning.Effort}
+		if reasoning.ThinkingMode != "" {
+			req.Thinking = &thinkingConfig{Type: reasoning.ThinkingMode}
+		}
 	}
 	return req
 }
@@ -331,12 +355,28 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 				}
 				if cb.Type == "tool_use" {
 					toolAccums[event.Index] = &toolAccum{id: cb.ID, name: cb.Name}
+				} else if cb.Type == "thinking" {
+					if cb.Thinking != nil && *cb.Thinking != "" {
+						tokenCh <- types.StreamToken{ReasoningContent: *cb.Thinking}
+					}
+					if cb.Signature != "" {
+						tokenCh <- types.StreamToken{ReasoningSignature: cb.Signature}
+					}
 				}
 			case "content_block_delta":
 				var td textDelta
-				if json.Unmarshal(event.Delta, &td) == nil && td.Type == "text_delta" {
-					tokenCh <- types.StreamToken{Content: td.Text}
-					return nil
+				if json.Unmarshal(event.Delta, &td) == nil {
+					switch td.Type {
+					case "text_delta":
+						tokenCh <- types.StreamToken{Content: td.Text}
+						return nil
+					case "thinking_delta":
+						tokenCh <- types.StreamToken{ReasoningContent: td.Thinking}
+						return nil
+					case "signature_delta":
+						tokenCh <- types.StreamToken{ReasoningSignature: td.Signature}
+						return nil
+					}
 				}
 				var ijd inputJSONDelta
 				if json.Unmarshal(event.Delta, &ijd) == nil && ijd.Type == "input_json_delta" {

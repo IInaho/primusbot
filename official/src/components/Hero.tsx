@@ -9,28 +9,22 @@ const terminalLines = [
   { prefix: "", text: "  Meow! I'm NekoCode, your terminal AI assistant." },
   { prefix: "", text: "  What would you like me to do today?" },
 ];
+const fullText = "refactor auth module to use JWT";
 
 export function Hero() {
   const reduce = useReducedMotion();
-  const [typedText, setTypedText] = useState("");
-  const fullText = "refactor auth module to use JWT";
+  const [typedLength, setTypedLength] = useState(0);
 
   useEffect(() => {
-    if (reduce) {
-      setTypedText(fullText);
-      return;
-    }
-    let i = 0;
-    const interval = setInterval(() => {
-      if (i <= fullText.length) {
-        setTypedText(fullText.slice(0, i));
-        i++;
-      } else {
-        clearInterval(interval);
-      }
+    if (reduce || typedLength >= fullText.length) return;
+
+    const timeout = setTimeout(() => {
+      setTypedLength((length) => length + 1);
     }, 50);
-    return () => clearInterval(interval);
-  }, [reduce]);
+    return () => clearTimeout(timeout);
+  }, [reduce, typedLength]);
+
+  const typedText = reduce ? fullText : fullText.slice(0, typedLength);
 
   return (
     <section className="relative z-10 min-h-[100dvh] flex items-center px-6 pt-24 pb-16">

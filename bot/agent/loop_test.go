@@ -130,14 +130,14 @@ func TestFinishRunInterruptedPreservesWholeCurrentRun(t *testing.T) {
 
 	// A completed earlier turn after a tool result used to be lost because the
 	// rollback searched globally for the last tool message.
-	ctxMgr.AddAssistantToolCall("old tool", "", []types.ToolCall{{
+	ctxMgr.AddAssistant(types.Message{Content: "old tool", ToolCalls: []types.ToolCall{{
 		ID: "old", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
-	}})
+	}}})
 	ctxMgr.AddToolResultsBatch([]ctxmgr.ToolResultMsg{{
 		Message: types.Message{Content: "old result", ToolCallID: "old"}, ToolName: "read",
 	}})
 	ctxMgr.Add("user", "follow-up")
-	ctxMgr.AddAssistantResponse("completed answer after old tool", "")
+	ctxMgr.AddAssistant(types.Message{Content: "completed answer after old tool"})
 	compacted := ctxMgr.Snapshot()
 	compacted.Archive = "summary of the old tool turn"
 	compacted.Messages = compacted.Messages[2:]
@@ -146,9 +146,9 @@ func TestFinishRunInterruptedPreservesWholeCurrentRun(t *testing.T) {
 	a.loopRunner.startRun("long task")
 	for i := 0; i < 40; i++ {
 		id := "call-" + strconv.Itoa(i)
-		ctxMgr.AddAssistantToolCall("working", "", []types.ToolCall{{
+		ctxMgr.AddAssistant(types.Message{Content: "working", ToolCalls: []types.ToolCall{{
 			ID: id, Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
-		}})
+		}}})
 		ctxMgr.AddToolResultsBatch([]ctxmgr.ToolResultMsg{{
 			Message: types.Message{Content: "result", ToolCallID: id}, ToolName: "read",
 		}})
@@ -183,7 +183,7 @@ func TestFinishRunInterruptedBeforeFirstToolPreservesPriorHistoryAndInput(t *tes
 	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "test", ContextWindow: 128000})
 	a := New(context.Background(), Config{Context: ctxMgr, Tools: tools.New()})
 	ctxMgr.Add("user", "previous")
-	ctxMgr.AddAssistantResponse("previous answer", "")
+	ctxMgr.AddAssistant(types.Message{Content: "previous answer"})
 	a.loopRunner.startRun("current request")
 	before := ctxMgr.Snapshot().Messages
 

@@ -4,11 +4,26 @@ import (
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 )
 
 func TestEstimateString_Empty(t *testing.T) {
 	if n := EstimateString(""); n != 0 {
 		t.Errorf("empty string = %d, want 0", n)
+	}
+}
+
+func TestEstimateModelTokensUsesReasoningReplayPolicy(t *testing.T) {
+	plain := types.Message{Role: "assistant", Content: "answer", ReasoningContent: "a long private chain of thought"}
+	toolCall := types.Message{Role: "assistant", ReasoningContent: "tool reasoning", ToolCalls: []types.ToolCall{{ID: "call-1"}}}
+	settings := types.ReasoningSettings{Replay: reasoning.ReplayToolCalls}
+
+	withoutReasoning := EstimateModelTokens([]types.Message{plain}, settings)
+	if full := EstimateTokens([]types.Message{plain}); withoutReasoning >= full {
+		t.Fatalf("plain reasoning was not excluded: model=%d full=%d", withoutReasoning, full)
+	}
+	if got, full := EstimateModelTokens([]types.Message{toolCall}, settings), EstimateTokens([]types.Message{toolCall}); got != full {
+		t.Fatalf("tool-call reasoning estimate = %d, want full replay estimate %d", got, full)
 	}
 }
 

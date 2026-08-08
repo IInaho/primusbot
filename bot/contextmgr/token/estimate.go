@@ -7,11 +7,27 @@ const asciiCharsPerToken = 4
 // EstimateTokens uses a language-aware heuristic: ASCII ≈ 4 chars/token,
 // CJK ≈ 1.5 chars/token. Used when API-calibrated counts are unavailable.
 func EstimateTokens(msgs []types.Message) int {
+	return estimateTokens(msgs, nil)
+}
+
+// EstimateModelTokens estimates the messages as serialized for the active
+// model, excluding locally retained reasoning that its replay contract omits.
+func EstimateModelTokens(msgs []types.Message, reasoning types.ReasoningSettings) int {
+	return estimateTokens(msgs, &reasoning)
+}
+
+func estimateTokens(msgs []types.Message, reasoning *types.ReasoningSettings) int {
 	n := 0
 	for _, m := range msgs {
 		n += EstimateString(m.Role)
 		n += EstimateString(m.Content)
-		n += EstimateString(m.ReasoningContent)
+		if reasoning == nil {
+			n += EstimateString(m.ReasoningContent)
+			n += EstimateString(m.ReasoningSignature)
+		} else if content, replay := types.ReasoningForRequest(m, *reasoning); replay {
+			n += EstimateString(content)
+			n += EstimateString(m.ReasoningSignature)
+		}
 		n += EstimateString(m.Name)
 		for _, tc := range m.ToolCalls {
 			n += EstimateString(tc.ID)

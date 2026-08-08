@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 	"nekocode/util/url"
 )
 
@@ -27,8 +28,8 @@ type delta struct {
 
 type apiMessage struct {
 	Role             string           `json:"role"`
-	Content          string           `json:"content,omitempty"`
-	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	Content          string           `json:"content"`
+	ReasoningContent *string          `json:"reasoning_content,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	ToolCalls        []types.ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
@@ -160,8 +161,9 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 }
 
 func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stream bool) map[string]any {
+	settings := c.ReasoningSettings()
 	body := map[string]any{
-		"model": c.Model, "messages": toAPIMessages(messages),
+		"model": c.Model, "messages": toAPIMessages(messages, settings),
 		"max_tokens": c.GetMaxTokens(), "stream": stream,
 	}
 	if c.Temperature != 0 {
@@ -169,20 +171,21 @@ func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stre
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools
-		body["tool_choice"] = "auto"
-	}
-	reasoning := c.ReasoningSettings()
-	if reasoning.Disabled {
-		if reasoning.DisableEffort != "" {
-			body["reasoning_effort"] = reasoning.DisableEffort
+		if settings.Replay != reasoning.ReplayToolCalls {
+			body["tool_choice"] = "auto"
 		}
-		if reasoning.ThinkingToggle {
+	}
+	if settings.Disabled {
+		if settings.DisableEffort != "" {
+			body["reasoning_effort"] = settings.DisableEffort
+		}
+		if settings.ThinkingMode != "" {
 			body["thinking"] = map[string]string{"type": "disabled"}
 		}
-	} else if reasoning.Effort != "" {
-		body["reasoning_effort"] = reasoning.Effort
-		if reasoning.ThinkingToggle {
-			body["thinking"] = map[string]string{"type": "enabled"}
+	} else if settings.Effort != "" {
+		body["reasoning_effort"] = settings.Effort
+		if settings.ThinkingMode != "" {
+			body["thinking"] = map[string]string{"type": settings.ThinkingMode}
 		}
 	}
 	return body
@@ -192,20 +195,23 @@ func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stre
 // their order and positions. Dynamic controller state is already represented
 // as tagged user messages in the append-only history; moving or hoisting any
 // message here would invalidate the provider's cached prefix.
-func toAPIMessages(messages []types.Message) []apiMessage {
+func toAPIMessages(messages []types.Message, reasoning types.ReasoningSettings) []apiMessage {
 	out := make([]apiMessage, 0, len(messages))
 	for _, m := range messages {
 		if m.Role == "system" && m.Content == "" {
 			continue
 		}
-		out = append(out, apiMessage{
-			Role:             m.Role,
-			Content:          m.Content,
-			ReasoningContent: m.ReasoningContent,
-			Name:             m.Name,
-			ToolCalls:        m.ToolCalls,
-			ToolCallID:       m.ToolCallID,
-		})
+		wire := apiMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			Name:       m.Name,
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+		}
+		if content, replay := types.ReasoningForRequest(m, reasoning); replay {
+			wire.ReasoningContent = &content
+		}
+		out = append(out, wire)
 	}
 	return out
 }

@@ -96,6 +96,7 @@ func (m *Model) loadSessionMessages() {
 		m.Messages.AddMessage(message.ChatMessage{
 			Role:            dm.Role,
 			Content:         dm.Content,
+			Reasoning:       dm.Reasoning,
 			RenderedContent: dm.Content,
 			Blocks:          blocks,
 		})

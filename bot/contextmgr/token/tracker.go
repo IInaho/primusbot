@@ -54,10 +54,13 @@ func (t *Tracker) RecordPrompt(promptTokens int) {
 	t.newMessageTokens = 0
 }
 
-// ResetCache clears cumulative cache statistics (e.g. on model switch).
-func (t *Tracker) ResetCache() {
+// ResetModel clears provider-calibrated prompt and cache state after a model
+// switch. Conversation messages remain untouched and are estimated afresh.
+func (t *Tracker) ResetModel() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.lastPromptTokens = 0
+	t.newMessageTokens = 0
 	t.cacheHitTokens = 0
 	t.cacheMissTokens = 0
 }
@@ -128,7 +131,13 @@ func (t *Tracker) SubStats() SubStats {
 
 // AddNew estimates tokens for messages added since the last API call.
 func (t *Tracker) AddNew(charCount int) {
+	t.AddEstimated((charCount + 3) / 4)
+}
+
+// AddEstimated records an already tokenized estimate for provider-visible
+// messages appended since the last API response.
+func (t *Tracker) AddEstimated(tokens int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.newMessageTokens += charCount / 4
+	t.newMessageTokens += tokens
 }

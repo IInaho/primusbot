@@ -54,14 +54,6 @@ func TestStreamStateEmitReasoning(t *testing.T) {
 	}
 }
 
-func TestStreamStateResetReasoning(t *testing.T) {
-	s := streamState{lastReason: "previous summary"}
-	s.resetReasoning()
-	if s.lastReason != "" {
-		t.Fatalf("lastReason = %q, want empty after reset", s.lastReason)
-	}
-}
-
 func TestTokenMeterZeroValue(t *testing.T) {
 	var m tokenMeter
 	prompt, completion := m.total(100)

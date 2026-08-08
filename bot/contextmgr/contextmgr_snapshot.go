@@ -44,11 +44,15 @@ func (m *Manager) Restore(snap ManagerSnapshot) {
 	m.state.runtimePolicy = ""
 	m.state.ctx.Messages = append([]types.Message(nil), snap.Messages...)
 	m.restoreRuntimeContextLocked()
-	m.state.contextWindow = snap.Budget
 	if m.state.tracker == nil {
 		m.state.tracker = &token.Tracker{}
 	}
-	m.state.tracker.Restore(snap.Tracker)
+	// Model limits and provider-calibrated usage belong to the active runtime,
+	// not to persisted conversation content. A session may be resumed with a
+	// different model, so retaining either can delay compaction past the new
+	// model's actual context window. Sub-agent totals are session history and
+	// remain valid independently of the active model.
+	m.state.tracker.Restore(token.State{Sub: snap.Tracker.Sub})
 	m.state.prefix.Reset()
 	m.state.compactCount = 0
 	m.state.trimCount = 0

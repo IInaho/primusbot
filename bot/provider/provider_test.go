@@ -74,7 +74,7 @@ func TestRequestMetaReportsRequestedAndEffectiveReasoning(t *testing.T) {
 		t.Fatalf("auto metadata = %+v", got)
 	}
 	client.SetReasoningSettings(types.ReasoningSettings{
-		Requested: "high", Effort: "high", ThinkingToggle: true,
+		Requested: "high", Effort: "high", ThinkingMode: "enabled",
 	})
 	client.SetDisableThinking(true)
 	if got := client.RequestMeta(); got.RequestedEffort != "high" || got.EffectiveEffort != "none" {

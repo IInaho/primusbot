@@ -410,6 +410,7 @@ export namespace runtime {
 	export class DisplayMessage {
 	    role: string;
 	    content: string;
+	    reasoning?: string;
 	    blocks?: DisplayBlock[];
 	    images?: ImageRef[];
 
@@ -421,6 +422,7 @@ export namespace runtime {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.role = source["role"];
 	        this.content = source["content"];
+	        this.reasoning = source["reasoning"];
 	        this.blocks = this.convertValues(source["blocks"], DisplayBlock);
 	        this.images = this.convertValues(source["images"], ImageRef);
 	    }
@@ -611,4 +613,3 @@ export namespace runtime {
 
 
 }
-

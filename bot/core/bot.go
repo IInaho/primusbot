@@ -194,7 +194,7 @@ func (b *Bot) initAgent() {
 	compactionModel.SetMaxTokens(2000)
 	b.ctxMgr.ConfigureModel(ctxmgr.ModelContext{
 		Window: b.cfg.EffectiveContextWindow(), AutoCompactPercent: b.cfg.EffectiveAutoCompactPercent(),
-		CompactionModel: compactionModel,
+		CompactionModel: compactionModel, Reasoning: resolvedReasoning(am),
 	})
 
 	b.ag = agent.New(context.Background(), agent.Config{

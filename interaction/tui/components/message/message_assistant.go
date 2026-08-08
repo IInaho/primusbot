@@ -16,6 +16,7 @@ import (
 type AssistantMessageItem struct {
 	content         string
 	renderedContent string
+	reasoning       string
 	footer          string
 	telemetry       *protocol.Metrics
 	blocks          []block.ContentBlock
@@ -31,6 +32,13 @@ func NewAssistantMessageItem(sty *styles.Styles, content string) *AssistantMessa
 func (m *AssistantMessageItem) SetRenderedContent(content string) {
 	m.mu.Lock()
 	m.renderedContent = content
+	m.cache = cachedRender{}
+	m.mu.Unlock()
+}
+
+func (m *AssistantMessageItem) SetReasoning(reasoning string) {
+	m.mu.Lock()
+	m.reasoning = reasoning
 	m.cache = cachedRender{}
 	m.mu.Unlock()
 }
@@ -79,6 +87,15 @@ func (m *AssistantMessageItem) Render(width int) string {
 			msgParts = append(msgParts, cards)
 		}
 	}
+	if reasoning := strings.TrimSpace(m.reasoning); reasoning != "" {
+		thinking := strings.TrimSpace(RenderMarkdown(reasoning, max(contentW-4, 10)))
+		if thinking != "" {
+			msgParts = append(msgParts,
+				"  "+m.sty.Muted.Render("thinking"),
+				m.sty.Muted.Render(indentLines(thinking, "    ")),
+			)
+		}
+	}
 
 	raw := m.content
 	if m.renderedContent != "" {
@@ -108,6 +125,14 @@ func (m *AssistantMessageItem) Render(width int) string {
 	m.cache.width = cw
 	m.cache.height = len(strings.Split(msgBlock, "\n"))
 	return msgBlock
+}
+
+func indentLines(text, prefix string) string {
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *AssistantMessageItem) Height(width int) int {

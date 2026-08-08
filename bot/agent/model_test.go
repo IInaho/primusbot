@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"nekocode/bot/contextmgr"
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 )
 
 type fakeLLM struct {
@@ -72,8 +74,8 @@ func TestReasonTextResponseStreamsAndClassifiesChat(t *testing.T) {
 	if result.ActionInput != "hello world" {
 		t.Fatalf("ActionInput = %q, want hello world", result.ActionInput)
 	}
-	if a.stream.lastReason != "thinking" {
-		t.Fatalf("last reason = %q, want thinking", a.stream.lastReason)
+	if result.ReasoningContent != "thinking" {
+		t.Fatalf("response reasoning = %q, want thinking", result.ReasoningContent)
 	}
 	if streamedText != "hello world" {
 		t.Fatalf("streamed text = %q, want hello world", streamedText)
@@ -100,6 +102,29 @@ func TestReasonToolCallRecordsAssistantToolCall(t *testing.T) {
 	}
 	if got := a.deps.ctxMgr.Len(); got != before+1 {
 		t.Fatalf("context length = %d, want %d", got, before+1)
+	}
+}
+
+func TestReasonDoesNotReusePreviousCallReasoning(t *testing.T) {
+	a, llm := newTestAgentWithLLM(
+		types.StreamToken{ReasoningContent: "first reasoning"},
+		types.StreamToken{ReasoningSignature: "first signature"},
+		types.StreamToken{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "call-1", Name: "read", Arguments: `{}`}},
+	)
+	a.deps.ctxMgr.ConfigureModel(contextmgr.ModelContext{
+		Reasoning: types.ReasoningSettings{Replay: reasoning.ReplaySigned},
+	})
+	a.modelRunner.reason("first")
+
+	llm.tokens = []types.StreamToken{
+		{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "call-2", Name: "read", Arguments: `{}`}},
+	}
+	a.modelRunner.reason("second")
+
+	messages := a.deps.ctxMgr.Build()
+	last := messages[len(messages)-1]
+	if last.ReasoningContent != "" || last.ReasoningSignature != "" {
+		t.Fatalf("second call reused reasoning artifact: %+v", last)
 	}
 }
 

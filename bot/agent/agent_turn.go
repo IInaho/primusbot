@@ -3,6 +3,7 @@ package agent
 import (
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/policy"
+	"nekocode/bot/provider/types"
 	"nekocode/logger"
 	"nekocode/protocol"
 )
@@ -147,7 +148,8 @@ func (r *turnRunner) recordReasoningText(reasoning *reasoningResult, recordable 
 	a := r.agent
 	a.run.lastText = reasoning.ActionInput
 	if recordable {
-		a.deps.ctxMgr.AddAssistantResponse(reasoning.ActionInput, a.stream.lastReason)
+		a.deps.ctxMgr.AddAssistant(types.Message{Role: "assistant", Content: reasoning.ActionInput,
+			ReasoningContent: reasoning.ReasoningContent, ReasoningSignature: reasoning.ReasoningSignature})
 		a.run.finalText = reasoning.ActionInput
 		a.run.finalPersisted = true
 	} else {

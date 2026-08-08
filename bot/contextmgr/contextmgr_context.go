@@ -48,6 +48,8 @@ func (m *Manager) BuildRequest(request ModelRequest) []types.Message {
 	system = append(system, m.state.ctx.BuildLayer1()...)
 	history := m.state.ctx.BuildLayer2()
 	history = append(history, m.visibleHistory()...)
+	out = types.ProjectReasoning(out, m.state.reasoning)
+	history = types.ProjectReasoning(history, m.state.reasoning)
 	m.state.prefix.Observe(buildPrefixShape(system, history, request.Tools))
 	return out
 }
@@ -232,6 +234,7 @@ type ModelContext struct {
 	Window             int
 	AutoCompactPercent int
 	CompactionModel    provider.LLM
+	Reasoning          types.ReasoningSettings
 }
 
 // ConfigureModel updates model-dependent context settings atomically.
@@ -241,7 +244,8 @@ func (m *Manager) ConfigureModel(cfg ModelContext) {
 	if cfg.Window > 0 {
 		m.state.contextWindow = cfg.Window
 	}
-	m.state.tracker.ResetCache()
+	m.state.tracker.ResetModel()
+	m.state.reasoning = cfg.Reasoning
 	m.state.prefix.Reset()
 	if m.state.compressor != nil {
 		m.state.compressor.autoCompactPercent = normalizeAutoCompactPercent(cfg.AutoCompactPercent)
@@ -352,7 +356,7 @@ func (m *Manager) totalTokenEstimate() int {
 		token.EstimateString(m.state.ctx.Skills) +
 		token.EstimateString(m.state.ctx.Memory) +
 		token.EstimateString(m.state.ctx.Archive) +
-		token.EstimateTokens(m.state.ctx.Messages)
+		token.EstimateModelTokens(m.state.ctx.Messages, m.state.reasoning)
 }
 
 func (m *Manager) estimatedTokens() int {

@@ -155,6 +155,8 @@ export function mapDisplayMessage(m: DisplayMessage): Msg {
     id: genId(),
     role: role === 'user' || role === 'assistant' || role === 'tool' ? role : 'assistant',
     text,
+		reasoning: m.reasoning || undefined,
+		reasoningDone: m.reasoning ? true : undefined,
     streaming: false,
     steps: steps.length > 0 ? steps : undefined,
     images,

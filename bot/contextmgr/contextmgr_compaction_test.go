@@ -37,7 +37,7 @@ func TestSummarizeDoesNotBlockOrOverwriteConcurrentHistory(t *testing.T) {
 	})
 	for i := 0; i < 8; i++ {
 		m.Add("user", "old question")
-		m.AddAssistantResponse("old answer", "")
+		m.AddAssistant(types.Message{Content: "old answer"})
 	}
 
 	compactDone := make(chan error, 1)

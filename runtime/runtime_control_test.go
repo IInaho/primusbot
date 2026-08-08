@@ -327,6 +327,7 @@ func TestManagerAbortPreservesAbortedRunAfterApprovalReturns(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for bot run to return")
 	}
+	waitForRun(t, rt, runID)
 	run, ok := rt.LookupRun(runID)
 	if !ok {
 		t.Fatal("run snapshot missing")
@@ -546,8 +547,9 @@ func TestCancelAndClosePreserveCancellationTerminal(t *testing.T) {
 	})
 	cancelled := make(chan error, 1)
 	go func() { cancelled <- rt.CancelRun(context.Background(), runID) }()
-	<-publishing
+	waitForStatus(t, rt, RunCancelled)
 	close(runner.release)
+	<-publishing
 	if _, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "next"}); err == nil {
 		t.Fatal("new run started before cancellation terminal was published")
 	}

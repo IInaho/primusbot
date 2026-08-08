@@ -226,6 +226,25 @@ func (r *liveMetricsRunner) unblock() {
 	r.releaseOnce.Do(func() { close(r.release) })
 }
 
+func TestCancelledRunPublishesFinalMetricsBeforeTerminal(t *testing.T) {
+	runner := newLiveMetricsRunner()
+	rt := New(runner, Services{Metrics: runner.Metrics})
+	runID, err := rt.StartRun(context.Background(), Input{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.started
+	if err := rt.CancelRun(context.Background(), runID); err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+
+	events := rt.events.History(EventFilter{RunID: runID})
+	if len(events) < 2 || events[len(events)-2].Type != EventMetricsUpdated || events[len(events)-1].Type != EventRunCancelled {
+		t.Fatalf("terminal events = %+v, want final metrics then cancellation", events)
+	}
+}
+
 func TestMetricsUpdatedPublishedWhileRunActive(t *testing.T) {
 	runner := newLiveMetricsRunner()
 	rt := New(runner, Services{Metrics: runner.Metrics})

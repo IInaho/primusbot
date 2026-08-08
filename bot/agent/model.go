@@ -36,11 +36,17 @@ func (r *modelRunner) reason(input string) *reasoningResult {
 		return commandResult()
 	}
 
-	toolCalls, textContent, err := r.callLLMForTool()
-	return fromLLM(toolCalls, textContent, err)
+	result, err := r.callLLMForTool()
+	if err != nil {
+		return fromLLM(nil, "", err)
+	}
+	reasoning := fromLLM(result.ToolCalls, result.Text, nil)
+	reasoning.ReasoningContent = result.Reasoning
+	reasoning.ReasoningSignature = result.ReasoningSignature
+	return reasoning
 }
 
-func (r *modelRunner) callLLMForTool() ([]core.ToolCallItem, string, error) {
+func (r *modelRunner) callLLMForTool() (*llmstream.LLMCallResult, error) {
 	a := r.agent
 	toolDefs := core.ToToolDefs(a.deps.toolRegistry.Descriptors())
 	policyHints := r.preModelHints(a.deps.ctxMgr.Build())
@@ -58,17 +64,15 @@ func (r *modelRunner) callLLMForTool() ([]core.ToolCallItem, string, error) {
 		}
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
-	textContent := result.Text
-	if result.Reasoning != "" {
-		a.stream.lastReason = result.Reasoning
-	}
 	if len(result.ToolCalls) > 0 {
-		a.deps.ctxMgr.AddAssistantToolCall(textContent, a.stream.lastReason, llmstream.ToLLMToolCalls(result.ToolCalls))
+		a.deps.ctxMgr.AddAssistant(types.Message{Role: "assistant", Content: result.Text,
+			ReasoningContent: result.Reasoning, ReasoningSignature: result.ReasoningSignature,
+			ToolCalls: llmstream.ToLLMToolCalls(result.ToolCalls)})
 	}
-	return result.ToolCalls, textContent, nil
+	return result, nil
 }
 
 // synthesize produces a final answer when the run ended without one (step
@@ -83,7 +87,7 @@ func (r *modelRunner) synthesize() string {
 		logger.Log("synthesize: LLM summary failed (err=%v), using fallback", err)
 		text = fallbackSynthesize
 	}
-	a.deps.ctxMgr.AddAssistantResponse(text, "")
+	a.deps.ctxMgr.AddAssistant(types.Message{Role: "assistant", Content: text})
 	return text
 }
 
@@ -164,14 +168,16 @@ const (
 )
 
 type reasoningResult struct {
-	Thought         string
-	Action          actionType
-	ActionInput     string
-	ToolCalls       []core.ToolCallItem
-	TextContent     string
-	Interrupted     bool
-	GarbledToolCall bool
-	IsError         bool
+	Thought            string
+	Action             actionType
+	ActionInput        string
+	ToolCalls          []core.ToolCallItem
+	TextContent        string
+	ReasoningContent   string
+	ReasoningSignature string
+	Interrupted        bool
+	GarbledToolCall    bool
+	IsError            bool
 }
 
 func commandResult() *reasoningResult {

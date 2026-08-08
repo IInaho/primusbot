@@ -9,7 +9,7 @@
 ### 一键安装（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
 ```
 
 脚本会自动识别系统（Linux / macOS）和架构，下载最新版本并安装到 `~/.local/bin`（无需 sudo)。安装完成后运行：

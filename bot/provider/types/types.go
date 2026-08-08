@@ -22,14 +22,15 @@ var SharedHTTPStreamClient = &nethttp.Client{
 }
 
 type Message struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content,omitempty"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	Name             string     `json:"name,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
-	IsError          bool       `json:"is_error,omitempty"`
-	Source           string     `json:"source,omitempty"` // internal routing metadata; provider wire structs omit it
+	Role               string     `json:"role"`
+	Content            string     `json:"content,omitempty"`
+	ReasoningContent   string     `json:"reasoning_content,omitempty"`
+	ReasoningSignature string     `json:"reasoning_signature,omitempty"`
+	Name               string     `json:"name,omitempty"`
+	ToolCalls          []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID         string     `json:"tool_call_id,omitempty"`
+	IsError            bool       `json:"is_error,omitempty"`
+	Source             string     `json:"source,omitempty"` // internal routing metadata; provider wire structs omit it
 }
 
 const (
@@ -78,11 +79,12 @@ type Response struct {
 }
 
 type StreamToken struct {
-	Content          string
-	ReasoningContent string
-	ToolCallDelta    *ToolCallDelta
-	Usage            *StreamUsage
-	FinishReason     string
+	Content            string
+	ReasoningContent   string
+	ReasoningSignature string
+	ToolCallDelta      *ToolCallDelta
+	Usage              *StreamUsage
+	FinishReason       string
 	// Request is emitted once, as the first token of a stream: wire-level
 	// facts about the request for the per-call evidence log.
 	Request *RequestMeta
@@ -238,6 +240,48 @@ type BaseClient struct {
 }
 
 type ReasoningSettings = reasoning.Settings
+
+// ReasoningForRequest returns the provider-issued reasoning and whether its
+// wire field/block must be present for the active model contract. A required
+// tool-call field may intentionally contain an empty string.
+func ReasoningForRequest(message Message, settings ReasoningSettings) (string, bool) {
+	if message.Role != "assistant" {
+		return "", false
+	}
+	switch settings.Replay {
+	case reasoning.ReplayToolCalls:
+		return message.ReasoningContent, len(message.ToolCalls) > 0
+	case reasoning.ReplaySigned:
+		return message.ReasoningContent, message.ReasoningSignature != ""
+	default:
+		return "", false
+	}
+}
+
+// ProjectReasoning returns the model-visible conversation projection while
+// leaving the durable session messages unchanged.
+func ProjectReasoning(messages []Message, settings ReasoningSettings) []Message {
+	var projected []Message
+	for i, message := range messages {
+		if _, replay := ReasoningForRequest(message, settings); replay ||
+			(message.ReasoningContent == "" && message.ReasoningSignature == "") {
+			if projected != nil {
+				projected = append(projected, message)
+			}
+			continue
+		}
+		if projected == nil {
+			projected = append([]Message(nil), messages[:i]...)
+		}
+		message.ReasoningContent = ""
+		message.ReasoningSignature = ""
+		projected = append(projected, message)
+	}
+	if projected == nil {
+		return messages
+	}
+	return projected
+}
 
 func (c *BaseClient) SetMaxTokens(n int) {
 	c.maxTokensMu.Lock()

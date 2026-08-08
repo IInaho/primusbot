@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 )
 
 func TestBuildBodyOmitsInternalToolErrorFlag(t *testing.T) {
@@ -40,7 +41,7 @@ func TestBuildBodyUsesProviderDefaultTemperatureUnlessConfigured(t *testing.T) {
 
 func TestBuildBodyIncludesConfiguredReasoningEffort(t *testing.T) {
 	c := New("", "", "test-model")
-	c.SetReasoningSettings(types.ReasoningSettings{Requested: "high", Effort: "high", ThinkingToggle: true})
+	c.SetReasoningSettings(types.ReasoningSettings{Requested: "high", Effort: "high", ThinkingMode: "enabled"})
 	body := c.buildBody(nil, nil, false)
 	if got := body["reasoning_effort"]; got != "high" {
 		t.Fatalf("reasoning_effort = %#v, want high", got)
@@ -50,7 +51,7 @@ func TestBuildBodyIncludesConfiguredReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestBuildBodyDoesNotGuessThinkingToggleFromProtocol(t *testing.T) {
+func TestBuildBodyDoesNotGuessThinkingModeFromProtocol(t *testing.T) {
 	c := New("", "", "gpt-5")
 	c.SetReasoningSettings(types.ReasoningSettings{Requested: "high", Effort: "high"})
 	body := c.buildBody(nil, nil, false)
@@ -72,6 +73,26 @@ func TestBuildBodyLeavesAutoReasoningToProvider(t *testing.T) {
 	}
 }
 
+func TestBuildBodyUsesDeepSeekThinkingToolContract(t *testing.T) {
+	c := New("", "", "deepseek-v4-flash")
+	c.SetReasoningSettings(types.ReasoningSettings{
+		Effort: "high", ThinkingMode: "enabled", Replay: reasoning.ReplayToolCalls,
+	})
+	body := c.buildBody([]types.Message{{
+		Role: "assistant", ToolCalls: []types.ToolCall{{ID: "call-1"}},
+	}}, []types.ToolDef{{Type: "function"}}, false)
+	if _, exists := body["tool_choice"]; exists {
+		t.Fatalf("DeepSeek thinking request emitted unsupported tool_choice: %+v", body)
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"content":""`) {
+		t.Fatalf("tool-call assistant content must be non-null: %s", data)
+	}
+}
+
 // Volatile layers must keep their tail positions: the provider's prefix
 // cache matches byte-for-byte from the front, so hoisting a per-turn hint
 // ahead of the history would cold-start the cache on every turn.
@@ -82,7 +103,7 @@ func TestToAPIMessagesPreservesOrderAndPositions(t *testing.T) {
 		{Role: "system", Content: "runtime"},
 		{Role: "assistant", Content: "answer"},
 		{Role: "system", Content: "current hint"},
-	})
+	}, types.ReasoningSettings{})
 	if len(got) != 5 {
 		t.Fatalf("messages = %d, want all 5 in original order: %+v", len(got), got)
 	}
@@ -97,6 +118,31 @@ func TestToAPIMessagesPreservesOrderAndPositions(t *testing.T) {
 		if got[i].Role != w.role || got[i].Content != w.content {
 			t.Fatalf("message %d = %+v, want %s %q", i, got[i], w.role, w.content)
 		}
+	}
+}
+
+func TestToAPIMessagesReplaysOnlyRequiredReasoning(t *testing.T) {
+	settings := types.ReasoningSettings{Replay: reasoning.ReplayToolCalls}
+	got := toAPIMessages([]types.Message{
+		{Role: "assistant", Content: "answer", ReasoningContent: "private reasoning"},
+		{Role: "assistant", ReasoningContent: "tool reasoning", ToolCalls: []types.ToolCall{{ID: "call-1"}}},
+		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "call-2"}}},
+	}, settings)
+	if got[0].ReasoningContent != nil {
+		t.Fatal("plain assistant reasoning must stay out of the provider request")
+	}
+	if got[1].ReasoningContent == nil || *got[1].ReasoningContent != "tool reasoning" {
+		t.Fatalf("tool-call reasoning was not replayed: %+v", got[1])
+	}
+	if got[2].ReasoningContent == nil || *got[2].ReasoningContent != "" {
+		t.Fatalf("required empty reasoning_content field missing: %+v", got[2])
+	}
+
+	got = toAPIMessages([]types.Message{{
+		Role: "assistant", ReasoningContent: "provider reasoning", ToolCalls: []types.ToolCall{{ID: "call-1"}},
+	}}, types.ReasoningSettings{})
+	if got[0].ReasoningContent != nil {
+		t.Fatal("providers without a replay contract must not receive reasoning_content")
 	}
 }
 

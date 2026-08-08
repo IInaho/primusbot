@@ -11,7 +11,7 @@ func TestSettingsValues(t *testing.T) {
 		{Settings{}, "auto", "auto"},
 		{Settings{Requested: "high", Effort: "high"}, "high", "high"},
 		{Settings{Requested: "high", Effort: "high", Disabled: true}, "high", "auto"},
-		{Settings{Requested: "high", Effort: "high", Disabled: true, ThinkingToggle: true}, "high", "none"},
+		{Settings{Requested: "high", Effort: "high", Disabled: true, ThinkingMode: "enabled"}, "high", "none"},
 	}
 	for _, test := range tests {
 		if got := test.settings.RequestedValue(); got != test.wantReq {

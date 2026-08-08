@@ -61,6 +61,20 @@ func TestTracker_NoAPIData(t *testing.T) {
 	}
 }
 
+func TestTrackerResetModelClearsPromptCalibration(t *testing.T) {
+	var tracker Tracker
+	tracker.RecordPrompt(1000)
+	tracker.RecordCache(800, 200)
+	tracker.AddEstimated(50)
+	tracker.ResetModel()
+	if got := tracker.PromptEstimate(); got != 0 {
+		t.Fatalf("prompt estimate after model reset = %d, want 0", got)
+	}
+	if hit, miss := tracker.CacheStats(); hit != 0 || miss != 0 {
+		t.Fatalf("cache after model reset = %d/%d, want 0/0", hit, miss)
+	}
+}
+
 func TestTrackerSnapshotRestore(t *testing.T) {
 	var tr Tracker
 	tr.RecordPrompt(1000)

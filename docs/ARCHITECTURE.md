@@ -418,6 +418,16 @@ context cache tracker、run meter 和 calllog 不直接消费 SSE 分片。TUI �
 各 provider 仅负责翻译解析后的 wire 设置。calllog 同时记录 requested/effective effort，便于
 区分用户配置、实际生效值与内部调用覆盖。
 
+模型相关默认值集中在 `config.modelProfile`：同一条 profile 同时定义上下文窗口和 reasoning
+能力，型号匹配只针对去除 provider 前缀后的 model ID，避免独立 substring 表产生能力漂移。
+
+推理原文与 provider 请求采用分离投影：session 始终保存模型返回的 reasoning，供 TUI、恢复和
+审计使用；`ReasoningSettings.Replay` 决定 wire 是否回放。DeepSeek 只在 assistant 工具调用消息
+上回放 `reasoning_content`，Anthropic 只回放带 provider signature 的 thinking block，普通历史
+推理不会进入后续请求；隐藏正文但保留 signature 的 thinking block 仍按原 wire 形状回放。
+ContextReport 与自动压缩门限使用同一 replay contract 估算实际输入，
+切换模型时清除旧 provider 的 prompt 校准基线并按新模型重新计算。
+
 ### Manager 关键方法
 
 | 方法 | 说明 |

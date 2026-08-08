@@ -60,6 +60,7 @@ type Manager struct {
 	cancelDone    chan struct{}
 	runDone       chan struct{}
 	runLease      *runLease
+	runExecution  *runExecution
 	status        RunStatus
 	latestMetrics MetricsSnapshot
 	nextRun       uint64
@@ -180,6 +181,7 @@ type cancelControl struct {
 	runID     RunID
 	cancel    context.CancelFunc
 	lease     *runLease
+	execution *runExecution
 	published chan struct{}
 }
 
@@ -207,7 +209,7 @@ func (r *Manager) beginCancel(runID RunID) (cancelControl, bool, error) {
 	r.status = RunCancelled
 	r.cancelDone = make(chan struct{})
 	control := cancelControl{
-		runID: runID, cancel: r.cancelRun, lease: r.runLease,
+		runID: runID, cancel: r.cancelRun, lease: r.runLease, execution: r.runExecution,
 		published: r.cancelDone,
 	}
 	r.cancelRun = nil

@@ -142,7 +142,6 @@ func (a *Agent) Abort() {
 
 func (a *Agent) Reset() {
 	a.life.ResetContextIfCanceled()
-	a.stream.resetReasoning()
 	a.run.reset()
 	a.gate.Reset()
 

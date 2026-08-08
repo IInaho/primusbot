@@ -62,7 +62,7 @@ func (m *Manager) Report() ContextReport {
 			r.ToolResults++
 		}
 	}
-	r.Messages = token.EstimateTokens(m.state.ctx.Messages)
+	r.Messages = token.EstimateModelTokens(m.state.ctx.Messages, m.state.reasoning)
 	r.HasArchive = m.state.ctx.Archive != ""
 	r.Archived = m.state.trimCount
 	r.CompactCount = m.state.compactCount

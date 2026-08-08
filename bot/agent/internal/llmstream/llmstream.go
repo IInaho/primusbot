@@ -25,12 +25,13 @@ type StreamCallbacks struct {
 
 // StreamResult accumulates the output of consuming a ChatStream.
 type StreamResult struct {
-	TextBuf      strings.Builder
-	ReasoningBuf strings.Builder
-	TcAccum      map[int]*ToolAccum
-	Usage        types.StreamUsage
-	Request      *types.RequestMeta
-	FirstTokenAt time.Time
+	TextBuf            strings.Builder
+	ReasoningBuf       strings.Builder
+	ReasoningSignature string
+	TcAccum            map[int]*ToolAccum
+	Usage              types.StreamUsage
+	Request            *types.RequestMeta
+	FirstTokenAt       time.Time
 }
 
 // ToolAccum accumulates incremental tool call deltas for a single tool call.
@@ -42,9 +43,10 @@ type ToolAccum struct {
 
 // LLMCallResult holds the result of a single LLM stream call.
 type LLMCallResult struct {
-	Text      string
-	Reasoning string
-	ToolCalls []core.ToolCallItem
+	Text               string
+	Reasoning          string
+	ReasoningSignature string
+	ToolCalls          []core.ToolCallItem
 }
 
 // LLMCallOptions configures a single LLM call.
@@ -96,9 +98,10 @@ func CallLLM(client provider.LLM, opts LLMCallOptions) (*LLMCallResult, error) {
 		}
 
 		return &LLMCallResult{
-			Text:      ansiRegex.ReplaceAllString(stream.TextBuf.String(), ""),
-			Reasoning: stream.ReasoningBuf.String(),
-			ToolCalls: stream.CollectToolCalls(),
+			Text:               ansiRegex.ReplaceAllString(stream.TextBuf.String(), ""),
+			Reasoning:          stream.ReasoningBuf.String(),
+			ReasoningSignature: stream.ReasoningSignature,
+			ToolCalls:          stream.CollectToolCalls(),
 		}, nil
 	}()
 	if opts.Callbacks.OnUsage != nil && stream.Usage.HasTokens() {

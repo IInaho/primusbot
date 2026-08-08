@@ -82,3 +82,14 @@ func TestAssistantMessageFooterIsIndented(t *testing.T) {
 		t.Fatalf("assistant footer should not start at column zero:\n%s", clean)
 	}
 }
+
+func TestAssistantMessageRendersRestoredReasoning(t *testing.T) {
+	sty := styles.DefaultStyles()
+	m := NewAssistantMessageItem(&sty, "Done")
+	m.SetReasoning("Inspect repository before editing.")
+
+	clean := ansi.Strip(m.Render(80))
+	if !strings.Contains(clean, "thinking") || !strings.Contains(clean, "Inspect repository before editing.") {
+		t.Fatalf("assistant reasoning was not rendered:\n%s", clean)
+	}
+}

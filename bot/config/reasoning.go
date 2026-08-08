@@ -13,9 +13,10 @@ const ReasoningAuto = ""
 // configuration and interactive clients. Efforts contains provider-native
 // values only; Auto is always available and is represented by an empty value.
 type ReasoningCapability struct {
-	Efforts        []string
-	DisableEffort  string
-	ThinkingToggle bool
+	Efforts       []string
+	DisableEffort string
+	ThinkingMode  string
+	Replay        reasoning.ReplayPolicy
 }
 
 func (c ReasoningCapability) Supports(effort string) bool {
@@ -36,57 +37,22 @@ func (c ReasoningCapability) Values() []string {
 	return append(values, c.Efforts...)
 }
 
-type reasoningModelCapability struct {
-	model          string
-	efforts        []string
-	disableEffort  string
-	thinkingToggle bool
-}
-
-// First match wins. Entries intentionally describe model families rather than
-// protocols: OpenAI-compatible endpoints do not imply a common reasoning API.
-// Unknown models therefore expose Auto only.
-var reasoningModelCapabilities = []reasoningModelCapability{
-	{model: "deepseek-v4", efforts: []string{"none", "high", "max"}, disableEffort: "none", thinkingToggle: true},
-	{model: "deepseek-chat", efforts: []string{"none", "high", "max"}, disableEffort: "none", thinkingToggle: true},
-	{model: "deepseek-reasoner", efforts: []string{"none", "high", "max"}, disableEffort: "none", thinkingToggle: true},
-
-	{model: "claude-opus-5", efforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{model: "claude-sonnet-5", efforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{model: "claude-fable-5", efforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{model: "claude-opus-4-8", efforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{model: "claude-opus-4-7", efforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{model: "claude-opus-4-6", efforts: []string{"low", "medium", "high", "max"}},
-	{model: "claude-sonnet-4-6", efforts: []string{"low", "medium", "high", "max"}},
-	{model: "claude-opus-4-5", efforts: []string{"low", "medium", "high", "max"}},
-
-	{model: "gpt-5.6", efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, disableEffort: "none"},
-	{model: "gpt-5.5", efforts: []string{"none", "low", "medium", "high", "xhigh", "max"}, disableEffort: "none"},
-	{model: "gpt-5.1", efforts: []string{"none", "low", "medium", "high"}, disableEffort: "none"},
-	{model: "gpt-5-pro", efforts: []string{"high"}},
-	{model: "gpt-5", efforts: []string{"minimal", "low", "medium", "high"}},
-	{model: "o1-", efforts: []string{"low", "medium", "high"}},
-	{model: "o3-", efforts: []string{"low", "medium", "high"}},
-	{model: "o4-mini", efforts: []string{"low", "medium", "high"}},
-
-	{model: "gemini-3", efforts: []string{"minimal", "low", "medium", "high"}},
-	{model: "gemini-2.5-pro", efforts: []string{"low", "medium", "high"}},
-	{model: "gemini-2.5-flash", efforts: []string{"none", "minimal", "low", "medium", "high"}, disableEffort: "none"},
-}
-
 // ReasoningCapabilityFor resolves the values accepted by the configured
 // model. Matching is case-insensitive and permits provider-prefixed IDs.
 func ReasoningCapabilityFor(model ModelConfig) ReasoningCapability {
-	id := strings.ToLower(strings.TrimSpace(model.Model))
-	for _, known := range reasoningModelCapabilities {
-		if strings.Contains(id, known.model) {
-			return ReasoningCapability{
-				Efforts: append([]string(nil), known.efforts...), DisableEffort: known.disableEffort,
-				ThinkingToggle: known.thinkingToggle,
-			}
-		}
+	profile, ok := findModelProfile(model.Model)
+	if !ok {
+		return ReasoningCapability{}
 	}
-	return ReasoningCapability{}
+	known := profile.reasoning
+	thinkingMode := known.openAIThinking
+	if strings.EqualFold(strings.TrimSpace(model.Protocol), "anthropic") {
+		thinkingMode = known.anthropicThinking
+	}
+	return ReasoningCapability{
+		Efforts: append([]string(nil), known.efforts...), DisableEffort: known.disableEffort,
+		ThinkingMode: thinkingMode, Replay: known.replay,
+	}
 }
 
 // ResolveReasoning validates and translates one model's portable setting into
@@ -98,10 +64,11 @@ func ResolveReasoning(model ModelConfig) (reasoning.Settings, bool) {
 		return reasoning.Settings{}, false
 	}
 	return reasoning.Settings{
-		Requested:      requested,
-		Effort:         requested,
-		Disabled:       requested == "none",
-		DisableEffort:  capability.DisableEffort,
-		ThinkingToggle: capability.ThinkingToggle,
+		Requested:     requested,
+		Effort:        requested,
+		Disabled:      requested == "none",
+		DisableEffort: capability.DisableEffort,
+		ThinkingMode:  capability.ThinkingMode,
+		Replay:        capability.Replay,
 	}, true
 }

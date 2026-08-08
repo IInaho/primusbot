@@ -111,3 +111,17 @@ func TestCallLLMReportsFinalPerCallUsage(t *testing.T) {
 		t.Fatalf("recorded call usage = %+v", got)
 	}
 }
+
+func TestCallLLMPreservesReasoningSignature(t *testing.T) {
+	client := &fakeStreamClient{tokens: []types.StreamToken{
+		{ReasoningContent: "inspect first"},
+		{ReasoningSignature: "sig"},
+	}}
+	result, err := CallLLM(client, LLMCallOptions{Ctx: context.Background()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reasoning != "inspect first" || result.ReasoningSignature != "sig" {
+		t.Fatalf("reasoning round trip = %+v", result)
+	}
+}

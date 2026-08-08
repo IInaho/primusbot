@@ -18,6 +18,7 @@ func TestKnownContextWindow(t *testing.T) {
 		"claude-fable-5":       1048576,
 		"claude-haiku-4-5":     200000,
 		"gpt-5.2":              400000,
+		"gpt-5.4":              1050000,
 		"gpt-4.1":              1047576,
 		"gpt-4o":               128000,
 		"glm-5.2":              200000,
@@ -47,6 +48,9 @@ func TestKnownContextWindow(t *testing.T) {
 	}
 	if _, ok := KnownContextWindow("my-finetune-v9"); ok {
 		t.Error("unknown model should not hit the table")
+	}
+	if _, ok := KnownContextWindow("proxy-my-gpt-5.4-wrapper"); ok {
+		t.Error("embedded model-family text should not produce a false profile match")
 	}
 }
 

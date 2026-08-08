@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/bot/reasoning"
 	"nekocode/protocol"
 )
 
@@ -15,7 +16,7 @@ func newContextManager() *Manager {
 func TestBuild_PassesNormal(t *testing.T) {
 	m := newContextManager()
 	m.Add("user", "hello")
-	m.AddAssistantResponse("reply", "")
+	m.AddAssistant(types.Message{Content: "reply"})
 
 	msgs := m.Build()
 	if len(msgs) < 2 {
@@ -39,9 +40,9 @@ func TestBuild_OrphanToolsDropped(t *testing.T) {
 
 func TestBuild_AssistantWithToolCalls(t *testing.T) {
 	m := newContextManager()
-	m.AddAssistantToolCall("I'll read", "", []types.ToolCall{
+	m.AddAssistant(types.Message{Content: "I'll read", ToolCalls: []types.ToolCall{
 		{ID: "tc1", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: "{}"}},
-	})
+	}})
 	m.AddToolResultsBatch([]ToolResultMsg{
 		{Message: types.Message{Content: "file content", ToolCallID: "tc1"}, ToolName: "read"},
 	})
@@ -58,6 +59,22 @@ func TestBuild_AssistantWithToolCalls(t *testing.T) {
 	}
 	if !foundAsst || !foundTool {
 		t.Error("valid assistant->tool chain should be preserved")
+	}
+}
+
+func TestBuildRequestProjectsReasoningWithoutMutatingSession(t *testing.T) {
+	m := New(Config{Reasoning: types.ReasoningSettings{Replay: reasoning.ReplayToolCalls}})
+	m.AddAssistant(types.Message{Content: "answer", ReasoningContent: "private"})
+	m.AddAssistant(types.Message{ReasoningContent: "tool reasoning", ToolCalls: []types.ToolCall{{ID: "call-1"}}})
+	m.AddToolResultsBatch([]ToolResultMsg{{Message: types.Message{ToolCallID: "call-1", Content: "result"}, ToolName: "read"}})
+
+	request := m.BuildRequest(ModelRequest{})
+	if request[0].ReasoningContent != "" || request[1].ReasoningContent != "tool reasoning" {
+		t.Fatalf("request reasoning projection = %+v", request)
+	}
+	stored := m.Snapshot().Messages
+	if stored[0].ReasoningContent != "private" || stored[1].ReasoningContent != "tool reasoning" {
+		t.Fatalf("session reasoning was mutated: %+v", stored)
 	}
 }
 
@@ -207,7 +224,7 @@ func TestBuildRequestReappendsActiveHintAfterTruncate(t *testing.T) {
 	m.BuildRequest(ModelRequest{})
 	m.SetHints("")
 	m.BuildRequest(ModelRequest{})
-	m.AddAssistantResponse("first response", "")
+	m.AddAssistant(types.Message{Content: "first response"})
 
 	beforeRetry := m.Len()
 	m.SetHints("one-shot hint")

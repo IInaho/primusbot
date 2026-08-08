@@ -3,6 +3,7 @@ package agent
 import (
 	"nekocode/bot/agent/internal/kernel"
 	"nekocode/bot/policy"
+	"nekocode/bot/provider/types"
 	"nekocode/logger"
 	"nekocode/protocol"
 )
@@ -151,7 +152,7 @@ func (r *loopRunner) resolveFinalOutput(callback RunCallback) string {
 			// false, so the text the user saw would otherwise be absent from
 			// the saved session.
 			if !a.run.finalPersisted {
-				a.deps.ctxMgr.AddAssistantResponse(a.run.finalText, "")
+				a.deps.ctxMgr.AddAssistant(types.Message{Role: "assistant", Content: a.run.finalText})
 				a.run.finalPersisted = true
 			}
 			return a.run.finalText

@@ -82,7 +82,7 @@ func TestEventsCarryVersionSequenceAndCursor(t *testing.T) {
 
 func TestDisplayMessageJSONUsesProtocolFieldNames(t *testing.T) {
 	data, err := json.Marshal(DisplayMessage{
-		Role: "assistant", Content: "done",
+		Role: "assistant", Content: "done", Reasoning: "checked",
 		Blocks: []DisplayBlock{{
 			ToolName: "shell", Args: `{"command":"go test"}`,
 			Content: "ok", IsError: true,
@@ -96,7 +96,7 @@ func TestDisplayMessageJSONUsesProtocolFieldNames(t *testing.T) {
 		t.Fatalf("marshal display message: %v", err)
 	}
 	got := string(data)
-	for _, want := range []string{`"role"`, `"content"`, `"blocks"`, `"toolName"`, `"isError"`, `"images"`, `"path"`} {
+	for _, want := range []string{`"role"`, `"content"`, `"reasoning"`, `"blocks"`, `"toolName"`, `"isError"`, `"images"`, `"path"`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("display message json missing %s: %s", want, got)
 		}

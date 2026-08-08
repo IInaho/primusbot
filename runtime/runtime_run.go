@@ -18,6 +18,45 @@ type runLease struct {
 	inFlight    int
 }
 
+// runExecution tracks runner completion separately from callback drainage.
+// Cancellation must wait for both: the runner owns the final usage snapshot,
+// while the lease owns event callbacks that may still be in flight.
+type runExecution struct {
+	mu          sync.RWMutex
+	settled     chan struct{}
+	settleOnce  sync.Once
+	withMetrics bool
+}
+
+func newRunExecution() *runExecution {
+	return &runExecution{settled: make(chan struct{})}
+}
+
+func (e *runExecution) settle(withMetrics bool) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	e.withMetrics = withMetrics
+	e.mu.Unlock()
+	e.settleOnce.Do(func() { close(e.settled) })
+}
+
+func (e *runExecution) wait() {
+	if e != nil {
+		<-e.settled
+	}
+}
+
+func (e *runExecution) hasMetrics() bool {
+	if e == nil {
+		return false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.withMetrics
+}
+
 func newRunLease() *runLease {
 	return &runLease{active: true, drained: make(chan struct{})}
 }
@@ -182,7 +221,7 @@ func (h runHost) Ask(request QuestionRequest) QuestionReply {
 	return reply
 }
 
-func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runLease) {
+func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runLease, execution *runExecution) {
 	stopMetricsUpdates := func() {}
 	withMetrics := false
 	defer func() {
@@ -190,6 +229,7 @@ func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runL
 		if recovered := recover(); recovered != nil {
 			r.finishRun(runID, "", fmt.Errorf("runtime: run %s panicked: %v", runID, recovered), withMetrics)
 		}
+		execution.settle(withMetrics)
 		r.endRun(runID)
 	}()
 
@@ -368,6 +408,7 @@ func (r *Manager) endRun(runID RunID) {
 	if r.status == RunDone || r.status == RunFailed || r.status == RunCancelled {
 		r.status = RunIdle
 		r.runContext = nil
+		r.runExecution = nil
 	}
 	delete(r.cancelled, runID)
 	if r.runDone != nil {

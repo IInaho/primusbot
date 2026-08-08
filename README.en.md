@@ -1,0 +1,119 @@
+# NekoCode
+
+<p align="center">
+  <b>Your catgirl AI coding assistant &nbsp;·&nbsp; Open source under MIT &nbsp;·&nbsp; Runs from a single file</b>
+</p>
+
+<p align="center">
+  <sub>Dual interfaces · Switch between many models freely · Read code / edit files / run commands, all by chatting</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/demo.gif" width="90%" alt="NekoCode demo">
+</p>
+
+<p align="center">
+  <a href="README.md">简体中文</a> · <b>English</b>
+</p>
+
+---
+
+## What is this?
+
+NekoCode is an **AI coding assistant**. Just tell it what you need, the way you would chat, and it can:
+
+- **Understand projects:** inspect unfamiliar codebases and explain how the code works
+- **Edit code:** add features, fix bugs, refactor, and check formatting and syntax
+- **Run commands:** execute builds and tests while reporting their status
+- **Research:** search the web and fetch pages when a task needs current information
+- **Generate images:** use a configured image model to create diagrams or cover art
+
+**Why choose it?**
+
+- **Remote access:** connect through Telegram, Feishu, or QQ to submit work and receive results away from your computer
+- **Single-binary distribution:** the TUI ships as one executable; Linux builds require a compatible glibc environment
+- **Claude Code-style extensions:** NekoCode supports a tested subset of its plugin and skill formats
+- **Extensible core:** the `bot → runtime → interaction` layers can be embedded in other applications
+
+NekoCode connects to Anthropic, DeepSeek, Kimi, GLM, and other models through the OpenAI and Anthropic protocol features it implements.
+
+## Quick Start
+
+### Step 1: One-line install
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lznauy/NekoCode/master/scripts/install.sh | sh
+```
+
+> The script auto-detects your OS (Linux / macOS) and architecture, and installs to `~/.local/bin`.
+> It verifies the binary against the release `SHA256SUMS` file. For v0.4.2, it uses vetted SHA-256 values bundled with the installer.
+> Windows users: run via [WSL](https://learn.microsoft.com/windows/wsl/install).
+
+<details>
+<summary>Other installation methods (manual download / build from source)</summary>
+
+Download the binary for your platform from the [Releases page](https://github.com/lznauy/NekoCode/releases), add execute permission, and run it.
+
+Or build from source (requires [Go 1.25.8+](https://go.dev/dl/)):
+
+```bash
+git clone https://github.com/lznauy/NekoCode.git
+cd NekoCode
+go build -o nekocode-tui ./cmd/tui
+```
+
+</details>
+
+### Step 2: Configure your API key
+
+```bash
+mkdir -p ~/.nekocode
+cat > ~/.nekocode/config.json << 'EOF'
+{
+  "active": "deepseek",
+  "models": [
+    {
+      "name": "deepseek",
+      "provider": "deepseek",
+      "api_key": "sk-put-your-key-here",
+      "model": "deepseek-v4-flash",
+      "base_url": "https://api.deepseek.com/v1",
+      "protocol": "openai"
+    }
+  ]
+}
+EOF
+```
+
+### Step 3: Start chatting
+
+```bash
+nekocode-tui
+```
+
+After configuration, start the TUI and enter a request.
+
+## Learn More
+
+- Detailed usage and configuration guide: [User Guide](docs/USER_GUIDE.md)
+- The desktop (GUI) version is not yet shipped with releases; it is still under active development
+
+NekoCode is still in testing and has not been validated for large production deployments.
+
+The developer documents cover tool design, prefix caching, context compaction, and governance policies. Detailed design documents are currently maintained in Chinese.
+
+## For Developers
+
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md): overall architecture, agent loop, tool system, and technical details
+- [RUNTIME_APP_GUIDE.md](docs/RUNTIME_APP_GUIDE.md): build your own AI application on top of the runtime
+- [RUNTIME_HTTP_API.md](docs/RUNTIME_HTTP_API.md): Runtime HTTP/SSE protocol
+
+## Contributing
+
+- [CONTRIBUTING.en.md](CONTRIBUTING.en.md): contribution guide, coding standards, and test requirements
+- [SECURITY.md](SECURITY.md): how to report security vulnerabilities
+- [SUPPORT.md](SUPPORT.md): supported environments and help channels
+
+## License
+
+NekoCode is available under the [MIT License](LICENSE).

@@ -13,7 +13,7 @@ func TestManagerReport(t *testing.T) {
 		RuntimePrompt: func() string { return "runtime environment metadata" },
 	})
 	m.Add("user", "hello")
-	m.AddAssistantResponse("world", "")
+	m.AddAssistant(types.Message{Content: "world"})
 	m.BuildRequest(ModelRequest{})
 	m.Add("user", "<workspace_event/>", types.MessageSourceRuntimeEvent)
 	m.AddToolResultsBatch([]ToolResultMsg{{

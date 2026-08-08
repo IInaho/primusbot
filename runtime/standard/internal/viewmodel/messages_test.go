@@ -181,3 +181,25 @@ func TestDisplayMessagesCarriesToolErrorState(t *testing.T) {
 		t.Fatalf("block = %+v, want IsError=true", got[0].Blocks[0])
 	}
 }
+
+func TestDisplayMessagesRestoresAssistantReasoning(t *testing.T) {
+	msgs := []types.Message{
+		{Role: "assistant", ReasoningContent: "inspect repository", ToolCalls: []types.ToolCall{{
+			ID: "shell-call", Function: types.FunctionCall{Name: "shell"},
+		}}},
+		{Role: "tool", ToolCallID: "shell-call", Content: "ok"},
+		{Role: "assistant", Content: "done", ReasoningContent: "summarize result"},
+	}
+
+	got := DisplayMessages(msgs)
+	if len(got) != 1 || got[0].Reasoning != "inspect repository\n\nsummarize result" {
+		t.Fatalf("display reasoning = %+v, want complete assistant reasoning", got)
+	}
+}
+
+func TestDisplayMessagesKeepsReasoningOnlyAssistantTurn(t *testing.T) {
+	got := DisplayMessages([]types.Message{{Role: "assistant", ReasoningContent: "partial thought"}})
+	if len(got) != 1 || got[0].Reasoning != "partial thought" {
+		t.Fatalf("display messages = %+v, want reasoning-only turn", got)
+	}
+}

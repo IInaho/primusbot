@@ -56,17 +56,12 @@ func (a *Agent) clearFinalState() {
 // streamState is the agent's fine-grained streaming output channel,
 // complementing RunCallback (coarse step events). The three callbacks push
 // phase labels, answer-text deltas, and reasoning deltas to the application
-// host while the LLM response streams in. lastReason keeps the most recent reasoning
-// summary so it can be persisted alongside the assistant message.
+// host while the LLM response streams in. Provider-issued reasoning belongs to
+// one response and is carried by reasoningResult rather than retained here.
 type streamState struct {
-	phase      protocol.PhaseFunc
-	text       func(string)
-	reasoning  func(string)
-	lastReason string
-}
-
-func (s *streamState) resetReasoning() {
-	s.lastReason = ""
+	phase     protocol.PhaseFunc
+	text      func(string)
+	reasoning func(string)
 }
 
 func (s *streamState) emitPhase(phase string) {

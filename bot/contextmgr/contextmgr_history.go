@@ -23,32 +23,14 @@ func (m *Manager) Add(role, content string, source ...string) {
 	m.state.revision++
 }
 
-func (m *Manager) AddAssistantResponse(content, reasoning string) {
+// AddAssistant persists the complete assistant message while charging only the
+// reasoning that the active model contract will replay on its next request.
+func (m *Manager) AddAssistant(message types.Message) {
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
-	m.state.ctx.Messages = append(m.state.ctx.Messages, types.Message{
-		Role:             "assistant",
-		Content:          content,
-		ReasoningContent: reasoning,
-	})
-	m.state.tracker.AddNew(len("assistant") + len(content) + len(reasoning))
-	m.state.revision++
-}
-
-func (m *Manager) AddAssistantToolCall(content, reasoning string, toolCalls []types.ToolCall) {
-	m.state.mu.Lock()
-	defer m.state.mu.Unlock()
-	m.state.ctx.Messages = append(m.state.ctx.Messages, types.Message{
-		Role:             "assistant",
-		Content:          content,
-		ReasoningContent: reasoning,
-		ToolCalls:        toolCalls,
-	})
-	tcBytes := 0
-	for _, tc := range toolCalls {
-		tcBytes += len(tc.ID) + len(tc.Function.Name) + len(tc.Function.Arguments)
-	}
-	m.state.tracker.AddNew(len("assistant") + len(content) + len(reasoning) + tcBytes)
+	message.Role = "assistant"
+	m.state.ctx.Messages = append(m.state.ctx.Messages, message)
+	m.state.tracker.AddEstimated(token.EstimateModelTokens([]types.Message{message}, m.state.reasoning))
 	m.state.revision++
 }
 

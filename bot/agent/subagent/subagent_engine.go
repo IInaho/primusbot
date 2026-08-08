@@ -10,6 +10,7 @@ import (
 	"nekocode/bot/extension/tool/runtime/runner"
 	"nekocode/bot/policy"
 	"nekocode/bot/prompt"
+	"nekocode/bot/provider"
 	"nekocode/bot/provider/types"
 	"nekocode/protocol"
 )
@@ -20,6 +21,7 @@ func (e *Engine) newContextManager(cfg RunConfig) *ctxmgr.Manager {
 		ContextWindow:      cfg.ContextWindow,
 		AutoCompactPercent: cfg.AutoCompactPercent,
 		CompactionModel:    e.compactionModel,
+		Reasoning:          provider.ReasoningSettingsFor(e.llmClient),
 		RuntimePrompt: func() string {
 			if cfg.Environment == nil {
 				return ""
@@ -189,7 +191,9 @@ func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []stri
 	}
 
 	if len(result.ToolCalls) > 0 {
-		mgr.AddAssistantToolCall(result.Text, result.Reasoning, llmstream.ToLLMToolCalls(result.ToolCalls))
+		mgr.AddAssistant(types.Message{Role: "assistant", Content: result.Text,
+			ReasoningContent: result.Reasoning, ReasoningSignature: result.ReasoningSignature,
+			ToolCalls: llmstream.ToLLMToolCalls(result.ToolCalls)})
 	}
 	return result.ToolCalls, result.Text, nil
 }

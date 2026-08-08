@@ -85,9 +85,9 @@ func TestToolLoopRequestKeepsPreviousRequestAsExactPrefix(t *testing.T) {
 	tools := []types.ToolDef{{Function: types.FunctionDef{Name: "read"}}}
 	first := m.BuildRequest(ModelRequest{Tools: tools})
 
-	m.AddAssistantToolCall("", "", []types.ToolCall{{
+	m.AddAssistant(types.Message{ToolCalls: []types.ToolCall{{
 		ID: "call-1", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
-	}})
+	}}})
 	m.AddToolResultsBatch([]ToolResultMsg{{
 		Message: types.Message{ToolCallID: "call-1", Content: "result"}, ToolName: "read",
 	}})

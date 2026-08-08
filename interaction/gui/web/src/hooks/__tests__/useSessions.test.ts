@@ -173,6 +173,26 @@ describe('useSessions', () => {
     })
   })
 
+  it('restores persisted assistant reasoning as completed thinking', async () => {
+    mockSafeListSessions.mockResolvedValueOnce([meta('one')])
+    mockSafeLoadSession.mockResolvedValueOnce([{
+      role: 'assistant',
+      content: 'done',
+      reasoning: 'inspect repository',
+      blocks: null,
+      images: null,
+    }])
+    const { result } = renderHook(() => useSessions())
+
+    await waitFor(() => expect(result.current.currentId).toBe('one'))
+    const loaded = await act(async () => result.current.switchSession('one'))
+
+    expect(loaded?.[0]).toMatchObject({
+      reasoning: 'inspect repository',
+      reasoningDone: true,
+    })
+  })
+
   it('loads edit and bash blocks expanded while keeping write collapsed', async () => {
     mockSafeListSessions.mockResolvedValueOnce([meta('one')])
     mockSafeLoadSession.mockResolvedValueOnce([
