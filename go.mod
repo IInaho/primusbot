@@ -21,7 +21,7 @@ require (
 	golang.org/x/net v0.54.0
 	golang.org/x/sys v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
-	mvdan.cc/sh/v3 v3.7.0
+	mvdan.cc/sh/v3 v3.13.1
 	zombiezen.com/go/sqlite v1.4.2
 )
 
