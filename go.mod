@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/glamour/v2 v2.0.1
-	charm.land/lipgloss/v2 v2.0.4
+	charm.land/lipgloss/v2 v2.0.5
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/dop251/goja v0.0.0-20260627200808-0b76000cabdb
 	github.com/fsnotify/fsnotify v1.10.1
@@ -19,7 +19,7 @@ require (
 	github.com/tirdyhouse/sandbox v0.0.0-20260609072247-611c7f282d40
 	github.com/wailsapp/wails/v2 v2.13.0
 	golang.org/x/net v0.54.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/sys v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.7.0
 	zombiezen.com/go/sqlite v1.4.2
