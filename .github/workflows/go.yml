@@ -26,28 +26,28 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.16.0
-      - name: Create zig CC wrapper
+      - name: Create portable Linux amd64 Zig CC wrapper
         run: |
-          cat > /tmp/zigcc <<'EOF'
+          cat > /tmp/zigcc-linux-amd64 <<'EOF'
           #!/bin/sh
-          exec zig cc -target native "$@"
+          exec zig cc -target x86_64-linux-gnu "$@"
           EOF
-          chmod +x /tmp/zigcc
+          chmod +x /tmp/zigcc-linux-amd64
       - name: Check formatting
         run: |
           unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           test -z "$unformatted" || { printf '%s\n' "$unformatted"; exit 1; }
       - name: Build
-        run: CC=/tmp/zigcc go build ./...
+        run: CC=/tmp/zigcc-linux-amd64 go build ./...
       - name: Test
-        run: CC=/tmp/zigcc go test ./...
+        run: CC=/tmp/zigcc-linux-amd64 go test ./...
       - name: Vet
-        run: CC=/tmp/zigcc go vet ./...
+        run: CC=/tmp/zigcc-linux-amd64 go vet ./...
 
       # Race detector: agent/contextmgr/runtime are the concurrency-dense core.
       # run separately so failures are attributed to races, not regular tests.
       - name: Race detector
-        run: CC=/tmp/zigcc go test -race ./bot/... ./runtime/...
+        run: CC=/tmp/zigcc-linux-amd64 go test -race ./bot/... ./runtime/...
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
