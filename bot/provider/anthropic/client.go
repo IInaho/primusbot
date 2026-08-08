@@ -342,6 +342,8 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 			}
 
 			switch event.Type {
+			case "message_stop":
+				return types.ErrStreamDone
 			case "message_start":
 				usage := event.Message.Usage
 				if usage.InputTokens > 0 || usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil {

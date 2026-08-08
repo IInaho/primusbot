@@ -5,12 +5,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	nethttp "net/http"
 
 	utilhttp "nekocode/util/http"
 	"nekocode/util/sse"
 )
+
+// ErrStreamDone lets provider-specific parsers report a terminal SSE event
+// without treating normal stream completion as an error.
+var ErrStreamDone = errors.New("stream complete")
 
 // DoJSONRequest marshals body to JSON, sends an HTTP POST with the given
 // headers, and returns the raw response bytes. Callers handle their own
@@ -61,6 +66,7 @@ func StreamSSE(
 	defer func() { _ = resp.Body.Close() }()
 
 	done := make(chan struct{})
+	defer close(done)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -72,7 +78,6 @@ func StreamSSE(
 	if resp.StatusCode != nethttp.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		errCh <- utilhttp.NewHTTPError(resp.StatusCode, string(body))
-		close(done)
 		return
 	}
 
@@ -85,14 +90,16 @@ func StreamSSE(
 			continue
 		}
 		if data == "[DONE]" {
-			continue
+			return
 		}
 		if err := parseEvent(data, tokenCh); err != nil {
+			if errors.Is(err, ErrStreamDone) {
+				return
+			}
 			errCh <- err
 			break
 		}
 	}
-	close(done)
 	if err := scanner.Err(); err != nil {
 		if ctx.Err() != nil {
 			errCh <- ctx.Err()
