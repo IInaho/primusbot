@@ -54,7 +54,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lznauy/N
 
 Download the binary for your platform from the [Releases page](https://github.com/lznauy/NekoCode/releases), add execute permission, and run it.
 
-Or build from source (requires [Go 1.25.8+](https://go.dev/dl/)):
+Or build from source (requires [Go 1.25.12+](https://go.dev/dl/)):
 
 ```bash
 git clone https://github.com/lznauy/NekoCode.git

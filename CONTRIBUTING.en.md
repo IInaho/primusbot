@@ -7,7 +7,7 @@ before implementing roadmap items marked as undecided.
 
 ## Development environment
 
-- Go 1.25.8, as declared in `go.mod`
+- Go 1.25.12, as declared in `go.mod`
 - Zig for CI-compatible CGO builds
 - Node.js 20 or later for `interaction/gui/web` and `official`
 

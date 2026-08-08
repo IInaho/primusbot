@@ -55,7 +55,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/lznauy/N
 
 从 [Releases 页面](https://github.com/lznauy/NekoCode/releases) 下载对应平台的二进制，加执行权限直接运行。
 
-或源码编译（需要 [Go 1.25.8+](https://go.dev/dl/)）：
+或源码编译（需要 [Go 1.25.12+](https://go.dev/dl/)）：
 
 ```bash
 git clone https://github.com/lznauy/NekoCode.git

@@ -36,6 +36,7 @@
 ### 可靠性与工程结构
 
 - OpenAI 兼容流收到 `[DONE]`、Anthropic 流收到 `message_stop` 后立即结束，不再等待服务端关闭连接，避免回答完成后 ProcessingItem 短暂卡住。
+- 发布工具链升级到 Go 1.25.12，纳入标准库安全修复；源码构建的最低 Go 版本同步调整为 1.25.12。
 - 恢复 session 时保留当前模型的上下文窗口并重置 provider token 校准，避免旧模型窗口延迟压缩；取消运行会在 usage 收口后发布最终 telemetry，reasoning 也会恢复到 TUI/GUI 历史视图。
 - checkpoint rewind 结果统一以结构化 `Changes` 为事实来源，文件缓存失效、用户文案和隐藏事件共用同一数据。
 - `BuildRequest` 改为完整 `ModelRequest`，calllog 直接接收规范化 `StreamUsage`；删除 token meter、Todo 和 TUI 渲染中的重复状态与兼容分支。
