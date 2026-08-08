@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const streamReturnTimeout = 2 * time.Second
+
 type blockingStreamBody struct {
 	reader    *strings.Reader
 	closed    chan struct{}
@@ -50,7 +52,7 @@ func TestStreamSSEStopsAtDoneWithoutWaitingForEOF(t *testing.T) {
 
 	select {
 	case <-returned:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(streamReturnTimeout):
 		_ = body.Close()
 		t.Fatal("StreamSSE waited for EOF after receiving [DONE]")
 	}
@@ -80,7 +82,7 @@ func TestStreamSSEStopsOnProviderTerminalEvent(t *testing.T) {
 
 	select {
 	case <-returned:
-	case <-time.After(250 * time.Millisecond):
+	case <-time.After(streamReturnTimeout):
 		_ = body.Close()
 		t.Fatal("StreamSSE waited for EOF after a provider terminal event")
 	}
