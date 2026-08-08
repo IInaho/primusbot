@@ -10,6 +10,7 @@ import (
 	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/policy"
 	"nekocode/bot/prompt"
+	providertypes "nekocode/bot/provider/types"
 	"nekocode/protocol"
 	"nekocode/util/registry"
 	"nekocode/util/yaml"
@@ -41,13 +42,15 @@ type ToolCallEvent struct {
 }
 
 type RunConfig struct {
-	Prompt        string
-	AgentType     AgentType
-	Thoroughness  string
-	ContextWindow int
-	OnPhase       func(phase string)
-	AddTokens     func(prompt, compl int)
-	ConfirmFn     protocol.ConfirmFunc
+	Prompt             string
+	AgentType          AgentType
+	Thoroughness       string
+	ContextWindow      int
+	AutoCompactPercent int
+	OnPhase            func(phase string)
+	AddTokens          func(prompt, compl int)
+	RecordLLMUsage     func(usage providertypes.StreamUsage)
+	ConfirmFn          protocol.ConfirmFunc
 	// FullAccess, when non-nil and returning true, puts the sub-agent's tool
 	// executor into full-takeover mode (no approval prompts), mirroring the
 	// main agent's permission mode.

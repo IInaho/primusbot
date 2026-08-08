@@ -5,15 +5,88 @@ import (
 	"strings"
 	"testing"
 
+	"nekocode/interaction/tui/components/message"
 	controlruntime "nekocode/runtime"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type commandFakeBot struct {
 	tickFakeBot
 	commands []string
 	menus    map[string]controlruntime.CommandMenu
+}
+
+type statusFakeBot struct {
+	tickFakeBot
+	selection controlruntime.ModelSelection
+}
+
+func (b *statusFakeBot) CurrentModel() controlruntime.ModelSelection { return b.selection }
+
+func TestSystemEventRefreshesInputModelFooter(t *testing.T) {
+	bot := &statusFakeBot{selection: controlruntime.ModelSelection{Provider: "openai", Model: "old", ReasoningEffort: "low"}}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	bot.selection.Model = "new"
+	bot.selection.ReasoningEffort = "high"
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventSystemMessage})
+	footer := ansi.Strip(m.Input.View())
+	if !strings.Contains(footer, "openai/new") || !strings.Contains(footer, "Effort: high") || strings.Contains(footer, "openai/old") || strings.Contains(footer, "Effort: low") {
+		t.Fatalf("model footer was not refreshed:\n%s", footer)
+	}
+}
+
+func TestRunDoneAttachesCallUsageToAssistantTurn(t *testing.T) {
+	bot := &statusFakeBot{}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventRunStarted})
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventMetricsUpdated, Payload: controlruntime.MetricsSnapshot{
+		Duration: "2.1s", TurnTotal: 22_597, TurnInput: 21_865, TurnCached: 21_200,
+		TurnNew: 665, TurnOutput: 732, TurnReasoning: 283, TurnCacheReported: true,
+	}})
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventRunDone, Payload: controlruntime.RunResult{Output: "Done"}})
+
+	items := m.Messages.Items()
+	assistant, ok := items[len(items)-1].(*message.AssistantMessageItem)
+	if !ok {
+		t.Fatalf("last item = %T, want assistant message", items[len(items)-1])
+	}
+	clean := ansi.Strip(assistant.Render(180))
+	for _, want := range []string{"↳ 2.1s", "总计 22.6k tok", "输入 21.9k", "缓存 21.2k", "未缓存 665", "输出 732", "推理 283", "本次命中 96.96%"} {
+		if !strings.Contains(clean, want) {
+			t.Fatalf("assistant turn telemetry missing %q:\n%s", want, clean)
+		}
+	}
+}
+
+func TestRunFailureKeepsUsageAsStandaloneMetaLine(t *testing.T) {
+	bot := &statusFakeBot{}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventRunStarted})
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventMetricsUpdated, Payload: controlruntime.MetricsSnapshot{
+		TurnInput: 1000, TurnOutput: 12,
+	}})
+	m.handleRuntimeEvent(controlruntime.Event{Type: controlruntime.EventRunFailed, Payload: controlruntime.RunResult{Error: "provider failed"}})
+
+	items := m.Messages.Items()
+	telemetry, ok := items[len(items)-1].(*message.TelemetryMessageItem)
+	if !ok {
+		t.Fatalf("last item = %T, want telemetry message", items[len(items)-1])
+	}
+	clean := ansi.Strip(telemetry.Render(140))
+	if !strings.Contains(clean, "输入 1.0k") || !strings.Contains(clean, "缓存 —") || !strings.Contains(clean, "输出 12") {
+		t.Fatalf("failure telemetry missing usage:\n%s", clean)
+	}
 }
 
 func (b *commandFakeBot) CommandMenu(_ context.Context, input string) (controlruntime.CommandMenu, bool) {

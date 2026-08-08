@@ -122,6 +122,16 @@ func (r *Manager) ContextSnapshot() ContextSnapshot {
 	return service()
 }
 
+func (r *Manager) WorkspaceChanges() WorkspaceChanges {
+	r.mu.Lock()
+	service, closed := r.services.WorkspaceChanges, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return WorkspaceChanges{}
+	}
+	return service()
+}
+
 func (r *Manager) MemoryView(scope MemoryScope) MemoryView {
 	r.mu.Lock()
 	service, closed := r.services.MemoryView, r.closed
@@ -150,6 +160,16 @@ func (r *Manager) ConfigView() ConfigView {
 		return ConfigView{}
 	}
 	return service()
+}
+
+func (r *Manager) ResolveModelProfile(model ModelSpec) ModelProfile {
+	r.mu.Lock()
+	service, closed := r.services.ResolveModelProfile, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return ModelProfile{}
+	}
+	return service(model)
 }
 
 func (r *Manager) CurrentSessionID() string {
@@ -282,7 +302,7 @@ func (r *Manager) CommandMenu(ctx context.Context, input string) (CommandMenu, b
 		return CommandMenu{}, false
 	}
 	trimmed := strings.TrimSpace(input)
-	if trimmed == "/" || trimmed == "/help" {
+	if trimmed == "/" {
 		var menu CommandMenu
 		if service != nil {
 			menu, _ = service(ctx, "/")

@@ -80,8 +80,15 @@ func TestRewindRestoresModifiedCreatedAndDeletedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Files != 3 {
-		t.Fatalf("restored files = %d, want 3", result.Files)
+	if len(result.Changes) != 3 {
+		t.Fatalf("rollback changes = %+v, want 3 unique paths", result.Changes)
+	}
+	actions := make(map[string]string, len(result.Changes))
+	for _, change := range result.Changes {
+		actions[change.Path] = change.Action
+	}
+	if actions[created] != RollbackRemovedCreatedFile || actions[modified] != RollbackRestoredFile || actions[deleted] != RollbackRestoredDeletedFile {
+		t.Fatalf("rollback actions = %+v", actions)
 	}
 	got, err := os.ReadFile(modified)
 	if err != nil {

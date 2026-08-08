@@ -24,11 +24,11 @@ func TestLoadTodos(t *testing.T) {
 		{Content: "task 1", Status: "pending"},
 		{Content: "task 2", Status: "completed"},
 	})
-	if c.Todo == "" {
+	if c.TodoText() == "" {
 		t.Error("Todo should not be empty")
 	}
-	if !strings.Contains(c.Todo, "task 1") {
-		t.Errorf("Todo missing task: %s", c.Todo)
+	if !strings.Contains(c.TodoText(), "task 1") {
+		t.Errorf("Todo missing task: %s", c.TodoText())
 	}
 }
 
@@ -114,21 +114,26 @@ func TestBuildLayer2_Empty(t *testing.T) {
 	}
 }
 
-func TestBuildLayer5(t *testing.T) {
+func TestRenderRuntimeContext(t *testing.T) {
 	c := newContextContent("")
 	c.LoadTodos([]protocol.TodoItem{{Content: "x", Status: "pending"}})
-	c.Hints = "<hint>"
-	msgs := c.BuildLayer5()
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	got := renderRuntimeContext("<environment>cwd</environment>", c.TodoText(), "")
+	for _, want := range []string{"<runtime_context mode=\"replace\">", "supersedes", "<environment>", "<todo>", `runtime_policy_state state="inactive"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime context missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "hint") {
+		t.Fatalf("runtime state must not contain hints: %s", got)
 	}
 }
 
-func TestBuildLayer5_Empty(t *testing.T) {
-	c := newContextContent("")
-	msgs := c.BuildLayer5()
-	if len(msgs) != 0 {
-		t.Error("empty layer5 should produce no messages")
+func TestRenderRuntimeContextEmpty(t *testing.T) {
+	got := renderRuntimeContext("", "", "")
+	for _, want := range []string{`environment_state state="unavailable"`, `todo_state state="empty"`, `runtime_policy_state state="inactive"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("empty runtime snapshot missing %q: %s", want, got)
+		}
 	}
 }
 
@@ -138,8 +143,8 @@ func TestFormatTodoItems_AllDone(t *testing.T) {
 		{Content: "a", Status: "completed"},
 		{Content: "b", Status: "completed"},
 	})
-	if !strings.Contains(c.Todo, "All 2 tasks complete") {
-		t.Errorf("all done: %s", c.Todo)
+	if !strings.Contains(c.TodoText(), "All 2 tasks complete") {
+		t.Errorf("all done: %s", c.TodoText())
 	}
 }
 
@@ -149,8 +154,8 @@ func TestFormatTodoItems_Mixed(t *testing.T) {
 		{Content: "a", Status: "completed"},
 		{Content: "b", Status: "pending"},
 	})
-	if !strings.Contains(c.Todo, "[x]") || !strings.Contains(c.Todo, "[ ]") {
-		t.Errorf("mixed: %s", c.Todo)
+	if !strings.Contains(c.TodoText(), "[x]") || !strings.Contains(c.TodoText(), "[ ]") {
+		t.Errorf("mixed: %s", c.TodoText())
 	}
 }
 

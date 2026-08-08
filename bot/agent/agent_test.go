@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
 	"nekocode/protocol"
@@ -62,7 +63,7 @@ func TestBindOutputRestoresPreviousCallbacks(t *testing.T) {
 	}
 }
 
-func TestInjectHintUsesTransientLayerOnly(t *testing.T) {
+func TestInjectHintAppendsTaggedUserContext(t *testing.T) {
 	a := newTestAgent()
 	before := a.deps.ctxMgr.Len()
 
@@ -72,17 +73,17 @@ func TestInjectHintUsesTransientLayerOnly(t *testing.T) {
 	}
 
 	a.applyTurnHints(nil)
-	msgs := a.deps.ctxMgr.Build()
+	msgs := a.deps.ctxMgr.BuildRequest(contextmgr.ModelRequest{})
 	if !messagesContain(msgs, `type="final_check"`) || !messagesContain(msgs, "run verification") {
-		t.Fatalf("expected transient final_check hint in build messages, got %+v", msgs)
+		t.Fatalf("expected tagged final_check hint in build messages, got %+v", msgs)
+	}
+	if tail := msgs[len(msgs)-1]; tail.Role != "user" || tail.Source != types.MessageSourceHint {
+		t.Fatalf("hint must be an internal user context message: %+v", tail)
 	}
 
 	a.deps.ctxMgr.SetHints("")
-	msgs = a.deps.ctxMgr.Build()
-	if messagesContain(msgs, `type="final_check"`) {
-		t.Fatalf("final_check hint leaked after clearing transient hints: %+v", msgs)
-	}
-	if got := a.deps.ctxMgr.Len(); got != before {
-		t.Fatalf("hint leaked into history length: got %d, want %d", got, before)
+	a.deps.ctxMgr.BuildRequest(contextmgr.ModelRequest{})
+	if got := a.deps.ctxMgr.Len(); got != before+1 {
+		t.Fatalf("clearing hint appended context: history length = %d, want %d", got, before+1)
 	}
 }

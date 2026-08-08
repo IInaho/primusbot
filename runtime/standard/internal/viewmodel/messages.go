@@ -145,7 +145,8 @@ func extractImageRefs(output string) []controlruntime.ImageRef {
 }
 
 func isInternalMessage(msg types.Message) bool {
-	return msg.Source == "hint" ||
+	return msg.Source == types.MessageSourceHint || msg.Source == types.MessageSourceRuntimeContext ||
+		msg.Source == types.MessageSourceRuntimeEvent ||
 		strings.Contains(msg.Content, "<hints>") ||
 		strings.Contains(msg.Content, "<skill") ||
 		strings.Contains(msg.Content, "<project-context>") ||

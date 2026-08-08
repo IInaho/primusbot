@@ -5,6 +5,18 @@ import (
 	"testing"
 )
 
+func TestStreamUsageMergeKeepsSplitReports(t *testing.T) {
+	var acc StreamUsage
+	// Anthropic reports prompt/cache at message_start and completion at
+	// message_delta; neither event alone carries the full usage.
+	acc.Merge(&StreamUsage{PromptTokens: 1000, CacheHitTokens: 800, CacheMissTokens: 200, CacheUsageReported: true})
+	acc.Merge(&StreamUsage{CompletionTokens: 42, ReasoningTokens: 12})
+	if acc.TotalTokens != 1042 || acc.PromptTokens != 1000 || acc.CacheHitTokens != 800 ||
+		acc.CacheMissTokens != 200 || acc.CompletionTokens != 42 || acc.ReasoningTokens != 12 {
+		t.Fatalf("merged usage = %+v", acc)
+	}
+}
+
 func TestStreamUsage_OpenAI_Mimo_DeepSeek(t *testing.T) {
 	// All OpenAI-compatible APIs use prompt_tokens_details.cached_tokens.
 	// DeepSeek additionally sends flat fields; the nested field wins.
@@ -16,11 +28,23 @@ func TestStreamUsage_OpenAI_Mimo_DeepSeek(t *testing.T) {
 
 	u.Normalize()
 
-	if u.CacheHitTokens != 80 {
+	if !u.CacheUsageReported || u.CacheHitTokens != 80 {
 		t.Errorf("CacheHitTokens = %d, want 80", u.CacheHitTokens)
 	}
 	if u.CacheMissTokens != 20 {
 		t.Errorf("CacheMissTokens = %d, want 20", u.CacheMissTokens)
+	}
+}
+
+func TestStreamUsage_OpenAIReasoningDetails(t *testing.T) {
+	data := `{"prompt_tokens":21865,"completion_tokens":732,"total_tokens":22597,"completion_tokens_details":{"reasoning_tokens":283}}`
+	var u StreamUsage
+	if err := json.Unmarshal([]byte(data), &u); err != nil {
+		t.Fatal(err)
+	}
+	u.Normalize()
+	if u.TotalTokens != 22_597 || u.ReasoningTokens != 283 {
+		t.Fatalf("usage = %+v", u)
 	}
 }
 
@@ -47,7 +71,7 @@ func TestStreamUsage_NoCacheDetails(t *testing.T) {
 
 	u.Normalize()
 
-	if u.CacheHitTokens != 0 {
+	if u.CacheUsageReported || u.CacheHitTokens != 0 {
 		t.Errorf("CacheHitTokens = %d, want 0", u.CacheHitTokens)
 	}
 	if u.CacheMissTokens != 0 {
@@ -62,7 +86,7 @@ func TestStreamUsage_OpenAIZeroCachedTokensIsFullMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 	u.Normalize()
-	if u.CacheHitTokens != 0 || u.CacheMissTokens != 100 {
+	if !u.CacheUsageReported || u.CacheHitTokens != 0 || u.CacheMissTokens != 100 {
 		t.Fatalf("cache usage = hit %d / miss %d, want 0/100", u.CacheHitTokens, u.CacheMissTokens)
 	}
 }

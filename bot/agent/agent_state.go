@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"nekocode/bot/policy"
+	"nekocode/bot/provider/types"
 	"nekocode/protocol"
 )
 
@@ -91,14 +92,62 @@ func (s *streamState) emitReasoning(delta string) {
 // only completion tokens are accumulated, from LLM stream callbacks (hence
 // the atomics: streaming callbacks and the loop run concurrently).
 type tokenMeter struct {
-	prompt     atomic.Int64
 	completion atomic.Int64
 	promptSnap atomic.Int64
 	complSnap  atomic.Int64
 }
 
-func (m *tokenMeter) add(prompt, completion int) {
-	m.prompt.Add(int64(prompt))
+// llmUsageMeter aggregates provider-reported usage for the current run.
+// Unlike tokenMeter, these values describe actual LLM requests and preserve
+// whether every input reported a cache split.
+type llmUsageMeter struct {
+	input        atomic.Int64
+	cached       atomic.Int64
+	newTokens    atomic.Int64
+	output       atomic.Int64
+	reasoning    atomic.Int64
+	reported     atomic.Int64
+	unknownCache atomic.Int64
+}
+
+func (m *llmUsageMeter) reset() {
+	m.input.Store(0)
+	m.cached.Store(0)
+	m.newTokens.Store(0)
+	m.output.Store(0)
+	m.reasoning.Store(0)
+	m.reported.Store(0)
+	m.unknownCache.Store(0)
+}
+
+func (m *llmUsageMeter) record(usage types.StreamUsage) {
+	if usage.PromptTokens <= 0 && usage.CompletionTokens <= 0 {
+		return
+	}
+	m.input.Add(int64(max(0, usage.PromptTokens)))
+	m.output.Add(int64(max(0, usage.CompletionTokens)))
+	m.reasoning.Add(int64(max(0, min(usage.ReasoningTokens, usage.CompletionTokens))))
+	if usage.CacheUsageReported {
+		m.cached.Add(int64(max(0, usage.CacheHitTokens)))
+		m.newTokens.Add(int64(max(0, usage.CacheMissTokens)))
+		m.reported.Add(1)
+	} else if usage.PromptTokens > 0 {
+		m.unknownCache.Add(1)
+	}
+}
+
+func (m *llmUsageMeter) snapshot() (total, input, cached, fresh, output, reasoning int, cacheReported bool) {
+	input = int(m.input.Load())
+	cached = int(m.cached.Load())
+	fresh = int(m.newTokens.Load())
+	output = int(m.output.Load())
+	total = input + output
+	reasoning = min(int(m.reasoning.Load()), output)
+	cacheReported = m.reported.Load() > 0 && m.unknownCache.Load() == 0
+	return
+}
+
+func (m *tokenMeter) addCompletion(completion int) {
 	m.completion.Add(int64(completion))
 }
 

@@ -50,17 +50,27 @@ func (m *Manager) Register(name string, factory ConnectorFactory) {
 
 func (m *Manager) Handle(ctx context.Context, args []string) (string, error) {
 	if len(args) == 0 {
-		return m.usage(), nil
+		return m.connectOverview(), nil
 	}
 	name := strings.ToLower(strings.TrimSpace(args[0]))
 	if name == "" {
-		return m.usage(), nil
+		return m.connectOverview(), nil
 	}
 	conn, err := m.connector(ctx, name)
 	if err != nil {
 		return "", err
 	}
 	return conn.HandleCommand(ctx, args[1:])
+}
+
+// connectOverview: 连接器状态与已连接设备概览 + 用法引导。
+// /connect 无参数时展示设备列表(替代已移除的 /devices)。
+func (m *Manager) connectOverview() string {
+	body := m.Devices()
+	if strings.HasPrefix(body, "No connectors") {
+		return body + "\nUsage: /connect <connector>"
+	}
+	return body + "\n\nUsage: /connect <connector>"
 }
 
 func (m *Manager) Disconnect(name string) (string, error) {
@@ -156,16 +166,6 @@ func (m *Manager) connector(ctx context.Context, name string) (Connector, error)
 	// command handlers once configured.
 	m.connectors[name] = conn
 	return conn, nil
-}
-
-func (m *Manager) usage() string {
-	m.mu.Lock()
-	names := m.namesLocked()
-	m.mu.Unlock()
-	if len(names) == 0 {
-		return "No connectors registered."
-	}
-	return "Usage: /connect <connector>\nAvailable: " + strings.Join(names, ", ")
 }
 
 func (m *Manager) usageFor(command string) string {

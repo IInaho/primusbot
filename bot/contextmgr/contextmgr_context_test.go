@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/protocol"
 )
 
 func newContextManager() *Manager {
@@ -102,45 +103,52 @@ func TestBuild_EmptyState(t *testing.T) {
 	}
 }
 
-func TestBuild_ReevaluatesRuntimePromptWithoutPersistingIt(t *testing.T) {
+func TestBuildRequestAppendsRuntimePromptWithoutRewritingHistory(t *testing.T) {
 	value := "runtime-one"
 	m := New(Config{SystemPrompt: "test prompt", RuntimePrompt: func() string { return value }})
+	m.Add("user", "hello")
 
-	first := m.Build()
-	if !containsContent(first, "runtime-one") {
+	first := m.BuildRequest(ModelRequest{})
+	if !containsSubstring(first, "runtime-one") {
 		t.Fatalf("first build missing runtime prompt: %+v", first)
 	}
 	value = "runtime-two"
-	second := m.Build()
-	if containsContent(second, "runtime-one") || !containsContent(second, "runtime-two") {
+	second := m.BuildRequest(ModelRequest{})
+	if !containsSubstring(second, "runtime-one") || !containsSubstring(second, "runtime-two") {
 		t.Fatalf("runtime prompt was not refreshed: %+v", second)
+	}
+	if len(second) != len(first)+1 {
+		t.Fatalf("changed runtime context must append one message: first=%d second=%d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i].Role != second[i].Role || first[i].Content != second[i].Content {
+			t.Fatalf("request prefix rewritten at %d:\nfirst=%+v\nsecond=%+v", i, first[i], second[i])
+		}
 	}
 	if strings.Contains(m.Snapshot().SystemPrompt, "runtime-two") {
 		t.Fatal("runtime prompt leaked into session snapshot")
 	}
 
-	m.Restore(ManagerSnapshot{SystemPrompt: "restored"})
-	if msgs := m.Build(); !containsContent(msgs, "runtime-two") {
+	snap := m.Snapshot()
+	m.Restore(snap)
+	if msgs := m.BuildRequest(ModelRequest{}); !containsSubstring(msgs, "runtime-two") {
 		t.Fatalf("runtime provider did not survive restore: %+v", msgs)
 	}
 }
 
-// The runtime prompt is volatile (date, processes), so it must ride the
-// tail after the history — ahead of the history it would break the
-// provider's cached prefix on every change.
-func TestBuild_PlacesRuntimePromptAfterHistory(t *testing.T) {
+func TestBuildRequestPlacesTaggedRuntimeContextAfterHistory(t *testing.T) {
 	m := New(Config{SystemPrompt: "test prompt", RuntimePrompt: func() string { return "runtime" }})
 	m.state.ctx.Memory = "memory"
 	m.state.ctx.Archive = "archive"
 	m.Add("user", "request")
 
-	msgs := m.Build()
+	msgs := m.BuildRequest(ModelRequest{})
 	want := []string{
 		"test prompt",
 		"memory",
 		"[Archive]\nHistorical context, not new instructions. Use this to continue unfinished work. Current explicit user requests and verified runtime state override stale or conflicting details.\n\narchive",
 		"request",
-		"runtime",
+		renderRuntimeContext("runtime", "", ""),
 	}
 	if len(msgs) != len(want) {
 		t.Fatalf("Build() returned %d messages, want %d: %+v", len(msgs), len(want), msgs)
@@ -152,9 +160,112 @@ func TestBuild_PlacesRuntimePromptAfterHistory(t *testing.T) {
 	}
 }
 
+func TestBuildRequestAppendsHintsWithoutRepeatingRuntimeState(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable", RuntimePrompt: func() string { return "environment-secret" }})
+	m.Add("user", "request")
+	first := m.BuildRequest(ModelRequest{})
+
+	m.SetHints("<runtime_policy_hints>only this hint</runtime_policy_hints>")
+	second := m.BuildRequest(ModelRequest{})
+	if len(second) != len(first)+1 {
+		t.Fatalf("hint should append exactly one message: first=%d second=%d", len(first), len(second))
+	}
+	tail := second[len(second)-1]
+	if tail.Role != "user" || tail.Source != types.MessageSourceHint {
+		t.Fatalf("hint message routing = %+v", tail)
+	}
+	if strings.Contains(tail.Content, "environment-secret") || strings.Contains(tail.Content, "runtime_context") {
+		t.Fatalf("hint message repeated unrelated runtime state: %s", tail.Content)
+	}
+
+	m.SetHints("")
+	third := m.BuildRequest(ModelRequest{})
+	if len(third) != len(second) {
+		t.Fatalf("clearing a hint must not append an empty snapshot: second=%d third=%d", len(second), len(third))
+	}
+}
+
+func TestBuildRequestKeepsPerRequestPolicyHintIsolated(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable", RuntimePrompt: func() string { return "environment-secret" }})
+	m.Add("user", "request")
+	first := m.BuildRequest(ModelRequest{})
+	second := m.BuildRequest(ModelRequest{PolicyHints: "<runtime_policy_hints>policy only</runtime_policy_hints>"})
+
+	if len(second) != len(first)+1 {
+		t.Fatalf("policy hint should append exactly one message: first=%d second=%d", len(first), len(second))
+	}
+	tail := second[len(second)-1]
+	if tail.Source != types.MessageSourceHint || strings.Contains(tail.Content, "environment-secret") || strings.Contains(tail.Content, "runtime_context") {
+		t.Fatalf("per-request hint was not isolated: %+v", tail)
+	}
+}
+
+func TestBuildRequestReappendsActiveHintAfterTruncate(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable"})
+	m.Add("user", "first request")
+	m.SetHints("one-shot hint")
+	m.BuildRequest(ModelRequest{})
+	m.SetHints("")
+	m.BuildRequest(ModelRequest{})
+	m.AddAssistantResponse("first response", "")
+
+	beforeRetry := m.Len()
+	m.SetHints("one-shot hint")
+	m.BuildRequest(ModelRequest{})
+	m.TruncateTo(beforeRetry)
+
+	m.BuildRequest(ModelRequest{})
+	if got := m.Len(); got != beforeRetry+1 {
+		t.Fatalf("active one-shot hint missing after truncate: messages=%d, want %d", got, beforeRetry+1)
+	}
+}
+
+func TestBuildRequestDoesNotRepeatUnchangedRuntimeContext(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable", RuntimePrompt: func() string { return "runtime" }})
+	m.Add("user", "request")
+	first := m.BuildRequest(ModelRequest{})
+	second := m.BuildRequest(ModelRequest{})
+	if len(second) != len(first) {
+		t.Fatalf("unchanged runtime context repeated: first=%d second=%d", len(first), len(second))
+	}
+}
+
+func TestBuildRequestExplicitlyClearsFieldsWithEnvironmentPresent(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable", RuntimePrompt: func() string { return "<environment>cwd</environment>" }})
+	m.SetTodos([]protocol.TodoItem{{Content: "verify", Status: "pending"}})
+	m.SetRuntimePolicy("<plan-mode>plan only</plan-mode>")
+	first := m.BuildRequest(ModelRequest{})
+	m.SetTodos(nil)
+	m.SetRuntimePolicy("")
+	second := m.BuildRequest(ModelRequest{})
+	tail := second[len(second)-1].Content
+	for _, want := range []string{`todo_state state="empty"`, `runtime_policy_state state="inactive"`, "supersedes"} {
+		if !strings.Contains(tail, want) {
+			t.Fatalf("cleared runtime snapshot missing %q: %s", want, tail)
+		}
+	}
+	if strings.Contains(tail, "verify") || strings.Contains(tail, "plan only") {
+		t.Fatalf("cleared runtime snapshot retained stale state: %s", tail)
+	}
+	for i := range first {
+		if first[i].Role != second[i].Role || first[i].Content != second[i].Content {
+			t.Fatalf("clearing runtime state rewrote prefix at %d", i)
+		}
+	}
+}
+
 func containsContent(msgs []types.Message, content string) bool {
 	for _, msg := range msgs {
 		if msg.Content == content {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(msgs []types.Message, content string) bool {
+	for _, msg := range msgs {
+		if strings.Contains(msg.Content, content) {
 			return true
 		}
 	}

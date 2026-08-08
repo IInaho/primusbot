@@ -191,7 +191,7 @@ func (m *Manager) ClearLoadedSkills() {
 }
 
 // RefreshSkillList re-renders the prompt's skill list from the registry.
-// Only call it at session boundaries (startup, /new, /clear, restore):
+// Only call it at session boundaries (startup, /new, restore):
 // the list lives in the cache-stable prefix, so rebuilding it mid-session
 // would invalidate the provider's cached prefix.
 func (m *Manager) RefreshSkillList() {

@@ -13,34 +13,35 @@ import (
 // It summarizes the old visible prefix, then replaces active history with
 // the archive plus recent messages in active history.
 type replacementCompactor struct {
-	summarizer Summarizer
-	cfg        compressionConfig
-	keepTurns  int
+	summarizer         Summarizer
+	autoCompactPercent int
+	keepTurns          int
 }
 
-func newReplacementCompactor(summarizer Summarizer) *replacementCompactor {
+func newReplacementCompactor(summarizer Summarizer, autoCompactPercent int) *replacementCompactor {
 	return &replacementCompactor{
-		summarizer: summarizer,
-		cfg:        defaultCompressionConfig,
-		keepTurns:  3,
+		summarizer:         summarizer,
+		autoCompactPercent: normalizeAutoCompactPercent(autoCompactPercent),
+		keepTurns:          3,
 	}
 }
 
-func (s *replacementCompactor) shouldAutoCompact(history []types.Message, archive string, budget, estimate int) bool {
-	level := s.currentLevel(history, archive, budget, estimate)
-	return level == compactionRequired || level == compactionBlocking
+func (s *replacementCompactor) shouldAutoCompact(budget, estimate int) bool {
+	return estimate >= s.compactionThreshold(budget)
 }
 
 func (s *replacementCompactor) summarize(history []types.Message, prevArchive string, budget int) (string, []types.Message, int, error) {
+	originalLen := len(history)
+	history = retainLatestRuntimeContext(history)
 	if s.summarizer == nil || len(history) <= 2 {
-		return prevArchive, history, 0, nil
+		return prevArchive, history, originalLen - len(history), nil
 	}
 	keepStart := s.recentStart(history, budget)
 	if keepStart <= 0 {
-		return prevArchive, history, 0, nil
+		return prevArchive, history, originalLen - len(history), nil
 	}
 
-	toSummarize := append([]types.Message(nil), history[:keepStart]...)
+	toSummarize := withoutInternalContext(history[:keepStart])
 	recent := append([]types.Message(nil), history[keepStart:]...)
 	rawSummary, err := s.summarizer(toSummarize, prevArchive)
 	if err != nil {
@@ -54,14 +55,7 @@ func (s *replacementCompactor) summarize(history []types.Message, prevArchive st
 
 	logger.Log("replacement_compact: summarized %d msgs, kept %d recent msgs, archive_tokens=%d",
 		len(toSummarize), len(recent), token.EstimateString(archive))
-	return archive, recent, len(history) - len(recent), nil
-}
-
-func (s *replacementCompactor) currentLevel(history []types.Message, archive string, budget, estimate int) compactionLevel {
-	if estimate <= 0 {
-		estimate = token.EstimateTokens(history) + token.EstimateString(archive)
-	}
-	return classifyCompaction(s.effectiveBudget(budget)-estimate, s.effectiveConfig(budget))
+	return archive, recent, originalLen - len(recent), nil
 }
 
 func (s *replacementCompactor) recentStart(history []types.Message, budget int) int {
@@ -90,7 +84,7 @@ func userTurnBoundary(msgs []types.Message, turns int) int {
 	}
 	count := 0
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "user" {
+		if isConversationUser(msgs[i]) {
 			count++
 			if count >= turns {
 				return i
@@ -102,11 +96,50 @@ func userTurnBoundary(msgs []types.Message, turns int) int {
 
 func nextUserBoundary(msgs []types.Message, start int) int {
 	for i := start; i < len(msgs); i++ {
-		if msgs[i].Role == "user" {
+		if isConversationUser(msgs[i]) {
 			return i
 		}
 	}
 	return -1
+}
+
+func isConversationUser(msg types.Message) bool {
+	return msg.Role == "user" && msg.Source != types.MessageSourceRuntimeContext &&
+		msg.Source != types.MessageSourceHint && msg.Source != types.MessageSourceRuntimeEvent
+}
+
+func excludeFromSummary(msg types.Message) bool {
+	return msg.Source == types.MessageSourceRuntimeContext || msg.Source == types.MessageSourceHint
+}
+
+func withoutInternalContext(messages []types.Message) []types.Message {
+	filtered := make([]types.Message, 0, len(messages))
+	for _, msg := range messages {
+		if !excludeFromSummary(msg) {
+			filtered = append(filtered, msg)
+		}
+	}
+	return filtered
+}
+
+func retainLatestRuntimeContext(messages []types.Message) []types.Message {
+	latest := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Source == types.MessageSourceRuntimeContext {
+			latest = i
+			break
+		}
+	}
+	filtered := make([]types.Message, 0, len(messages))
+	for i, msg := range messages {
+		if msg.Source == types.MessageSourceHint {
+			continue
+		}
+		if msg.Source != types.MessageSourceRuntimeContext || i == latest {
+			filtered = append(filtered, msg)
+		}
+	}
+	return filtered
 }
 
 func (s *replacementCompactor) effectiveBudget(budget int) int {
@@ -116,16 +149,6 @@ func (s *replacementCompactor) effectiveBudget(budget int) int {
 	return defaultBudget
 }
 
-func (s *replacementCompactor) effectiveConfig(configuredBudget int) compressionConfig {
-	budget := s.effectiveBudget(configuredBudget)
-	if budget <= defaultBudget {
-		return s.cfg
-	}
-	scale := float64(budget) / float64(defaultBudget)
-	return compressionConfig{
-		warningBuffer:  int(float64(s.cfg.warningBuffer) * scale),
-		microBuffer:    int(float64(s.cfg.microBuffer) * scale),
-		compactBuffer:  int(float64(s.cfg.compactBuffer) * scale),
-		blockingBuffer: int(float64(s.cfg.blockingBuffer) * scale),
-	}
+func (s *replacementCompactor) compactionThreshold(budget int) int {
+	return s.effectiveBudget(budget) * s.autoCompactPercent / 100
 }

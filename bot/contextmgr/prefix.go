@@ -129,9 +129,16 @@ func (t *prefixTracker) TurnStats() PrefixTurnStats {
 // Diagnostics returns the pending change classification plus the fingerprint
 // of the most recently observed request shape, for the per-call evidence
 // log. After Observe, previous holds the current request — so these hashes
-// identify this call's prefix, comparable across records.
+// identify this call's prefix, comparable across records. The same
+// tail/provider fallback as RecordCache applies: an empty parts list means
+// "append-only, provider-side miss", which must be visible in the log rather
+// than omitted as if diagnostics were missing.
 func (t *prefixTracker) Diagnostics() calllog.PrefixDiag {
-	diag := calllog.PrefixDiag{ChangedParts: append([]string(nil), t.pending...)}
+	parts := append([]string(nil), t.pending...)
+	if len(parts) == 0 && t.previous != nil {
+		parts = []string{"tail/provider"}
+	}
+	diag := calllog.PrefixDiag{ChangedParts: parts}
 	if t.previous == nil {
 		return diag
 	}

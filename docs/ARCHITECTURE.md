@@ -331,8 +331,8 @@ Run() 主循环 → runTurn(state)
   │
   ├─ Reason(state) → ReasoningResult
   │   ├─ phase(PhaseThinking)
-  │   ├─ ctxMgr.Build(true) 组装上下文（全部消息，不再截断）
-  │   ├─ Policy.BeforeModel() → request-scoped hints
+  │   ├─ Policy.BeforeModel() → tagged request-scoped hints
+  │   ├─ ctxMgr.BuildRequest() 追加变化的 runtime user context 并组装请求
   │   ├─ callLLMForTool() 流式调用
   │   └─ withRetry() 指数退避重试
   │
@@ -368,29 +368,55 @@ Agent 循环硬限制：
 
 ## 上下文管理
 
-### 五级预警阈值
+### 自动压缩阈值
 
-| Level | 剩余 buffer | 动作 |
-|-------|------------|------|
-| Normal | > 44,800 | 无 |
-| Warning | ≤ 44,800 | 告警 |
-| MicroCompact | ≤ 35,200 | 微压缩 |
-| Compact | ≤ 25,600 | 完整压缩 |
-| Blocking | ≤ 6,400 | 拒绝 |
+上下文占用达到 `auto_compact_percent` 时执行一次全量摘要替换，默认值为 80%。阈值按当前
+模型上下文窗口计算，不再维护没有独立行为的 Warning、MicroCompact、Compact、Blocking
+状态。摘要完成后若上下文仍达到模型窗口上限，返回真实的 context full 错误。
 
 ### Build 管线
 
 1. Layer 0: SystemPrompt + Skills（会话内静态前缀）
 2. Layer 1: Memory（项目记忆）
 3. Layer 2: Archive（压缩摘要）
-4. Layer 3: Messages（全部保留，不再截断；Compactor 负责压缩）
-5. Layer 4: Runtime Environment（日期、进程、workspace 等易变事实）
-6. Layer 5: Todo + Hints（动态尾部）
+4. Layer 3: Messages（当前缓存 epoch 内严格只追加）
+5. Runtime Context：Environment、Todo、Runtime Policy 按固定顺序组成
+   `<runtime_context mode="replace">` 完整快照，内容变化时作为隐藏的 `role=user` 消息追加到
+   Layer 3；空字段带显式状态，最新快照覆盖旧快照语义
+6. Hints：turn hint 与 BeforeModel hint 各自格式化为 `<runtime_policy_hints>`，仅在存在时
+   作为独立的隐藏 `role=user` 消息追加；hint 消息不重复携带其他 runtime 状态，清空 hint
+   也不会追加空快照。每条 hint 明确只作用于紧邻的下一次模型响应，因此历史重放不会让
+   已消费的 hint 重新生效
+7. Runtime Events：checkpoint rewind 等已经发生且需要纠正模型认知的事件，作为独立隐藏
+   `role=user` 消息永久追加；事件进入 Session 和后续摘要，但不在聊天界面显示
 
 请求发出前，`contextmgr` 对稳定段生成 prefix shape：system（Layer 0-1）、
-tools 和 history（Layer 2-3）。History 只追加视为前缀兼容；旧消息被改写、删除或压缩
-才归因为 history 变化。Layer 4-5 不进入稳定指纹。Provider 上报 cache miss 后，最近一次
-system/tools/history 变化会记录到 ContextReport，并由 `/context` 展示。
+tools 和 history（Layer 2-3）。动态变量不再以临时 system tail 重建：新快照进入历史后，
+下一次请求会原样重放。旧消息被改写、删除或压缩才归因为 history 变化；压缩、新建空白
+会话和模型切换视为新的缓存 epoch；`rewind` 不删除对话历史，而是在文件恢复成功后追加隐藏的
+`<workspace_event type="checkpoint_rewind">`，列出每个文件的回滚动作和受影响父目录，因此仍保持
+append-only。压缩时 runtime 快照不进入 Archive，活动历史只保留
+最新一份完整快照。Provider 上报 cache miss 后，最近一次
+system/tools/history 变化会记录到 ContextReport、逐调用 calllog，并由 `/context` 展示。
+
+`llm-calls.jsonl` 不保存 prompt、HTTP 请求正文或供应商错误正文，只记录每次调用的
+model/source、脱敏 endpoint、延迟、system fingerprint 短哈希、prefix 诊断和
+`total tok · in · cached · new · out` usage；`total = in + out`。供应商上报
+reasoning token 明细且值大于 0 时，尾部追加 `reasoning`；它属于 out 的子集，不重复计入
+total。供应商未上报缓存明细时，cached/new 显示为 `?`，
+不会误记为零命中。Agent 同时按当前 run 汇总同口径 usage；Runtime 在 `RunDone` 前发布
+最终 metrics，TUI 将其显示为 assistant 回合尾注：使用“输入 / 缓存 / 未缓存 / 输出 / 推理”
+等中文语义标签，并在末尾显示本次命中率；窄终端切换为仍可辨识的中文短标签。主模型、
+subagent 和非流式 compaction 请求都进入同一统计口径；command-only run 不产生 turn telemetry。
+
+Provider 层先用 `StreamUsage.Merge` 合并协议碎片，再通过单一 `OnUsage` 事件向上传递完整调用；
+context cache tracker、run meter 和 calllog 不直接消费 SSE 分片。TUI 直接渲染中立协议层的
+`Metrics`，不再维护第二套 telemetry DTO。模型能力注册表先将配置解析为 `ReasoningSettings`，
+命令菜单、配置校验和 provider 共享这一结果：未知模型只有 Auto，Off 仅对明确支持关闭推理的
+模型开放。Auto 不发送覆盖字段；`none` 与 compaction/subagent 的显式 disable 只有在能力表
+定义了原生关闭方式时才映射为禁用，否则内部调用移除已配置 effort 并回退到模型默认行为。
+各 provider 仅负责翻译解析后的 wire 设置。calllog 同时记录 requested/effective effort，便于
+区分用户配置、实际生效值与内部调用覆盖。
 
 ### Manager 关键方法
 
@@ -402,7 +428,7 @@ system/tools/history 变化会记录到 ContextReport，并由 `/context` 展示
 | `AutoCompactIfNeeded()` | 自动压缩看门狗 |
 | `Summarize()` | 手动触发完整压缩 + Archive 合并 |
 | `Snapshot() / Restore()` | 会话持久化 |
-| `FreshStart()` | 清空所有消息 |
+| `Reset()` | 清空当前上下文，用于创建不继承旧内容的新会话 |
 
 ### Session 持久化实现
 
@@ -674,7 +700,7 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 | 媒体工具 | `bot/extension/tool/builtin/media/` | image_gen（即梦文生图） |
 | 任务工具 | `bot/extension/tool/builtin/task/`, `bot/extension/tool/builtin/todo/` | sub-agent task 与 todo_write |
 | 代码索引工具 | `bot/extension/tool/builtin/index/` | 代码索引（条件注册） |
-| 上下文管理 | `bot/contextmgr/` | Build 管线 + 五级压缩 + token 估算 |
+| 上下文管理 | `bot/contextmgr/` | Build 管线 + 可配置摘要压缩 + token 估算 |
 | Project Memory | `bot/contextmgr/memory/` | 项目 Memory 文件加载与 prompt 注入 |
 | Plugin 系统 | `bot/extension/plugin/` | manager 编排 + manifest/registry |
 | MCP 客户端 | `bot/extension/mcp/` | JSON-RPC 2.0 |

@@ -1,4 +1,4 @@
-// Splash 启动页：ASCII 猫 + 猫眼闪烁动画（blinkCount 驱动）、标题 + 版本号。
+// Splash 启动页：ASCII 猫 + 猫眼闪烁动画（blinkCount 驱动）和标题。
 // 按 Enter 进入聊天界面。
 package components
 
@@ -24,14 +24,13 @@ func BlinkTick() tea.Cmd {
 const inputReserved = 7 // Input.Height()=5 + 2 separator lines in View()
 
 type Splash struct {
-	width   int
-	height  int
-	version string
-	blink   bool
+	width  int
+	height int
+	blink  bool
 }
 
-func NewSplash(width, height int, version string) *Splash {
-	return &Splash{width: width, height: height, version: version}
+func NewSplash(width, height int, _ string) *Splash {
+	return &Splash{width: width, height: height}
 }
 
 func (s *Splash) SetSize(width, height int) {
@@ -68,7 +67,6 @@ func (s *Splash) View() string {
 		lines = append(lines, strings.Repeat(" ", catPad)+l)
 	}
 
-	lines = append(lines, "") // gap
 	for line := range strings.SplitSeq(title, "\n") {
 		lines = append(lines, center.Render(line))
 	}
@@ -83,7 +81,7 @@ func (s *Splash) View() string {
 	topPad := max(0, (h-reserved-contentH)/2)
 
 	var b strings.Builder
-	for i := 0; i < topPad; i++ {
+	for range topPad {
 		b.WriteString("\n")
 	}
 	b.WriteString(contentBlock)
@@ -95,11 +93,6 @@ func (s *Splash) renderCat() string {
 	//
 	//      /\___/\
 	//     ( o   o )
-	//      =  V  =
-	//     /|     |\
-	//    (_|     |_)
-	//       || ||
-	//
 
 	body := styles.CatBodyStyle
 	eyeStyle := styles.CatEyeStyle
@@ -108,20 +101,14 @@ func (s *Splash) renderCat() string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n", body.Render("   /\\___/\\"))
-	fmt.Fprintf(&b, "%s%s%s%s%s\n", body.Render("  ( "), eyeStyle.Render("o"), body.Render("   "), eyeStyle.Render("o"), body.Render(" )"))
-	fmt.Fprintf(&b, "%s\n", body.Render("   =  V  ="))
-	fmt.Fprintf(&b, "%s\n", body.Render("  /|     |\\"))
-	fmt.Fprintf(&b, "%s\n", body.Render(" (_|     |_)"))
-	b.WriteString(body.Render("    || ||"))
+	fmt.Fprintf(&b, "%s\n", body.Render(" /\\___/\\"))
+	fmt.Fprintf(&b, "%s%s%s%s%s\n", body.Render("( "), eyeStyle.Render("o"), body.Render(" . "), eyeStyle.Render("o"), body.Render(" )"))
 
 	return b.String()
 }
 
 func (s *Splash) renderTitle() string {
-	titleLine := styles.PrimaryStyle.Bold(true).Render("N E K O C O D E")
-	versionLine := styles.SubtleStyle.Render(fmt.Sprintf("v%s", s.version))
-	return titleLine + "\n" + versionLine
+	return styles.PrimaryStyle.Bold(true).Render("N E K O C O D E")
 }
 
 func (s *Splash) renderSeparator() string {

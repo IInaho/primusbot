@@ -184,10 +184,11 @@ func (h runHost) Ask(request QuestionRequest) QuestionReply {
 
 func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runLease) {
 	stopMetricsUpdates := func() {}
+	withMetrics := false
 	defer func() {
 		stopMetricsUpdates()
 		if recovered := recover(); recovered != nil {
-			r.finishRun(runID, "", fmt.Errorf("runtime: run %s panicked: %v", runID, recovered))
+			r.finishRun(runID, "", fmt.Errorf("runtime: run %s panicked: %v", runID, recovered), withMetrics)
 		}
 		r.endRun(runID)
 	}()
@@ -198,8 +199,6 @@ func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runL
 	}) {
 		return
 	}
-	stopMetricsUpdates = r.startMetricsUpdates(runID, lease)
-
 	if r.handleRuntimeCommand(ctx, runID, input, host) {
 		return
 	}
@@ -208,9 +207,27 @@ func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runL
 	if !proceed {
 		return
 	}
+	if !lease.guard(func() { r.publishAcceptedInput(runID, input) }) {
+		return
+	}
 
+	withMetrics = true
+	stopMetricsUpdates = r.startMetricsUpdates(runID, lease)
 	result, err := r.runner.Run(ctx, agentInput, host)
-	r.finishRun(runID, result, err)
+	r.finishRun(runID, result, err, true)
+}
+
+// publishAcceptedInput records only inputs that continue to the agent. Runtime
+// and bot commands are control-plane operations: their system response is
+// visible, but the command text is not projected as a conversation message.
+func (r *Manager) publishAcceptedInput(runID RunID, input Input) {
+	r.events.Publish(Event{
+		RunID: runID, Type: EventInputAccepted, Source: input.Source,
+		Payload: MessagePayload{
+			Role: "user", Content: RedactInputText(input.Text),
+			Source: input.Source, Sender: input.Sender,
+		},
+	})
 }
 
 func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input string, host runHost) (string, bool) {
@@ -223,7 +240,7 @@ func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input strin
 	}
 	result, err := r.services.ExecuteCommand(ctx, input, host)
 	if err != nil {
-		r.finishRun(runID, "", err)
+		r.finishRun(runID, "", err, false)
 		return "", false
 	}
 	if result.Output != "" {
@@ -253,7 +270,7 @@ func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input strin
 		}
 		return input, true
 	default:
-		r.finishRun(runID, "", nil)
+		r.finishRun(runID, "", nil, false)
 		return "", false
 	}
 }
@@ -278,11 +295,11 @@ func (r *Manager) handleRuntimeCommand(ctx context.Context, runID RunID, input I
 		response = err.Error()
 	}
 	host.system(response, SourceRef{Kind: "runtime"})
-	r.finishRun(runID, "", nil)
+	r.finishRun(runID, "", nil, false)
 	return true
 }
 
-func (r *Manager) finishRun(runID RunID, output string, err error) {
+func (r *Manager) finishRun(runID RunID, output string, err error, withMetrics bool) {
 	payload := RunResult{Output: output}
 	eventType := EventRunDone
 	status := RunDone
@@ -322,7 +339,9 @@ func (r *Manager) finishRun(runID RunID, output string, err error) {
 	_ = lease.wait(context.Background())
 	r.approvals.RejectAll()
 	r.questions.RejectAll()
-	r.publishMetrics(runID)
+	if withMetrics {
+		r.publishMetrics(runID)
+	}
 	r.events.Publish(Event{RunID: runID, Type: eventType, Source: SourceRef{Kind: "bot"}, Payload: payload})
 
 }

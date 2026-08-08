@@ -37,6 +37,8 @@ export function ReplyConfirmWithPermission(arg1:string,arg2:boolean,arg3:boolean
 
 export function ReplyQuestion(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
+export function ResolveModelProfile(arg1:runtime.ModelSpec):Promise<runtime.ModelProfile>;
+
 export function SaveConfig(arg1:runtime.ConfigView):Promise<runtime.ConfigView>;
 
 export function SelectSkill(arg1:string):Promise<void>;

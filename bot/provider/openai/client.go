@@ -15,7 +15,8 @@ type streamChunk struct {
 		Delta        delta  `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *types.StreamUsage `json:"usage"`
+	Usage             *types.StreamUsage `json:"usage"`
+	SystemFingerprint string             `json:"system_fingerprint"`
 }
 
 type delta struct {
@@ -35,7 +36,6 @@ type apiMessage struct {
 
 type Client struct {
 	types.BaseClient
-	reasoningEffort string
 }
 
 func New(apiKey, baseURL, model string) *Client {
@@ -44,11 +44,10 @@ func New(apiKey, baseURL, model string) *Client {
 	}
 	return &Client{
 		BaseClient: types.BaseClient{
-			APIKey:      apiKey,
-			BaseURL:     baseURL,
-			Model:       model,
-			MaxTokens:   32000,
-			Temperature: 0.3,
+			APIKey:    apiKey,
+			BaseURL:   baseURL,
+			Model:     model,
+			MaxTokens: 32768,
 		},
 	}
 }
@@ -57,6 +56,12 @@ func (c *Client) headers() map[string]string {
 	return map[string]string{
 		"Authorization": "Bearer " + c.APIKey,
 	}
+}
+
+func (c *Client) RequestMeta() types.RequestMeta {
+	reasoning := c.ReasoningSettings()
+	return types.RequestMeta{Model: c.Model, Protocol: "openai", BaseURL: c.BaseURL,
+		RequestedEffort: reasoning.RequestedValue(), EffectiveEffort: reasoning.EffectiveValue()}
 }
 
 func (c *Client) endpoint(path string) string {
@@ -86,6 +91,7 @@ func (c *Client) Chat(ctx context.Context, messages []types.Message, tools []typ
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, err
 	}
+	r.Usage.Normalize()
 	return &r, nil
 }
 
@@ -99,15 +105,8 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 
 		body := c.buildBody(messages, tools, true)
 		jsonBody, _ := json.Marshal(body)
-		tokenCh <- types.StreamToken{Request: &types.RequestMeta{
-			Model:      c.Model,
-			Protocol:   "openai",
-			BaseURL:    c.BaseURL,
-			BodySHA256: types.HashBody(jsonBody),
-			BodyBytes:  len(jsonBody),
-			Body:       jsonBody,
-		}}
-
+		meta := c.RequestMeta()
+		tokenCh <- types.StreamToken{Request: &meta}
 		req, err := c.newStreamRequest(ctx, jsonBody)
 		if err != nil {
 			errCh <- err
@@ -126,6 +125,7 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 				return nil
 			}
 			if chunk.Usage != nil {
+				chunk.Usage.SystemFingerprint = chunk.SystemFingerprint
 				chunk.Usage.Normalize()
 			}
 			if len(chunk.Choices) == 0 {
@@ -162,29 +162,36 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 func (c *Client) buildBody(messages []types.Message, tools []types.ToolDef, stream bool) map[string]any {
 	body := map[string]any{
 		"model": c.Model, "messages": toAPIMessages(messages),
-		"max_tokens": c.GetMaxTokens(), "temperature": c.Temperature,
-		"stream": stream,
+		"max_tokens": c.GetMaxTokens(), "stream": stream,
+	}
+	if c.Temperature != 0 {
+		body["temperature"] = c.Temperature
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools
 		body["tool_choice"] = "auto"
 	}
-	if c.GetDisableThinking() {
-		body["thinking"] = map[string]string{"type": "disabled"}
-	} else if c.reasoningEffort != "" {
-		body["reasoning_effort"] = c.reasoningEffort
-		body["thinking"] = map[string]string{"type": "enabled"}
+	reasoning := c.ReasoningSettings()
+	if reasoning.Disabled {
+		if reasoning.DisableEffort != "" {
+			body["reasoning_effort"] = reasoning.DisableEffort
+		}
+		if reasoning.ThinkingToggle {
+			body["thinking"] = map[string]string{"type": "disabled"}
+		}
+	} else if reasoning.Effort != "" {
+		body["reasoning_effort"] = reasoning.Effort
+		if reasoning.ThinkingToggle {
+			body["thinking"] = map[string]string{"type": "enabled"}
+		}
 	}
 	return body
 }
 
 // toAPIMessages converts internal messages to the wire format, preserving
-// their order and positions. The context manager deliberately places
-// volatile layers (todos, hints, environment notes) at the tail so the
-// prompt prefix stays byte-stable for the provider's prefix cache —
-// hoisting every system message to the front (the old behavior) moved
-// those volatile parts to byte ~100 and invalidated the entire cached
-// prefix on every turn.
+// their order and positions. Dynamic controller state is already represented
+// as tagged user messages in the append-only history; moving or hoisting any
+// message here would invalidate the provider's cached prefix.
 func toAPIMessages(messages []types.Message) []apiMessage {
 	out := make([]apiMessage, 0, len(messages))
 	for _, m := range messages {

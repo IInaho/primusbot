@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"nekocode/bot/agent/internal/llmstream"
+	"nekocode/bot/contextmgr"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
@@ -42,8 +43,8 @@ func (r *modelRunner) reason(input string) *reasoningResult {
 func (r *modelRunner) callLLMForTool() ([]core.ToolCallItem, string, error) {
 	a := r.agent
 	toolDefs := core.ToToolDefs(a.deps.toolRegistry.Descriptors())
-	messages := a.deps.ctxMgr.BuildRequest(toolDefs)
-	messages = r.applyPreModelHooks(messages)
+	policyHints := r.preModelHints(a.deps.ctxMgr.Build())
+	messages := a.deps.ctxMgr.BuildRequest(contextmgr.ModelRequest{Tools: toolDefs, PolicyHints: policyHints})
 
 	result, err := llmstream.CallLLMWithRetry(a.getCtx(), a.deps.llmClient, func() llmstream.LLMCallOptions {
 		return llmstream.LLMCallOptions{
@@ -93,7 +94,7 @@ func usableFinalText(text string) bool {
 
 func (r *modelRunner) streamSynthesize(ctx context.Context) (string, error) {
 	a := r.agent
-	messages := a.deps.ctxMgr.BuildRequest(nil)
+	messages := a.deps.ctxMgr.BuildRequest(contextmgr.ModelRequest{})
 	messages = append(messages, types.Message{Role: "user", Content: synthesizePrompt})
 
 	result, err := llmstream.CallLLM(a.deps.llmClient, llmstream.LLMCallOptions{
@@ -109,20 +110,16 @@ func (r *modelRunner) streamSynthesize(ctx context.Context) (string, error) {
 	return result.Text, nil
 }
 
-func (r *modelRunner) applyPreModelHooks(messages []types.Message) []types.Message {
+func (r *modelRunner) preModelHints(messages []types.Message) string {
 	gov := r.agent.deps.gov
 	if gov == nil {
-		return messages
+		return ""
 	}
 	hints := collectHints(gov.BeforeModel(countToolResults(messages)))
 	if len(hints) == 0 {
-		return messages
+		return ""
 	}
-	return append(messages, types.Message{
-		Role:    "system",
-		Content: policy.FormatHints(hints),
-		Source:  types.MessageSourceVolatileTail,
-	})
+	return policy.FormatHints(hints)
 }
 
 func countToolResults(messages []types.Message) int {
@@ -148,13 +145,11 @@ func (r *modelRunner) streamCallbacks() llmstream.StreamCallbacks {
 			a.stream.emitPhase(phase)
 		},
 		AddTokens: func(prompt, completion int) {
-			a.AddTokens(prompt, completion)
+			a.AddCompletionTokens(completion)
 		},
-		RecordUsage: func(prompt, completion int) {
-			a.deps.ctxMgr.RecordUsage(prompt)
-		},
-		RecordCache: func(hit, miss int) {
-			a.deps.ctxMgr.RecordCache(hit, miss)
+		OnUsage: func(usage types.StreamUsage) {
+			a.deps.ctxMgr.RecordModelUsage(usage)
+			a.RecordLLMUsage(usage)
 		},
 	}
 }

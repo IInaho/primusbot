@@ -77,18 +77,7 @@ func ConsumeStream(tokenCh <-chan types.StreamToken, s *StreamResult, cb StreamC
 				}
 			}
 			if token.Usage != nil {
-				s.LastUsage = token.Usage
-				mergeUsage(&s.Usage, token.Usage)
-				if token.Usage.PromptTokens > 0 || token.Usage.CompletionTokens > 0 {
-					if cb.RecordUsage != nil {
-						cb.RecordUsage(token.Usage.PromptTokens, token.Usage.CompletionTokens)
-					}
-				}
-				if token.Usage.CacheHitTokens > 0 || token.Usage.CacheMissTokens > 0 {
-					if cb.RecordCache != nil {
-						cb.RecordCache(token.Usage.CacheHitTokens, token.Usage.CacheMissTokens)
-					}
-				}
+				s.Usage.Merge(token.Usage)
 			}
 			if token.ToolCallDelta != nil {
 				if firstContent {

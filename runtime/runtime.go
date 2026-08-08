@@ -101,6 +101,7 @@ func New(runner Runner, services Services) *Manager {
 func validateServices(services Services) {
 	requireCompleteService("commands", services.ExecuteCommand != nil, services.CommandMenu != nil)
 	requireCompleteService("context", services.ContextSnapshot != nil, services.MemoryView != nil)
+	requireCompleteService("config", services.ConfigView != nil, services.ResolveModelProfile != nil, services.ApplyConfig != nil)
 	requireCompleteService("sessions", services.CurrentSessionID != nil, services.ListSessions != nil, services.SessionMessages != nil)
 }
 
@@ -130,9 +131,6 @@ func (r *Manager) registerConnectorCommands() {
 			resp = ""
 		}
 		return resp, err
-	})
-	r.registerCommand("devices", "Show connected messaging devices", func(_ context.Context, _ []string) (string, error) {
-		return r.connectors.Devices(), nil
 	})
 }
 

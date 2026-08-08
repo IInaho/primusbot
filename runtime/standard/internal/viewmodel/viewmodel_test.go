@@ -10,9 +10,50 @@ import (
 )
 
 func TestModel(t *testing.T) {
-	got := Model(config.ModelConfig{Provider: "openai", Model: "gpt"})
-	if got.Provider != "openai" || got.Model != "gpt" {
+	got := Model(config.ModelConfig{Provider: "openai", Model: "gpt", ReasoningEffort: "high"})
+	if got.Provider != "openai" || got.Model != "gpt" || got.ReasoningEffort != "high" {
 		t.Fatalf("model view = %+v", got)
+	}
+}
+
+func TestConfigPreservesReasoningEffort(t *testing.T) {
+	source := config.Config{
+		Active:             "main",
+		AutoCompactPercent: 75,
+		Models: []config.ModelConfig{{
+			Name: "main", Provider: "openai", Model: "gpt-5", ReasoningEffort: "medium",
+		}},
+	}
+	view := Config(source)
+	if view.AutoCompactPercent != 75 || ToConfig(view).AutoCompactPercent != 75 {
+		t.Fatalf("auto compaction threshold did not round-trip: %+v", view)
+	}
+	if got := view.Models[0].ReasoningEffort; got != "medium" {
+		t.Fatalf("config view effort = %q", got)
+	}
+	if got := view.Models[0].Profile.ReasoningEfforts; len(got) != 4 || got[0] != "minimal" {
+		t.Fatalf("config view supported efforts = %v", got)
+	}
+	if got := ToConfig(view).Models[0].ReasoningEffort; got != "medium" {
+		t.Fatalf("round-trip effort = %q", got)
+	}
+}
+
+func TestModelProfileResolvesOverrideKnownAndDefaultWindows(t *testing.T) {
+	tests := []struct {
+		model  config.ModelConfig
+		window int
+		source string
+	}{
+		{config.ModelConfig{Model: "gpt-5", ContextWindow: 64_000}, 64_000, "override"},
+		{config.ModelConfig{Model: "deepseek-v4-flash"}, 1_048_576, "model"},
+		{config.ModelConfig{Model: "custom-model"}, config.DefaultContextWindow, "default"},
+	}
+	for _, test := range tests {
+		profile := ModelProfile(test.model)
+		if profile.ContextWindow != test.window || profile.ContextWindowSource != test.source {
+			t.Errorf("ModelProfile(%+v) = %+v", test.model, profile)
+		}
 	}
 }
 

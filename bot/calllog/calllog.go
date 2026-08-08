@@ -1,32 +1,33 @@
-// Package calllog writes one structured JSONL record per LLM call so cache
-// behavior (and failures) can be reconstructed after the fact. Each record
-// carries the wire-body hash — the byte-level proof of prefix stability —
-// plus provider-reported cache usage and local prefix diagnostics. On a
-// severe cache miss the full request body is dumped for post-mortem diffing.
+// Package calllog writes one privacy-safe structured JSONL record per LLM call.
+// Records contain usage, latency, provider routing, and prefix diagnostics but
+// never prompt text, request bodies, headers, or credentials.
 package calllog
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	providertypes "nekocode/bot/provider/types"
 	"nekocode/util/fs"
+	utilhttp "nekocode/util/http"
+	"nekocode/util/text"
 )
 
 const (
-	logFileName       = "llm-calls.jsonl"
-	forensicsDir      = "cache-forensics"
-	maxSize           = 10 << 20
-	maxForensicsFiles = 20
-	// severeMissMinTokens is the miss size above which a low hit ratio is
-	// treated as a cache collapse worth a full body dump.
-	severeMissMinTokens = 50_000
+	logFileName = "llm-calls.jsonl"
+	maxSize     = 10 << 20
 )
 
 // PrefixDiag is the local view of the request's cache-relevant shape: which
@@ -40,26 +41,135 @@ type PrefixDiag struct {
 	HistoryHash  string   `json:"history_hash,omitempty"`
 }
 
-// Record is one LLM call. Usage fields are provider-reported; zero means the
-// provider did not report them (or the call failed before usage arrived).
+// IsZero reports whether no diagnostic field was populated.
+func (d PrefixDiag) IsZero() bool {
+	return len(d.ChangedParts) == 0 && d.SystemHash == "" && d.ToolsHash == "" &&
+		d.HistoryCount == 0 && d.HistoryHash == ""
+}
+
+// Record is one LLM call. CacheUsageReported distinguishes a provider's real
+// zero values from calls where cache details were unavailable.
 type Record struct {
-	TS               time.Time `json:"ts"`
-	Seq              uint64    `json:"seq"`
-	Source           string    `json:"source"`
-	Model            string    `json:"model,omitempty"`
-	Protocol         string    `json:"protocol,omitempty"`
-	BaseURL          string    `json:"base_url,omitempty"`
-	BodySHA256       string    `json:"body_sha256,omitempty"`
-	BodyBytes        int       `json:"body_bytes,omitempty"`
-	DurMs            int64     `json:"dur_ms"`
-	TTFTMs           int64     `json:"ttft_ms,omitempty"`
-	PromptTokens     int       `json:"prompt_tokens,omitempty"`
-	CacheHitTokens   int       `json:"cache_hit_tokens,omitempty"`
-	CacheMissTokens  int       `json:"cache_miss_tokens,omitempty"`
-	CompletionTokens int       `json:"completion_tokens,omitempty"`
-	PrefixDiag       `json:"prefix,omitempty"`
-	Err              string `json:"err,omitempty"`
-	ForensicsFile    string `json:"forensics_file,omitempty"`
+	TS                 time.Time `json:"ts"`
+	Seq                uint64    `json:"seq"`
+	Source             string    `json:"source"`
+	Model              string    `json:"model,omitempty"`
+	Protocol           string    `json:"protocol,omitempty"`
+	BaseURL            string    `json:"base_url,omitempty"`
+	RequestedEffort    string    `json:"requested_effort,omitempty"`
+	EffectiveEffort    string    `json:"effective_effort,omitempty"`
+	DurMs              int64     `json:"dur_ms"`
+	TTFTMs             int64     `json:"ttft_ms,omitempty"`
+	TotalTokens        int       `json:"total"`
+	InTokens           int       `json:"in"`
+	CachedTokens       int       `json:"cached"`
+	NewTokens          int       `json:"new"`
+	OutTokens          int       `json:"out"`
+	ReasoningTokens    int       `json:"reasoning,omitempty"`
+	CacheUsageReported bool      `json:"cache_usage_reported"`
+	CacheHitRatio      *float64  `json:"cache_hit_ratio,omitempty"`
+	Usage              string    `json:"usage,omitempty"`
+	// SystemFingerprint is a short hash of the provider's serving-cluster id;
+	// hit/miss correlated with hash changes points at cache routing without
+	// persisting a provider-controlled string.
+	SystemFingerprint string      `json:"system_fingerprint,omitempty"`
+	PrefixDiag        *PrefixDiag `json:"prefix,omitempty"`
+	Err               string      `json:"err,omitempty"`
+}
+
+// SetUsage normalizes provider usage and stores both machine-readable numbers
+// and the compact human summary used when inspecting the JSONL file.
+func (r *Record) SetUsage(usage providertypes.StreamUsage) {
+	usage.Normalize()
+	input := max(0, usage.PromptTokens)
+	r.InTokens = input
+	r.OutTokens = max(0, usage.CompletionTokens)
+	r.TotalTokens = r.InTokens + r.OutTokens
+	r.ReasoningTokens = max(0, min(usage.ReasoningTokens, r.OutTokens))
+	r.CacheUsageReported = usage.CacheUsageReported
+	if input == 0 && r.OutTokens == 0 {
+		return
+	}
+	if !usage.CacheUsageReported {
+		r.Usage = FormatUsage(r.InTokens, 0, 0, r.OutTokens, r.ReasoningTokens, false)
+		return
+	}
+	r.CachedTokens = max(0, min(usage.CacheHitTokens, input))
+	r.NewTokens = max(0, usage.CacheMissTokens)
+	if input > 0 {
+		ratio := float64(r.CachedTokens) / float64(input)
+		r.CacheHitRatio = &ratio
+	}
+	r.Usage = FormatUsage(r.InTokens, r.CachedTokens, r.NewTokens, r.OutTokens, r.ReasoningTokens, true)
+}
+
+// FormatUsage renders one LLM call as an absolute cache split. Absolute token
+// counts distinguish a healthy growing prefix from an actual cache collapse.
+func FormatUsage(input, cached, fresh, output, reasoning int, cacheReported bool) string {
+	input = max(0, input)
+	output = max(0, output)
+	cached = max(0, cached)
+	fresh = max(0, fresh)
+	reasoning = max(0, min(reasoning, output))
+	parts := []string{text.FormatTokens(input+output) + " tok", "in " + text.FormatTokens(input)}
+	if cacheReported {
+		parts = append(parts, "cached "+text.FormatTokens(cached), "new "+text.FormatTokens(fresh))
+	} else {
+		parts = append(parts, "cached ?", "new ?")
+	}
+	parts = append(parts, "out "+text.FormatTokens(output))
+	if reasoning > 0 {
+		parts = append(parts, "reasoning "+text.FormatTokens(reasoning))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// FingerprintID preserves equality comparisons without persisting the raw,
+// provider-controlled fingerprint value.
+func FingerprintID(value string) string {
+	if value == "" {
+		return ""
+	}
+	return ShortDigest(sha256.Sum256([]byte(value)))
+}
+
+// SafeBaseURL retains only the endpoint origin. Credentials, path components,
+// query parameters, and fragments are removed before anything is written.
+func SafeBaseURL(value string) string {
+	u, err := url.Parse(value)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	u.User = nil
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	return u.String()
+}
+
+// ErrorSummary returns a diagnostic category without persisting provider
+// response bodies, request URLs, or other values embedded in error strings.
+func ErrorSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "context canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "context deadline exceeded"
+	}
+	var httpErr *utilhttp.HTTPError
+	if errors.As(err, &httpErr) {
+		return fmt.Sprintf("API error (HTTP %d)", httpErr.StatusCode)
+	}
+	t := reflect.TypeOf(err)
+	if t == nil {
+		return "error"
+	}
+	return "error: " + t.String()
 }
 
 var (
@@ -81,38 +191,6 @@ func Write(rec Record) {
 		rec.TS = time.Now()
 	}
 	defaultSink.write(rec)
-}
-
-// SevereMiss reports whether a hit/miss pair looks like a cache collapse:
-// a large prompt almost entirely uncached.
-func SevereMiss(hit, miss int) bool {
-	return miss >= severeMissMinTokens && hit*10 < miss
-}
-
-// DumpBodyOnSevereMiss persists the raw wire body for post-mortem diffing
-// when the call was a cache collapse, and returns the file name ("" when no
-// dump happened). Two collapse dumps with identical body_sha256 prove the
-// provider dropped a byte-identical prompt. Cold-start calls always miss the
-// whole prompt — that is expected, not a collapse — so they never dump.
-func DumpBodyOnSevereMiss(rec *Record, body []byte) {
-	if !SevereMiss(rec.CacheHitTokens, rec.CacheMissTokens) || len(body) == 0 {
-		return
-	}
-	for _, part := range rec.ChangedParts {
-		if part == "cold-start" {
-			return
-		}
-	}
-	name := rec.TS.Format("20060102T150405") + "_" + shortHash(rec.BodySHA256) + ".json"
-	dir := filepath.Join(fs.NekocodeLogDir(), forensicsDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
-	}
-	if err := os.WriteFile(filepath.Join(dir, name), body, 0o600); err != nil {
-		return
-	}
-	pruneForensics(dir)
-	rec.ForensicsFile = filepath.Join(forensicsDir, name)
 }
 
 func (s *sink) write(rec Record) {
@@ -152,37 +230,6 @@ func (s *sink) logFile() *os.File {
 	}
 	s.file = f
 	return s.file
-}
-
-func pruneForensics(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil || len(entries) <= maxForensicsFiles {
-		return
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
-	}
-	// Timestamp-prefixed names sort chronologically.
-	sort.Strings(names)
-	for _, name := range names[:len(names)-maxForensicsFiles] {
-		_ = os.Remove(filepath.Join(dir, name))
-	}
-}
-
-// BodyHash returns the canonical hex digest recorded for a wire body.
-func BodyHash(body []byte) string {
-	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
-}
-
-func shortHash(hash string) string {
-	if len(hash) > 12 {
-		return hash[:12]
-	}
-	return hash
 }
 
 // ShortDigest renders a 32-byte digest as 12 hex chars for PrefixDiag.

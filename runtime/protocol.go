@@ -73,6 +73,7 @@ const (
 
 // MetricsSnapshot is independent from run lifecycle status.
 type MetricsSnapshot = protocol.Metrics
+type WorkspaceChanges = protocol.WorkspaceChanges
 type ToolPayload = core.ToolPayload
 type SubAgentPayload = core.SubAgentPayload
 type SessionPayload = core.SessionPayload
@@ -80,8 +81,9 @@ type RunResult = core.RunResult
 
 // ModelSelection identifies the active provider and model.
 type ModelSelection struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // ContextSegment describes one visible part of the active context window.
@@ -94,31 +96,32 @@ type ContextSegment struct {
 
 // ContextSnapshot is the structured context status exposed by a Runner.
 type ContextSnapshot struct {
-	Budget          int              `json:"budget"`
-	Used            int              `json:"used"`
-	Free            int              `json:"free"`
-	PercentUsed     float64          `json:"percentUsed"`
-	SystemPrompt    int              `json:"systemPrompt"`
-	ToolDefTokens   int              `json:"toolDefTokens"`
-	TodoText        int              `json:"todoText"`
-	SkillList       int              `json:"skillList"`
-	MessageTokens   int              `json:"messageTokens"`
-	ToolDefCount    int              `json:"toolDefCount"`
-	MessageCount    int              `json:"messageCount"`
-	UserMessages    int              `json:"userMessages"`
-	AssistantMsgs   int              `json:"assistantMsgs"`
-	ToolResults     int              `json:"toolResults"`
-	Archived        int              `json:"archived"`
-	CompactCount    int              `json:"compactCount"`
-	TrimCount       int              `json:"trimCount"`
-	CacheHitTokens  int              `json:"cacheHitTokens"`
-	CacheMissTokens int              `json:"cacheMissTokens"`
-	CacheHitRatio   float64          `json:"cacheHitRatio"`
-	SubCount        int              `json:"subCount"`
-	SubTokens       int              `json:"subTokens"`
-	SubCacheHit     int              `json:"subCacheHit"`
-	SubCacheMiss    int              `json:"subCacheMiss"`
-	Segments        []ContextSegment `json:"segments"`
+	Budget              int              `json:"budget"`
+	Used                int              `json:"used"`
+	Free                int              `json:"free"`
+	PercentUsed         float64          `json:"percentUsed"`
+	SystemPrompt        int              `json:"systemPrompt"`
+	ToolDefTokens       int              `json:"toolDefTokens"`
+	TodoText            int              `json:"todoText"`
+	SkillList           int              `json:"skillList"`
+	MessageTokens       int              `json:"messageTokens"`
+	ToolDefCount        int              `json:"toolDefCount"`
+	MessageCount        int              `json:"messageCount"`
+	UserMessages        int              `json:"userMessages"`
+	AssistantMsgs       int              `json:"assistantMsgs"`
+	ToolResults         int              `json:"toolResults"`
+	Archived            int              `json:"archived"`
+	CompactCount        int              `json:"compactCount"`
+	CompactionThreshold int              `json:"compactionThreshold"`
+	TrimCount           int              `json:"trimCount"`
+	CacheHitTokens      int              `json:"cacheHitTokens"`
+	CacheMissTokens     int              `json:"cacheMissTokens"`
+	CacheHitRatio       float64          `json:"cacheHitRatio"`
+	SubCount            int              `json:"subCount"`
+	SubTokens           int              `json:"subTokens"`
+	SubCacheHit         int              `json:"subCacheHit"`
+	SubCacheMiss        int              `json:"subCacheMiss"`
+	Segments            []ContextSegment `json:"segments"`
 }
 
 type MemoryScope string
@@ -174,24 +177,42 @@ type ImageRef struct {
 
 // ConfigView is the configuration contract exposed to interaction surfaces.
 type ConfigView struct {
-	Path           string                     `json:"path"`
-	Exists         bool                       `json:"exists"`
-	Active         string                     `json:"active"`
-	ContextWindow  int                        `json:"context_window"`
-	FlashModel     string                     `json:"flash_model,omitempty"`
-	Models         []ModelConfig              `json:"models"`
-	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"`
-	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
-	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
-	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
+	Path               string                     `json:"path"`
+	Exists             bool                       `json:"exists"`
+	Active             string                     `json:"active"`
+	AutoCompactPercent int                        `json:"auto_compact_percent"`
+	FlashModel         string                     `json:"flash_model,omitempty"`
+	Models             []ModelConfig              `json:"models"`
+	ImageGenModels     []ImageGenConfig           `json:"image_gen_models,omitempty"`
+	MCPServers         map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Permissions        *PermissionsConfig         `json:"permissions,omitempty"`
+	Workspaces         []WorkspaceConfig          `json:"workspaces,omitempty"`
 }
 
 type ModelConfig struct {
-	Name          string `json:"name"`
+	Name            string       `json:"name"`
+	Provider        string       `json:"provider"`
+	APIKey          string       `json:"api_key"`
+	Model           string       `json:"model"`
+	BaseURL         string       `json:"base_url,omitempty"`
+	Protocol        string       `json:"protocol,omitempty"`
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	ContextWindow   int          `json:"context_window,omitempty"`
+	Profile         ModelProfile `json:"profile"`
+}
+
+// ModelProfile contains derived model metadata. It is read-only projection
+// state: only ModelConfig's explicit fields are persisted.
+type ModelProfile struct {
+	ContextWindow       int      `json:"context_window"`
+	ContextWindowSource string   `json:"context_window_source"`
+	ReasoningEfforts    []string `json:"reasoning_efforts,omitempty"`
+}
+
+// ModelSpec contains only the fields needed to resolve derived model metadata.
+type ModelSpec struct {
 	Provider      string `json:"provider"`
-	APIKey        string `json:"api_key"`
 	Model         string `json:"model"`
-	BaseURL       string `json:"base_url,omitempty"`
 	Protocol      string `json:"protocol,omitempty"`
 	ContextWindow int    `json:"context_window,omitempty"`
 }

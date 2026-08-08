@@ -3,6 +3,8 @@ package agent
 import (
 	"sync"
 	"testing"
+
+	"nekocode/bot/provider/types"
 )
 
 func TestStreamStateNilCallbacksAreNoOps(t *testing.T) {
@@ -74,8 +76,8 @@ func TestTokenMeterZeroValue(t *testing.T) {
 
 func TestTokenMeterAccumulatesCompletion(t *testing.T) {
 	var m tokenMeter
-	m.add(10, 3)
-	m.add(20, 4)
+	m.addCompletion(3)
+	m.addCompletion(4)
 
 	prompt, completion := m.total(500)
 	if prompt != 500 {
@@ -88,9 +90,9 @@ func TestTokenMeterAccumulatesCompletion(t *testing.T) {
 
 func TestTokenMeterTurnReportsDeltaSinceSnapshot(t *testing.T) {
 	var m tokenMeter
-	m.add(0, 5)
+	m.addCompletion(5)
 	m.snapshot(1000)
-	m.add(0, 8)
+	m.addCompletion(8)
 
 	prompt, completion := m.turn(1200)
 	if prompt != 200 {
@@ -101,7 +103,7 @@ func TestTokenMeterTurnReportsDeltaSinceSnapshot(t *testing.T) {
 	}
 
 	m.snapshot(1200)
-	m.add(0, 2)
+	m.addCompletion(2)
 	prompt, completion = m.turn(1500)
 	if prompt != 300 || completion != 2 {
 		t.Fatalf("turn() after re-snapshot = (%d, %d), want (300, 2)", prompt, completion)
@@ -119,7 +121,7 @@ func TestTokenMeterConcurrentAdds(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range perWorker {
-				m.add(1, 2)
+				m.addCompletion(2)
 			}
 		}()
 	}
@@ -128,5 +130,22 @@ func TestTokenMeterConcurrentAdds(t *testing.T) {
 	_, completion := m.total(0)
 	if want := workers * perWorker * 2; completion != want {
 		t.Fatalf("completion = %d, want %d", completion, want)
+	}
+}
+
+func TestLLMUsageMeterAggregatesCallsAndPreservesUnknownCache(t *testing.T) {
+	var meter llmUsageMeter
+	meter.record(types.StreamUsage{
+		PromptTokens: 100, CompletionTokens: 10,
+		ReasoningTokens: 4, CacheHitTokens: 80, CacheMissTokens: 20, CacheUsageReported: true,
+	})
+	meter.record(types.StreamUsage{PromptTokens: 50, CompletionTokens: 5})
+	total, in, cached, fresh, out, reasoning, reported := meter.snapshot()
+	if total != 165 || in != 150 || cached != 80 || fresh != 20 || out != 15 || reasoning != 4 || reported {
+		t.Fatalf("usage snapshot = total %d in %d cached %d new %d out %d reasoning %d reported=%v", total, in, cached, fresh, out, reasoning, reported)
+	}
+	meter.reset()
+	if total, in, cached, fresh, out, reasoning, reported := meter.snapshot(); total != 0 || in != 0 || cached != 0 || fresh != 0 || out != 0 || reasoning != 0 || reported {
+		t.Fatalf("reset usage snapshot = %d/%d/%d/%d/%d/%d reported=%v", total, in, cached, fresh, out, reasoning, reported)
 	}
 }

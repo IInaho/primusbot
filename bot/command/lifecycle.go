@@ -23,17 +23,17 @@ type skillState struct {
 
 // Deps bundles services needed by registration and lifecycle operations.
 type Deps struct {
-	CtxMgr            *ctxmgr.Manager
-	SetPlanMode       func(bool)
-	SetFullAccess     func(bool)
-	GetFullAccess     func() bool
-	ToolRegistry      *tools.Registry
-	BaseSystemPrompt  func() string
-	GetConfigFn       func() config.ModelConfig
-	ListModelsFn      func() []string
-	SwitchModel       func(string) error
-	ResetConversation func(keepSummary bool) (string, error)
-	Rewind            func(turn string) (string, error)
+	CtxMgr             *ctxmgr.Manager
+	SetPlanMode        func(bool)
+	SetFullAccess      func(bool)
+	GetFullAccess      func() bool
+	ToolRegistry       *tools.Registry
+	GetConfigFn        func() config.ModelConfig
+	ListModelsFn       func() []string
+	SwitchModel        func(string) error
+	SetReasoningEffort func(string) error
+	ResetConversation  func() (string, error)
+	Rewind             func(turn string) (string, error)
 }
 
 // registerAll wires built-in and dynamic slash commands.
@@ -46,15 +46,7 @@ func registerAll(p *Parser, deps Deps, st *skillState) {
 			return "Usage: /plan <task>", true
 		}
 		deps.SetPlanMode(true)
-		parts := make([]string, 0, 2)
-		if deps.BaseSystemPrompt != nil {
-			if base := strings.TrimSpace(deps.BaseSystemPrompt()); base != "" {
-				parts = append(parts, base)
-			}
-		}
-		parts = append(parts, planModePrompt())
-		deps.CtxMgr.SetSystemPrompt(strings.Join(parts, "\n\n"))
-		deps.CtxMgr.Add("user", strings.Join(cmd.Args, " "))
+		deps.CtxMgr.SetRuntimePolicy(planModePrompt())
 		st.WantsAgent = true
 		return "", false
 	})

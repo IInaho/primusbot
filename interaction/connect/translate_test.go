@@ -68,7 +68,7 @@ func TestTranslatePreviewAndResult(t *testing.T) {
 }
 
 func TestTranslateSystemMessage(t *testing.T) {
-	// Command output (e.g. /devices, /config) must reach the chat as a
+	// Command output (e.g. /connect, /model) must reach the chat as a
 	// distinct IntentSystem, not be dropped as a progress event.
 	intents := Translate(controlruntime.Event{
 		Type:    controlruntime.EventSystemMessage,

@@ -96,7 +96,7 @@ func TestExecutorDoesNotCheckpointShellSideEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rewound.Files != 0 {
+	if len(rewound.Changes) != 0 {
 		t.Fatalf("shell side effect was checkpointed: %+v", rewound)
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "after" {

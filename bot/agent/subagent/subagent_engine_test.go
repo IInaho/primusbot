@@ -51,14 +51,19 @@ func TestContextManagerRefreshesSandboxAtBuildTime(t *testing.T) {
 
 	e := &Engine{}
 	mgr := e.newContextManager(cfg)
-	first := mgr.Build()
+	first := mgr.BuildRequest(ctxmgr.ModelRequest{})
 	if !messagesContainText(first, "<environment_context>") || !messagesContainText(first, `<root access="read-write">/repo</root>`) {
 		t.Fatalf("first context missing environment block: %+v", first)
 	}
 	root = "/approved"
-	second := mgr.Build()
-	if messagesContainText(second, `<root access="read-write">/repo</root>`) || !messagesContainText(second, `<root access="read-write">/approved</root>`) {
+	second := mgr.BuildRequest(ctxmgr.ModelRequest{})
+	if !messagesContainText(second, `<root access="read-write">/repo</root>`) || !messagesContainText(second, `<root access="read-write">/approved</root>`) {
 		t.Fatalf("environment block did not refresh: %+v", second)
+	}
+	for i := range first {
+		if first[i].Role != second[i].Role || first[i].Content != second[i].Content {
+			t.Fatalf("environment refresh rewrote request prefix at %d: first=%+v second=%+v", i, first[i], second[i])
+		}
 	}
 	if strings.Contains(mgr.Snapshot().SystemPrompt, "<environment_context>") {
 		t.Fatal("subagent environment leaked into snapshot")
@@ -117,8 +122,13 @@ func TestApplyReadOnlySpiralGuardInjectsReminderAfterThreeExploratoryBatches(t *
 	if ctxMgr.Len() != 0 {
 		t.Fatal("transient reminder should not be persisted in subagent history")
 	}
-	if state.readOnlyStreak != 0 {
-		t.Fatalf("readOnlyStreak = %d, want reset", state.readOnlyStreak)
+	if state.readOnlyStreak != 3 || !state.readOnlyWarned {
+		t.Fatalf("read-only reminder state = streak %d warned %t", state.readOnlyStreak, state.readOnlyWarned)
+	}
+	ctxMgr.SetHints("")
+	applyReadOnlySpiralGuard(ctxMgr, calls, state)
+	if ctxMgr.Snapshot().Hints != "" {
+		t.Fatal("same uninterrupted streak injected a second reminder")
 	}
 }
 
@@ -126,7 +136,7 @@ func TestApplyReadOnlySpiralGuardResetsOnMutation(t *testing.T) {
 	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "system", ContextWindow: 128000})
 	state := &runState{readOnlyStreak: 2}
 	applyReadOnlySpiralGuard(ctxMgr, []core.ToolCallItem{{Name: "write", Args: map[string]any{"path": "a.go"}}}, state)
-	if state.readOnlyStreak != 0 {
-		t.Fatalf("readOnlyStreak = %d, want reset", state.readOnlyStreak)
+	if state.readOnlyStreak != 0 || state.readOnlyWarned {
+		t.Fatalf("read-only state was not reset: streak %d warned %t", state.readOnlyStreak, state.readOnlyWarned)
 	}
 }

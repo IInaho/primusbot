@@ -16,6 +16,14 @@ func TestAutoCompactIfNeeded_NoStrategy(t *testing.T) {
 	}
 }
 
+func TestAutoCompactReportsActualOverflowWhenNothingCanBeTrimmed(t *testing.T) {
+	m := New(Config{SystemPrompt: strings.Repeat("system context ", 20), ContextWindow: 1})
+	compacted, err := m.AutoCompactIfNeeded()
+	if compacted || err == nil || !strings.Contains(err.Error(), "context full") {
+		t.Fatalf("AutoCompactIfNeeded() = %v, %v; want untrimmed context full", compacted, err)
+	}
+}
+
 func TestSummarizeDoesNotBlockOrOverwriteConcurrentHistory(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

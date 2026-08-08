@@ -11,15 +11,7 @@ func modelConfigsToView(in []config.ModelConfig) []controlruntime.ModelConfig {
 	}
 	out := make([]controlruntime.ModelConfig, 0, len(in))
 	for _, m := range in {
-		out = append(out, controlruntime.ModelConfig{
-			Name:          m.Name,
-			Provider:      m.Provider,
-			APIKey:        m.APIKey,
-			Model:         m.Model,
-			BaseURL:       m.BaseURL,
-			Protocol:      m.Protocol,
-			ContextWindow: m.ContextWindow,
-		})
+		out = append(out, modelConfigToView(m))
 	}
 	return out
 }
@@ -30,17 +22,47 @@ func modelConfigsFromView(in []controlruntime.ModelConfig) []config.ModelConfig 
 	}
 	out := make([]config.ModelConfig, 0, len(in))
 	for _, m := range in {
-		out = append(out, config.ModelConfig{
-			Name:          m.Name,
-			Provider:      m.Provider,
-			APIKey:        m.APIKey,
-			Model:         m.Model,
-			BaseURL:       m.BaseURL,
-			Protocol:      m.Protocol,
-			ContextWindow: m.ContextWindow,
-		})
+		out = append(out, modelConfigFromView(m))
 	}
 	return out
+}
+
+func modelConfigToView(m config.ModelConfig) controlruntime.ModelConfig {
+	return controlruntime.ModelConfig{
+		Name: m.Name, Provider: m.Provider, APIKey: m.APIKey, Model: m.Model,
+		BaseURL: m.BaseURL, Protocol: m.Protocol, ReasoningEffort: m.ReasoningEffort,
+		ContextWindow: m.ContextWindow, Profile: ModelProfile(m),
+	}
+}
+
+func modelConfigFromView(m controlruntime.ModelConfig) config.ModelConfig {
+	return config.ModelConfig{
+		Name: m.Name, Provider: m.Provider, APIKey: m.APIKey, Model: m.Model,
+		BaseURL: m.BaseURL, Protocol: m.Protocol, ReasoningEffort: m.ReasoningEffort,
+		ContextWindow: m.ContextWindow,
+	}
+}
+
+func ModelProfile(m config.ModelConfig) controlruntime.ModelProfile {
+	window, source := m.ContextWindow, "override"
+	if window <= 0 {
+		if known, ok := config.KnownContextWindow(m.Model); ok {
+			window, source = known, "model"
+		} else {
+			window = config.DefaultContextWindow
+			source = "default"
+		}
+	}
+	return controlruntime.ModelProfile{
+		ContextWindow: window, ContextWindowSource: source,
+		ReasoningEfforts: config.ReasoningCapabilityFor(m).Efforts,
+	}
+}
+
+func ModelProfileFromSpec(spec controlruntime.ModelSpec) controlruntime.ModelProfile {
+	return ModelProfile(config.ModelConfig{
+		Provider: spec.Provider, Model: spec.Model, Protocol: spec.Protocol, ContextWindow: spec.ContextWindow,
+	})
 }
 
 func imageGenConfigsToView(in []config.ImageGenConfig) []controlruntime.ImageGenConfig {

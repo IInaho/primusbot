@@ -6,6 +6,7 @@ import (
 
 	"nekocode/bot/provider/anthropic"
 	"nekocode/bot/provider/openai"
+	"nekocode/bot/provider/types"
 )
 
 func TestOpenAIClient(t *testing.T) {
@@ -46,6 +47,38 @@ func TestFactory(t *testing.T) {
 	}
 	if New(Config{APIKey: "k", Model: "mimo-v3", Protocol: "openai"}) == nil {
 		t.Error("mimo + openai should return LLM")
+	}
+}
+
+func TestFactoryAppliesReasoningEffort(t *testing.T) {
+	openAI := New(Config{Model: "m", Protocol: "openai", Reasoning: types.ReasoningSettings{Requested: "high", Effort: "high"}})
+	openAIClient, ok := openAI.(*openai.Client)
+	if !ok || openAIClient.ReasoningSettings().Effort != "high" || openAIClient.GetDisableThinking() {
+		t.Fatalf("openai effort was not applied: %#v", openAI)
+	}
+	anthropicClient := New(Config{Model: "m", Protocol: "anthropic", Reasoning: types.ReasoningSettings{Requested: "medium", Effort: "medium"}})
+	if got := anthropicClient.(*anthropic.Client).ReasoningSettings().Effort; got != "medium" {
+		t.Fatalf("anthropic effort = %q, want medium", got)
+	}
+	none := New(Config{Model: "m", Protocol: "openai", Reasoning: types.ReasoningSettings{
+		Requested: "none", Effort: "none", Disabled: true, DisableEffort: "none",
+	}}).(*openai.Client)
+	if !none.GetDisableThinking() || none.ReasoningSettings().Effort != "none" {
+		t.Fatalf("none effort should disable thinking while preserving the request value: %#v", none)
+	}
+}
+
+func TestRequestMetaReportsRequestedAndEffectiveReasoning(t *testing.T) {
+	client := New(Config{Model: "m", Protocol: "openai"}).(*openai.Client)
+	if got := client.RequestMeta(); got.RequestedEffort != "auto" || got.EffectiveEffort != "auto" {
+		t.Fatalf("auto metadata = %+v", got)
+	}
+	client.SetReasoningSettings(types.ReasoningSettings{
+		Requested: "high", Effort: "high", ThinkingToggle: true,
+	})
+	client.SetDisableThinking(true)
+	if got := client.RequestMeta(); got.RequestedEffort != "high" || got.EffectiveEffort != "none" {
+		t.Fatalf("disabled metadata = %+v", got)
 	}
 }
 

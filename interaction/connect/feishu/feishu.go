@@ -226,7 +226,7 @@ func (s eventSink) Post(ctx context.Context, in connect.Intent) error {
 	case connect.IntentResult, connect.IntentFailed:
 		s.sendResult(ctx, in.Text)
 	case connect.IntentSystem:
-		// Command/system reply (e.g. /devices, /config): deliver as a
+		// Command/system reply (e.g. /connect, /model): deliver as a
 		// result card, distinct from run terminalization.
 		s.sendResult(ctx, in.Text)
 	case connect.IntentStopped:

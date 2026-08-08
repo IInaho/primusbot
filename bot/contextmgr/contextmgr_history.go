@@ -81,8 +81,10 @@ func (m *Manager) Reset() {
 	m.clearLocked()
 	m.state.ctx.Archive = ""
 	m.state.ctx.Hints = ""
+	m.state.runtimePolicy = ""
 	m.state.tracker.Restore(token.State{})
 	m.state.prefix.Reset()
+	m.resetRuntimeContextLocked()
 	m.state.compactCount = 0
 	m.state.trimCount = 0
 	m.state.revision++
@@ -99,6 +101,7 @@ func (m *Manager) TruncateTo(n int) {
 		m.state.ctx.Messages = m.state.ctx.Messages[:n]
 		m.state.revision++
 		m.state.tracker.RecordPrompt(m.totalTokenEstimate())
+		m.restoreRuntimeContextLocked()
 	}
 }
 
@@ -112,26 +115,11 @@ func (m *Manager) RemoveMessages(startIdx, endIdx int) {
 	m.state.ctx.Messages = append(m.state.ctx.Messages[:startIdx], m.state.ctx.Messages[endIdx+1:]...)
 	m.state.revision++
 	m.state.tracker.RecordPrompt(m.totalTokenEstimate())
+	m.restoreRuntimeContextLocked()
 	logger.Log("remove_messages: dropped %d messages [%d:%d] (total now %d)", n, startIdx, endIdx, len(m.state.ctx.Messages))
-}
-
-// ResetHistory clears active history while preserving the compaction archive.
-func (m *Manager) ResetHistory() {
-	m.state.mu.Lock()
-	defer m.state.mu.Unlock()
-	n := len(m.state.ctx.Messages)
-	m.clearLocked()
-	logger.Log("fresh_start: clearing all %d messages", n)
-	m.state.ctx.Hints = ""
-	m.state.tracker.Restore(token.State{})
-	m.state.prefix.Reset()
-	m.state.compactCount = 0
-	m.state.trimCount = 0
-	m.state.revision++
 }
 
 func (m *Manager) clearLocked() {
 	m.state.ctx.Messages = make([]types.Message, 0)
-	m.state.ctx.Todo = ""
 	m.state.ctx.TodoItems = nil
 }

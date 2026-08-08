@@ -64,7 +64,7 @@ func writeConfig(t *testing.T, data string) {
 }
 
 func TestLoadAutoResolvesContextWindow(t *testing.T) {
-	// No context_window anywhere: resolve from the active model's name.
+	// No per-model override: resolve from the active model's name.
 	writeConfig(t, `{
 		"active": "ds",
 		"models": [{"name": "ds", "provider": "deepseek", "model": "deepseek-v4-flash", "api_key": "k"}]

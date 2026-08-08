@@ -118,10 +118,11 @@ func (b *Bot) initCtxMgr() error {
 		return fmt.Errorf("bot: load memory: %w", err)
 	}
 	b.ctxMgr = ctxmgr.New(ctxmgr.Config{
-		SystemPrompt:  systemPrompt,
-		ContextWindow: b.cfg.EffectiveContextWindow(),
-		Memory:        memFile,
-		RuntimePrompt: b.promptBuilder.BuildEnvironment,
+		SystemPrompt:       systemPrompt,
+		ContextWindow:      b.cfg.EffectiveContextWindow(),
+		AutoCompactPercent: b.cfg.EffectiveAutoCompactPercent(),
+		Memory:             memFile,
+		RuntimePrompt:      b.promptBuilder.BuildEnvironment,
 	})
 	return nil
 }
@@ -181,16 +182,19 @@ func (b *Bot) initAgent() {
 	am := b.cfg.ActiveModelConfig()
 	llmClient := provider.New(provider.Config{
 		APIKey: am.APIKey, BaseURL: am.BaseURL, Model: am.Model, Protocol: am.Protocol,
+		Reasoning: resolvedReasoning(am),
 	})
 
 	fm := b.cfg.ResolveModel(b.cfg.FlashModel)
 	compactionModel := provider.New(provider.Config{
 		APIKey: fm.APIKey, BaseURL: fm.BaseURL, Model: fm.Model, Protocol: fm.Protocol,
+		Reasoning: resolvedReasoning(fm),
 	})
 	compactionModel.SetDisableThinking(true)
 	compactionModel.SetMaxTokens(2000)
 	b.ctxMgr.ConfigureModel(ctxmgr.ModelContext{
-		Window: b.cfg.EffectiveContextWindow(), CompactionModel: compactionModel,
+		Window: b.cfg.EffectiveContextWindow(), AutoCompactPercent: b.cfg.EffectiveAutoCompactPercent(),
+		CompactionModel: compactionModel,
 	})
 
 	b.ag = agent.New(context.Background(), agent.Config{
@@ -237,14 +241,14 @@ func (b *Bot) initCommands() {
 			b.fullAccess.Store(on)
 			b.getAgent().Executor().SetFullAccess(on)
 		},
-		GetFullAccess:     b.fullAccess.Load,
-		ToolRegistry:      b.toolbox.Registry,
-		BaseSystemPrompt:  b.promptBuilder.BuildStatic,
-		GetConfigFn:       b.model,
-		ListModelsFn:      b.cfg.AllModelNames,
-		SwitchModel:       b.SwitchModel,
-		ResetConversation: b.resetConversation,
-		Rewind:            b.rewindCheckpoint,
+		GetFullAccess:      b.fullAccess.Load,
+		ToolRegistry:       b.toolbox.Registry,
+		GetConfigFn:        b.model,
+		ListModelsFn:       b.cfg.AllModelNames,
+		SwitchModel:        b.SwitchModel,
+		SetReasoningEffort: b.SetReasoningEffort,
+		ResetConversation:  b.resetConversation,
+		Rewind:             b.rewindCheckpoint,
 	}
 	if b.cmd == nil {
 		b.cmd = command.New(deps)

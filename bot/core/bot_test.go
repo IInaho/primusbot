@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,15 @@ func TestNewBuildsRunnableBot(t *testing.T) {
 	if !ok || menu.Title != "Choose model" || len(menu.Items) != len(b.cfg.Models) || !menu.Items[0].Submit {
 		t.Fatalf("model command menu = %+v, %v", menu, ok)
 	}
-	for _, input := range []string{"/plan", "/export", "/new", "/clear", "/context", "/summarize", "/config"} {
+	effortMenu, ok := b.CommandMenu(context.Background(), "/effort")
+	if !ok || effortMenu.Title != "Reasoning effort" || len(effortMenu.Items) != 4 {
+		t.Fatalf("effort command menu = %+v, %v", effortMenu, ok)
+	}
+	if effortMenu.Items[0].Value != "/effort auto" || !effortMenu.Items[0].Submit ||
+		!strings.Contains(effortMenu.Items[0].Description, "current") {
+		t.Fatalf("default effort menu item = %+v", effortMenu.Items[0])
+	}
+	for _, input := range []string{"/plan", "/export", "/new", "/context", "/summarize"} {
 		if _, ok := b.CommandMenu(context.Background(), input); ok {
 			t.Fatalf("free-form or immediate command %q unexpectedly exposed a menu", input)
 		}

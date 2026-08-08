@@ -9,6 +9,7 @@ import (
 	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
 	"nekocode/bot/policy/builtin"
+	"nekocode/bot/provider/types"
 )
 
 func newTestAgent() *Agent {
@@ -150,9 +151,9 @@ func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
 	}
 
 	a.applyTurnHints(nil)
-	msgs := a.deps.ctxMgr.Build()
-	if len(msgs) == 0 || msgs[len(msgs)-1].Role != "system" || !strings.Contains(msgs[len(msgs)-1].Content, `type="policy_block"`) {
-		t.Fatalf("expected pending hook hint in transient system layer, got %+v", msgs)
+	msgs := a.deps.ctxMgr.BuildRequest(ctxmgr.ModelRequest{})
+	if len(msgs) == 0 || msgs[len(msgs)-1].Role != "user" || msgs[len(msgs)-1].Source != types.MessageSourceHint || !strings.Contains(msgs[len(msgs)-1].Content, `type="policy_block"`) {
+		t.Fatalf("expected pending hook hint in tagged user context, got %+v", msgs)
 	}
 }
 

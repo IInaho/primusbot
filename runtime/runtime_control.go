@@ -82,20 +82,6 @@ func (r *Manager) StartRun(ctx context.Context, input Input) (RunID, error) {
 	r.runLease = lease
 	r.mu.Unlock()
 
-	lease.emit(func() {
-		r.events.Publish(Event{
-			RunID:  runID,
-			Type:   EventInputAccepted,
-			Source: input.Source,
-			Payload: MessagePayload{
-				Role:    "user",
-				Content: RedactInputText(input.Text),
-				Source:  input.Source,
-				Sender:  input.Sender,
-			},
-		})
-	})
-
 	go r.run(runCtx, runID, input, lease)
 	return runID, nil
 }

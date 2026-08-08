@@ -41,7 +41,9 @@ func (m *Manager) Restore(snap ManagerSnapshot) {
 	m.state.ctx.Archive = snap.Archive
 	m.state.ctx.Memory = snap.Memory
 	m.state.ctx.Hints = snap.Hints
+	m.state.runtimePolicy = ""
 	m.state.ctx.Messages = append([]types.Message(nil), snap.Messages...)
+	m.restoreRuntimeContextLocked()
 	m.state.contextWindow = snap.Budget
 	if m.state.tracker == nil {
 		m.state.tracker = &token.Tracker{}

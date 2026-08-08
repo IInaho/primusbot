@@ -49,6 +49,12 @@ func (*tickFakeBot) CurrentModel() controlruntime.ModelSelection {
 	return controlruntime.ModelSelection{Provider: "test", Model: "test"}
 }
 func (*tickFakeBot) PermissionMode() string { return "manual" }
+func (*tickFakeBot) ContextSnapshot() controlruntime.ContextSnapshot {
+	return controlruntime.ContextSnapshot{}
+}
+func (*tickFakeBot) WorkspaceChanges() controlruntime.WorkspaceChanges {
+	return controlruntime.WorkspaceChanges{}
+}
 func (*tickFakeBot) SwitchModel(string) (controlruntime.ModelSelection, error) {
 	return controlruntime.ModelSelection{}, nil
 }

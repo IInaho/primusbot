@@ -37,8 +37,11 @@ func TestSnapshotCaptureContext(t *testing.T) {
 		Skills:       "skills",
 		Memory:       "mem",
 		Archive:      "arch",
-		Messages:     []types.Message{{Role: "user", Content: "hi"}},
-		Budget:       100,
+		Messages: []types.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "user", Content: "<workspace_event/>", Source: types.MessageSourceRuntimeEvent},
+		},
+		Budget: 100,
 		Tracker: token.State{
 			LastPromptTokens: 1000,
 			NewMessageTokens: 50,
@@ -59,6 +62,9 @@ func TestSnapshotCaptureContext(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sess.LoadedSkills, []string{"a", "b"}) {
 		t.Fatalf("loaded skills = %+v", sess.LoadedSkills)
+	}
+	if len(sess.Messages) != 2 || sess.Messages[1].Source != types.MessageSourceRuntimeEvent {
+		t.Fatalf("runtime event was not captured: %+v", sess.Messages)
 	}
 	if sess.TrackerPrompt != 1000 || sess.TrackerCompletion != 0 || sess.TrackerNewTokens != 50 || sess.CacheHitTokens != 70 || sess.CacheMissTokens != 30 || sess.SubCount != 2 || sess.SubTokens != 500 || sess.SubCacheHit != 40 || sess.SubCacheMiss != 60 {
 		t.Fatalf("tracker fields not applied: %+v", sess)

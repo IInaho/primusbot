@@ -17,16 +17,18 @@ func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, 
 	registry := b.toolbox.Registry
 	ctxMgr := b.ctxMgr
 	contextWindow := b.cfg.EffectiveContextWindow()
+	autoCompactPercent := b.cfg.EffectiveAutoCompactPercent()
 
 	b.toolbox.WireTaskRunner(func(ctx context.Context, prompt, agentType, thoroughness string) (*taskbridge.TaskResult, error) {
 		subLLM := provider.New(provider.Config{
 			APIKey: fm.APIKey, BaseURL: fm.BaseURL, Model: fm.Model, Protocol: fm.Protocol,
+			Reasoning: resolvedReasoning(fm),
 		})
 		subLLM.SetDisableThinking(true)
 		engine := subagent.New(subagent.Config{
 			LLM: subLLM, Tools: registry, CompactionModel: compactionModel,
 		})
-		cfg, ok := buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, contextWindow, ag, b.environment)
+		cfg, ok := buildSubagentRunConfig(ctx, prompt, agentType, thoroughness, contextWindow, autoCompactPercent, ag, b.environment)
 		if !ok {
 			return nil, fmt.Errorf("unknown sub-agent type: %s", agentType)
 		}
@@ -41,7 +43,7 @@ func (b *Bot) wireTaskTool(fm config.ModelConfig, compactionModel provider.LLM, 
 func buildSubagentRunConfig(
 	ctx context.Context,
 	prompt, agentType, thoroughness string,
-	contextWindow int,
+	contextWindow, autoCompactPercent int,
 	ag *agentcore.Agent,
 	environment prompt.EnvironmentProvider,
 ) (subagent.RunConfig, bool) {
@@ -50,16 +52,20 @@ func buildSubagentRunConfig(
 		return subagent.RunConfig{}, false
 	}
 	cfg := subagent.RunConfig{
-		Prompt:        prompt,
-		AgentType:     at,
-		Thoroughness:  thoroughness,
-		ContextWindow: contextWindow,
-		ConfirmFn:     ag.ConfirmFn(),
-		FullAccess:    ag.Executor().FullAccess,
-		ToolState:     ag.ToolExecutionState(),
-		AddTokens:     ag.AddTokens,
-		Policy:        ag.Governance(),
-		Environment:   environment,
+		Prompt:             prompt,
+		AgentType:          at,
+		Thoroughness:       thoroughness,
+		ContextWindow:      contextWindow,
+		AutoCompactPercent: autoCompactPercent,
+		ConfirmFn:          ag.ConfirmFn(),
+		FullAccess:         ag.Executor().FullAccess,
+		ToolState:          ag.ToolExecutionState(),
+		AddTokens: func(_ int, completion int) {
+			ag.AddCompletionTokens(completion)
+		},
+		RecordLLMUsage: ag.RecordLLMUsage,
+		Policy:         ag.Governance(),
+		Environment:    environment,
 	}
 	if subCB, ok := taskbridge.TaskCallbackFromCtx(ctx); ok {
 		cfg.OnToolCall = func(ev subagent.ToolCallEvent) {

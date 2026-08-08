@@ -1,6 +1,7 @@
 package llmstream
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -9,24 +10,34 @@ import (
 	"nekocode/bot/provider/types"
 )
 
-func TestMergeUsageKeepsSplitReports(t *testing.T) {
-	var acc types.StreamUsage
-	// Anthropic pattern: prompt/cache at message_start, completion at
-	// message_delta — neither report alone carries all fields.
-	mergeUsage(&acc, &types.StreamUsage{PromptTokens: 1000, CacheHitTokens: 800, CacheMissTokens: 200})
-	mergeUsage(&acc, &types.StreamUsage{CompletionTokens: 42})
-	if acc.PromptTokens != 1000 || acc.CacheHitTokens != 800 || acc.CacheMissTokens != 200 || acc.CompletionTokens != 42 {
-		t.Fatalf("merged usage = %+v", acc)
-	}
+type fakeStreamClient struct {
+	tokens []types.StreamToken
 }
+
+func (f *fakeStreamClient) Chat(context.Context, []types.Message, []types.ToolDef) (*types.Response, error) {
+	return nil, nil
+}
+func (f *fakeStreamClient) ChatStream(context.Context, []types.Message, []types.ToolDef) (<-chan types.StreamToken, <-chan error) {
+	tokens := make(chan types.StreamToken, len(f.tokens))
+	errs := make(chan error)
+	for _, token := range f.tokens {
+		tokens <- token
+	}
+	close(tokens)
+	close(errs)
+	return tokens, errs
+}
+func (f *fakeStreamClient) SetMaxTokens(int)         {}
+func (f *fakeStreamClient) GetMaxTokens() int        { return 0 }
+func (f *fakeStreamClient) SetDisableThinking(bool)  {}
+func (f *fakeStreamClient) GetDisableThinking() bool { return false }
 
 func captureRecord(t *testing.T) *calllog.Record {
 	t.Helper()
 	var got calllog.Record
-	origWrite, origDump := writeRecord, dumpBody
+	origWrite := writeRecord
 	writeRecord = func(rec calllog.Record) { got = rec }
-	dumpBody = func(rec *calllog.Record, body []byte) {}
-	t.Cleanup(func() { writeRecord, dumpBody = origWrite, origDump })
+	t.Cleanup(func() { writeRecord = origWrite })
 	return &got
 }
 
@@ -35,10 +46,11 @@ func TestWriteCallRecordAssemblesEvidence(t *testing.T) {
 
 	start := time.Now().Add(-2 * time.Second)
 	stream := &StreamResult{
-		Usage:        types.StreamUsage{PromptTokens: 100, CacheHitTokens: 10, CacheMissTokens: 90, CompletionTokens: 5},
+		Usage:        types.StreamUsage{PromptTokens: 100, CacheHitTokens: 10, CacheMissTokens: 90, CompletionTokens: 5, ReasoningTokens: 2, CacheUsageReported: true},
 		FirstTokenAt: start.Add(300 * time.Millisecond),
 		Request: &types.RequestMeta{
-			Model: "m", Protocol: "openai", BaseURL: "https://x", BodySHA256: "abc", BodyBytes: 7,
+			Model: "m", Protocol: "openai", BaseURL: "https://x",
+			RequestedEffort: "high", EffectiveEffort: "high",
 		},
 	}
 	opts := LLMCallOptions{
@@ -52,16 +64,19 @@ func TestWriteCallRecordAssemblesEvidence(t *testing.T) {
 	}
 	writeCallRecord(opts, stream, start, nil)
 
-	if got.Source != "main" || got.Model != "m" || got.Protocol != "openai" || got.BodySHA256 != "abc" || got.BodyBytes != 7 {
+	if got.Source != "main" || got.Model != "m" || got.Protocol != "openai" {
 		t.Errorf("request evidence = %+v", got)
 	}
-	if got.PromptTokens != 100 || got.CacheHitTokens != 10 || got.CacheMissTokens != 90 || got.CompletionTokens != 5 {
+	if got.RequestedEffort != "high" || got.EffectiveEffort != "high" {
+		t.Errorf("reasoning evidence = %+v", got)
+	}
+	if got.TotalTokens != 105 || got.InTokens != 100 || got.CachedTokens != 10 || got.NewTokens != 90 || got.OutTokens != 5 || got.ReasoningTokens != 2 || got.Usage == "" {
 		t.Errorf("usage evidence = %+v", got)
 	}
 	if got.TTFTMs != 300 || got.DurMs < 1000 {
 		t.Errorf("timing = ttft %dms dur %dms", got.TTFTMs, got.DurMs)
 	}
-	if len(got.ChangedParts) != 1 || got.HistoryCount != 3 || got.Err != "" {
+	if got.PrefixDiag == nil || len(got.PrefixDiag.ChangedParts) != 1 || got.PrefixDiag.HistoryCount != 3 || got.Err != "" {
 		t.Errorf("diag = %+v", got.PrefixDiag)
 	}
 }
@@ -71,10 +86,28 @@ func TestWriteCallRecordOnFailureKeepsErr(t *testing.T) {
 
 	writeCallRecord(LLMCallOptions{}, &StreamResult{}, time.Now(), errors.New("stream idle timeout"))
 
-	if got.Err != "stream idle timeout" {
+	if got.Err != "error: *errors.errorString" {
 		t.Errorf("err = %q", got.Err)
 	}
 	if got.Source != "unknown" {
 		t.Errorf("source default = %q", got.Source)
+	}
+}
+
+func TestCallLLMReportsFinalPerCallUsage(t *testing.T) {
+	client := &fakeStreamClient{tokens: []types.StreamToken{{Usage: &types.StreamUsage{
+		PromptTokens: 100, CompletionTokens: 12, ReasoningTokens: 2,
+		CacheHitTokens: 90, CacheMissTokens: 10, CacheUsageReported: true,
+	}}}}
+	var got types.StreamUsage
+	_, err := CallLLM(client, LLMCallOptions{
+		Ctx:       context.Background(),
+		Callbacks: StreamCallbacks{OnUsage: func(usage types.StreamUsage) { got = usage }},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalTokens != 112 || got.PromptTokens != 100 || got.CacheHitTokens != 90 || got.CacheMissTokens != 10 || got.CompletionTokens != 12 || got.ReasoningTokens != 2 {
+		t.Fatalf("recorded call usage = %+v", got)
 	}
 }

@@ -18,6 +18,7 @@ type Services struct {
 	PermissionMode         func() string
 	SwitchModel            func(string) (ModelSelection, error)
 	ContextSnapshot        func() ContextSnapshot
+	WorkspaceChanges       func() WorkspaceChanges
 	MemoryView             func(MemoryScope) MemoryView
 	SkillManagementView    func() SkillManagementView
 	SelectSkill            func(string) error
@@ -25,6 +26,7 @@ type Services struct {
 	RefreshSkillManagement func() SkillManagementView
 	SetPluginEnabled       func(string, bool) (SkillManagementView, error)
 	ConfigView             func() ConfigView
+	ResolveModelProfile    func(ModelSpec) ModelProfile
 	ApplyConfig            func(ConfigView) (ConfigView, error)
 	CurrentSessionID       func() string
 	ListSessions           func() []SessionMeta

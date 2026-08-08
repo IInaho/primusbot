@@ -21,11 +21,10 @@ func New(apiKey, baseURL, model string) *Client {
 	}
 	return &Client{
 		BaseClient: types.BaseClient{
-			APIKey:      apiKey,
-			BaseURL:     baseURL,
-			Model:       model,
-			MaxTokens:   32000,
-			Temperature: 0.7,
+			APIKey:    apiKey,
+			BaseURL:   baseURL,
+			Model:     model,
+			MaxTokens: 32768,
 		},
 	}
 }
@@ -54,22 +53,31 @@ type message struct {
 }
 
 type request struct {
-	Model       string    `json:"model"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature float64   `json:"temperature"`
-	System      string    `json:"system,omitempty"`
-	Messages    []message `json:"messages"`
-	Tools       []tool    `json:"tools,omitempty"`
-	Stream      bool      `json:"stream"`
+	Model        string        `json:"model"`
+	MaxTokens    int           `json:"max_tokens"`
+	Temperature  float64       `json:"temperature,omitempty"`
+	System       string        `json:"system,omitempty"`
+	Messages     []message     `json:"messages"`
+	Tools        []tool        `json:"tools,omitempty"`
+	Stream       bool          `json:"stream"`
+	OutputConfig *outputConfig `json:"output_config,omitempty"`
+}
+
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 type response struct {
 	ID      string         `json:"id"`
 	Content []contentBlock `json:"content"`
-	Usage   struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage   wireUsage      `json:"usage"`
+}
+
+type wireUsage struct {
+	InputTokens              int  `json:"input_tokens"`
+	OutputTokens             int  `json:"output_tokens"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
 }
 
 type sseEvent struct {
@@ -77,14 +85,9 @@ type sseEvent struct {
 	Index        int             `json:"index"`
 	Delta        json.RawMessage `json:"delta"`
 	ContentBlock json.RawMessage `json:"content_block"`
-	Usage        *struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-	Message struct {
-		Usage struct {
-			InputTokens          int `json:"input_tokens"`
-			CacheReadInputTokens int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+	Usage        *wireUsage      `json:"usage"`
+	Message      struct {
+		Usage wireUsage `json:"usage"`
 	} `json:"message"`
 }
 
@@ -185,17 +188,40 @@ func toResponse(ar *response) *types.Response {
 	resp.Choices = []types.Choice{{
 		Message: types.Message{Role: "assistant", Content: text, ToolCalls: toolCalls},
 	}}
-	resp.Usage.PromptTokens = ar.Usage.InputTokens
-	resp.Usage.CompletionTokens = ar.Usage.OutputTokens
-	resp.Usage.TotalTokens = ar.Usage.InputTokens + ar.Usage.OutputTokens
+	resp.Usage = normalizeUsage(ar.Usage)
 	return resp
+}
+
+func normalizeUsage(usage wireUsage) types.StreamUsage {
+	created := intValue(usage.CacheCreationInputTokens)
+	read := intValue(usage.CacheReadInputTokens)
+	cacheReported := usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil
+	miss := 0
+	if cacheReported {
+		miss = usage.InputTokens + created
+	}
+	return types.StreamUsage{
+		PromptTokens:       usage.InputTokens + created + read,
+		CompletionTokens:   usage.OutputTokens,
+		TotalTokens:        usage.InputTokens + created + read + usage.OutputTokens,
+		CacheHitTokens:     read,
+		CacheMissTokens:    miss,
+		CacheUsageReported: cacheReported,
+	}
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // --- public ---
 
 func (c *Client) buildRequest(messages []types.Message, tools []types.ToolDef, stream bool) *request {
 	msgs, sys := toMessages(messages)
-	return &request{
+	req := &request{
 		Model:       c.Model,
 		MaxTokens:   c.GetMaxTokens(),
 		Temperature: c.Temperature,
@@ -204,6 +230,10 @@ func (c *Client) buildRequest(messages []types.Message, tools []types.ToolDef, s
 		Tools:       toTools(tools),
 		Stream:      stream,
 	}
+	if reasoning := c.ReasoningSettings(); !reasoning.Disabled && reasoning.Effort != "" {
+		req.OutputConfig = &outputConfig{Effort: reasoning.Effort}
+	}
+	return req
 }
 
 func (c *Client) headers() map[string]string {
@@ -212,6 +242,12 @@ func (c *Client) headers() map[string]string {
 		"Authorization":     "Bearer " + c.APIKey,
 		"anthropic-version": "2023-06-01",
 	}
+}
+
+func (c *Client) RequestMeta() types.RequestMeta {
+	reasoning := c.ReasoningSettings()
+	return types.RequestMeta{Model: c.Model, Protocol: "anthropic", BaseURL: c.BaseURL,
+		RequestedEffort: reasoning.RequestedValue(), EffectiveEffort: reasoning.EffectiveValue()}
 }
 
 func (c *Client) endpoint(path string) string {
@@ -254,15 +290,8 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 
 		body := c.buildRequest(messages, tools, true)
 		jsonBody, _ := json.Marshal(body)
-		tokenCh <- types.StreamToken{Request: &types.RequestMeta{
-			Model:      c.Model,
-			Protocol:   "anthropic",
-			BaseURL:    c.BaseURL,
-			BodySHA256: types.HashBody(jsonBody),
-			BodyBytes:  len(jsonBody),
-			Body:       jsonBody,
-		}}
-
+		meta := c.RequestMeta()
+		tokenCh <- types.StreamToken{Request: &meta}
 		req, err := c.newStreamRequest(ctx, jsonBody)
 		if err != nil {
 			errCh <- err
@@ -290,13 +319,10 @@ func (c *Client) ChatStream(ctx context.Context, messages []types.Message, tools
 
 			switch event.Type {
 			case "message_start":
-				if event.Message.Usage.InputTokens > 0 || event.Message.Usage.CacheReadInputTokens > 0 {
-					u := &types.StreamUsage{
-						PromptTokens:   event.Message.Usage.InputTokens,
-						CacheHitTokens: event.Message.Usage.CacheReadInputTokens,
-					}
-					u.Normalize()
-					tokenCh <- types.StreamToken{Usage: u}
+				usage := event.Message.Usage
+				if usage.InputTokens > 0 || usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil {
+					u := normalizeUsage(usage)
+					tokenCh <- types.StreamToken{Usage: &u}
 				}
 			case "content_block_start":
 				var cb contentBlock

@@ -78,6 +78,10 @@ func (a *App) GetConfig() controlruntime.ConfigView {
 	return a.impl.GetConfig()
 }
 
+func (a *App) ResolveModelProfile(model controlruntime.ModelSpec) controlruntime.ModelProfile {
+	return a.impl.ResolveModelProfile(model)
+}
+
 func (a *App) SaveConfig(cfg controlruntime.ConfigView) (controlruntime.ConfigView, error) {
 	return a.impl.SaveConfig(cfg)
 }

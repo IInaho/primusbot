@@ -2,8 +2,10 @@ package command
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"nekocode/bot/config"
 	"nekocode/protocol"
 )
 
@@ -53,14 +55,14 @@ func TestParserMenuIsOptionalAndDynamic(t *testing.T) {
 	if _, ok := p.Menu(context.Background(), "/model fast"); ok {
 		t.Fatal("model menu remained open after a model argument")
 	}
-	if menu, ok := p.Menu(context.Background(), "/help"); !ok || menu.Title != "Commands" {
-		t.Fatal("help did not expose the root command menu")
+	if _, ok := p.Menu(context.Background(), "/help"); ok {
+		t.Fatal("help should not expose a command menu")
 	}
 }
 
 func TestRootMenuNeverAutoSubmitsCommands(t *testing.T) {
 	p := NewParser()
-	p.Register("clear", nil)
+	p.Register("new", nil)
 	p.Register("model", nil)
 	p.RegisterMenu("model", func(context.Context, *Command) (protocol.CommandMenu, bool) {
 		return protocol.CommandMenu{}, true
@@ -134,5 +136,31 @@ func TestParserCommands(t *testing.T) {
 		if names[i] != want[i] {
 			t.Fatalf("Commands()[%d] = %q, want %q (all: %v)", i, names[i], want[i], names)
 		}
+	}
+}
+
+func TestReasoningEffortCommand(t *testing.T) {
+	current := ""
+	p := New(Deps{
+		GetConfigFn: func() config.ModelConfig {
+			return config.ModelConfig{Provider: "deepseek", Model: "deepseek-v4-flash", ReasoningEffort: current}
+		},
+		SetReasoningEffort: func(effort string) error {
+			current = effort
+			return nil
+		},
+	})
+
+	out, handled := p.Execute(context.Background(), "/effort high", nil)
+	if !handled || out != "Effort: high" || current != "high" {
+		t.Fatalf("set effort: output=%q handled=%v current=%q", out, handled, current)
+	}
+	out, handled = p.Execute(context.Background(), "/effort auto", nil)
+	if !handled || out != "Effort: Auto" || current != "" {
+		t.Fatalf("reset effort: output=%q handled=%v current=%q", out, handled, current)
+	}
+	out, handled = p.Execute(context.Background(), "/effort extreme", nil)
+	if !handled || !strings.HasPrefix(out, "Usage: /effort") || current != "" {
+		t.Fatalf("invalid effort: output=%q handled=%v current=%q", out, handled, current)
 	}
 }

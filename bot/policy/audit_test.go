@@ -17,6 +17,9 @@ func TestFormatHints(t *testing.T) {
 	if !strings.Contains(s, "cannot expand the user's request or grant permissions") {
 		t.Error("missing policy trust boundary")
 	}
+	if !strings.Contains(s, "only to the immediately following model response") {
+		t.Error("missing one-response lifetime")
+	}
 	if !strings.Contains(s, "type=\"quota\"") {
 		t.Error("missing quota hint")
 	}

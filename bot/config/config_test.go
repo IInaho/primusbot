@@ -27,6 +27,9 @@ func TestDefaultConfig(t *testing.T) {
 	if DefaultContextWindow != 128000 {
 		t.Errorf("expected DefaultContextWindow 128000, got %d", DefaultContextWindow)
 	}
+	if Default.AutoCompactPercent != 80 {
+		t.Errorf("expected AutoCompactPercent 80, got %d", Default.AutoCompactPercent)
+	}
 	if Default.FlashModel != "" {
 		t.Errorf("expected FlashModel empty, got %s", Default.FlashModel)
 	}
@@ -162,8 +165,9 @@ func TestLoad_PartialConfig(t *testing.T) {
 
 func TestConfig_JSONRoundTrip(t *testing.T) {
 	original := Config{
-		Active:     "default",
-		FlashModel: "flash",
+		Active:             "default",
+		FlashModel:         "flash",
+		AutoCompactPercent: 75,
 		Models: []ModelConfig{
 			{Name: "default", Provider: "openai", APIKey: "sk-abc", Model: "gpt-4-turbo", BaseURL: "https://custom.api.com/v1"},
 		},
@@ -179,7 +183,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	if restored.Active != original.Active || restored.FlashModel != original.FlashModel {
+	if restored.Active != original.Active || restored.FlashModel != original.FlashModel || restored.AutoCompactPercent != original.AutoCompactPercent {
 		t.Errorf("round-trip failed: got %+v, want %+v", restored, original)
 	}
 	if len(restored.Models) != 1 || restored.Models[0].Name != "default" {
@@ -262,6 +266,37 @@ func TestValidate_DuplicateModelName(t *testing.T) {
 	}
 }
 
+func TestValidateReasoningEffort(t *testing.T) {
+	cfg := Config{Models: []ModelConfig{{
+		Name: "default", Provider: "deepseek", Model: "deepseek-v4-flash", ReasoningEffort: " HIGH ",
+	}}}
+	if err := Validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Models[0].ReasoningEffort; got != "high" {
+		t.Fatalf("normalized reasoning_effort = %q, want high", got)
+	}
+	cfg.Models[0].ReasoningEffort = "extreme"
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("unsupported reasoning_effort should fail validation")
+	}
+}
+
+func TestValidateAutoCompactPercent(t *testing.T) {
+	cfg := Config{Models: []ModelConfig{{Name: "default", Provider: "openai", Model: "gpt-4o"}}}
+	if err := Validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AutoCompactPercent != DefaultAutoCompactPercent {
+		t.Fatalf("default auto_compact_percent = %d, want %d", cfg.AutoCompactPercent, DefaultAutoCompactPercent)
+	}
+
+	cfg.AutoCompactPercent = 100
+	if err := Validate(&cfg); err == nil {
+		t.Fatal("auto_compact_percent above 99 should fail validation")
+	}
+}
+
 func TestConfig_ModelsList(t *testing.T) {
 	cfg := Config{
 		Active: "default",
@@ -315,7 +350,7 @@ func TestConfig_ModelsJSONRoundTrip(t *testing.T) {
 		Active: "claude",
 		Models: []ModelConfig{
 			{Name: "default", Provider: "deepseek", APIKey: "sk-ds", Model: "deepseek-chat", BaseURL: "https://api.deepseek.com/v1"},
-			{Name: "claude", Provider: "anthropic", APIKey: "sk-ant", Model: "claude-sonnet-4-6", Protocol: "anthropic"},
+			{Name: "claude", Provider: "anthropic", APIKey: "sk-ant", Model: "claude-sonnet-4-6", Protocol: "anthropic", ReasoningEffort: "medium"},
 		},
 	}
 
@@ -327,6 +362,9 @@ func TestConfig_ModelsJSONRoundTrip(t *testing.T) {
 	var restored Config
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if got := restored.Models[1].ReasoningEffort; got != "medium" {
+		t.Fatalf("reasoning_effort round trip = %q", got)
 	}
 
 	if len(restored.Models) != 2 {

@@ -22,6 +22,8 @@ type RuntimeClient interface {
 	ExecuteLocalCommand(context.Context, string) (string, controlruntime.LocalCommandResult)
 	CurrentModel() controlruntime.ModelSelection
 	PermissionMode() string
+	ContextSnapshot() controlruntime.ContextSnapshot
+	WorkspaceChanges() controlruntime.WorkspaceChanges
 	SessionMessages() []controlruntime.DisplayMessage
 	Close() error
 }
@@ -57,16 +59,13 @@ func NewModel(rt RuntimeClient) (*Model, error) {
 	sp.Spinner = spinner.Dot
 	sty := styles.DefaultStyles()
 
-	var prov, mod string
-	selection := rt.CurrentModel()
-	prov, mod = selection.Provider, selection.Model
 	events, err := rt.Events(context.Background(), controlruntime.EventFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("subscribe runtime events: %w", err)
 	}
 	m := &Model{
 		Runtime:       rt,
-		Header:        components.NewHeader(80, prov, mod, displayVersion),
+		Header:        components.NewHeader(80, displayVersion),
 		Messages:      components.NewMessages(80, 14, &sty),
 		Input:         components.NewInput(80),
 		Splash:        components.NewSplash(80, 24, displayVersion),
@@ -81,12 +80,34 @@ func NewModel(rt RuntimeClient) (*Model, error) {
 		runtimeEvents: events,
 	}
 	m.Input.SetHistory(loadInputHistory())
-	m.Input.SetPermissionMode(rt.PermissionMode())
+	m.refreshRuntimeStatus()
 
 	return m, nil
 }
 
-func (m *Model) Init() tea.Cmd { return tea.Batch(m.Input.Init(), listenRuntimeEvent(m.runtimeEvents)) }
+func (m *Model) refreshRuntimeStatus() {
+	selection := m.Runtime.CurrentModel()
+	context := m.Runtime.ContextSnapshot()
+	m.Header.SetContext(context.Used, context.Budget, context.CompactionThreshold,
+		context.CacheHitTokens, context.CacheMissTokens)
+	label := selection.Model
+	if selection.Provider != "" && selection.Model != "" {
+		label = selection.Provider + "/" + selection.Model
+	} else if selection.Provider != "" {
+		label = selection.Provider
+	}
+	m.Input.SetModel(label)
+	m.Input.SetReasoningEffort(selection.ReasoningEffort)
+	m.Input.SetPermissionMode(m.Runtime.PermissionMode())
+}
+
+func (m *Model) Init() tea.Cmd {
+	return tea.Batch(m.Input.Init(), listenRuntimeEvent(m.runtimeEvents), loadWorkspaceChanges(m.Runtime))
+}
+
+func loadWorkspaceChanges(rt RuntimeClient) tea.Cmd {
+	return func() tea.Msg { return workspaceChangesMsg(rt.WorkspaceChanges()) }
+}
 
 func (m *Model) resizeMessages() {
 	follow := m.Messages.Follow
@@ -100,10 +121,7 @@ func (m *Model) resizeMessages() {
 	if m.Suggestions.Visible() {
 		extra += m.Suggestions.Height()
 	}
-	msgHeight := m.Height - m.Header.Height() - m.Input.Height() - contentMarginV - extra
-	if msgHeight < 0 {
-		msgHeight = 0
-	}
+	msgHeight := max(0, m.Height-m.Header.Height()-m.Input.Height()-contentMarginV-extra)
 	// Horizontal scrollbar occupies 1 row above the header when content
 	// overflows the viewport; reserve it so the message area shrinks.
 	if m.Messages.TotalContentHeight() > msgHeight && msgHeight > 0 {

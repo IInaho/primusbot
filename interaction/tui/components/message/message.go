@@ -3,6 +3,7 @@ package message
 
 import (
 	"nekocode/interaction/tui/components/block"
+	"nekocode/protocol"
 )
 
 type ChatMessage struct {
@@ -12,4 +13,5 @@ type ChatMessage struct {
 	RenderedContent string
 	Blocks          []block.ContentBlock
 	Footer          string
+	Telemetry       *protocol.Metrics
 }

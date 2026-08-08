@@ -2,9 +2,11 @@ package contextmgr
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"nekocode/bot/provider/types"
+	"nekocode/protocol"
 )
 
 func TestPrefixShapeTreatsHistoryAppendAndMapOrderAsStable(t *testing.T) {
@@ -40,7 +42,7 @@ func TestPrefixShapeAttributesSystemToolsAndHistory(t *testing.T) {
 	}
 }
 
-func TestBuildTwoRoundsKeepsVolatileLayersOutsideStablePrefix(t *testing.T) {
+func TestBuildTwoRoundsAppendsTaggedRuntimeContext(t *testing.T) {
 	runtimePrompt := "runtime-one"
 	m := New(Config{
 		SystemPrompt: "stable", ContextWindow: 10_000,
@@ -49,21 +51,57 @@ func TestBuildTwoRoundsKeepsVolatileLayersOutsideStablePrefix(t *testing.T) {
 	m.Add("user", "request")
 	tools := []types.ToolDef{{Function: types.FunctionDef{Name: "read"}}}
 
-	first := m.BuildRequest(tools)
+	first := m.BuildRequest(ModelRequest{Tools: tools})
 	runtimePrompt = "runtime-two"
 	m.SetHints("turn hint")
-	second := m.BuildRequest(tools)
-	m.RecordCache(100, 12)
+	second := m.BuildRequest(ModelRequest{Tools: tools})
+	m.RecordModelUsage(types.StreamUsage{
+		PromptTokens: 112, CacheHitTokens: 100, CacheMissTokens: 12, CacheUsageReported: true,
+	})
 
-	if first[0].Content != second[0].Content || first[1].Content != second[1].Content {
-		t.Fatalf("volatile tail changed stable Build prefix:\nfirst=%+v\nsecond=%+v", first, second)
+	if len(second) != len(first)+2 {
+		t.Fatalf("runtime and hint changes should append separate messages:\nfirst=%+v\nsecond=%+v", first, second)
 	}
-	if second[len(second)-2].Source != types.MessageSourceVolatileTail || second[len(second)-1].Source != types.MessageSourceVolatileTail {
-		t.Fatalf("runtime/hint tail markers missing: %+v", second)
+	for i := range first {
+		if first[i].Role != second[i].Role || first[i].Content != second[i].Content {
+			t.Fatalf("provider prefix changed at %d:\nfirst=%+v\nsecond=%+v", i, first[i], second[i])
+		}
+	}
+	if second[len(second)-2].Source != types.MessageSourceRuntimeContext || second[len(second)-1].Source != types.MessageSourceHint {
+		t.Fatalf("runtime state and hint were not split: %+v", second)
+	}
+	if strings.Contains(second[len(second)-1].Content, "runtime-two") {
+		t.Fatalf("hint repeated runtime state: %+v", second[len(second)-1])
 	}
 	miss := m.Report().PrefixTurn.PeakMiss
 	if miss.MissTokens != 12 || !reflect.DeepEqual(miss.Parts, []string{"tail/provider"}) {
 		t.Fatalf("prefix diagnosis = %+v", miss)
+	}
+}
+
+func TestToolLoopRequestKeepsPreviousRequestAsExactPrefix(t *testing.T) {
+	m := New(Config{SystemPrompt: "stable", RuntimePrompt: func() string { return "<environment>cwd</environment>" }})
+	m.Add("user", "inspect")
+	tools := []types.ToolDef{{Function: types.FunctionDef{Name: "read"}}}
+	first := m.BuildRequest(ModelRequest{Tools: tools})
+
+	m.AddAssistantToolCall("", "", []types.ToolCall{{
+		ID: "call-1", Type: "function", Function: types.FunctionCall{Name: "read", Arguments: `{}`},
+	}})
+	m.AddToolResultsBatch([]ToolResultMsg{{
+		Message: types.Message{ToolCallID: "call-1", Content: "result"}, ToolName: "read",
+	}})
+	m.SetTodos([]protocol.TodoItem{{Content: "verify", Status: "pending"}})
+	second := m.BuildRequest(ModelRequest{Tools: tools})
+
+	if len(second) <= len(first) {
+		t.Fatalf("tool loop did not grow history: first=%d second=%d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i].Role != second[i].Role || first[i].Content != second[i].Content ||
+			first[i].ToolCallID != second[i].ToolCallID {
+			t.Fatalf("request prefix changed at %d:\nfirst=%+v\nsecond=%+v", i, first[i], second[i])
+		}
 	}
 }
 
@@ -153,13 +191,14 @@ func TestPrefixTrackerDiagnosticsFingerprint(t *testing.T) {
 		t.Fatalf("diag missing fingerprints: %+v", first)
 	}
 
-	// Append-only history: same prefix fingerprint tail, parts cleared.
+	// Append-only history: same prefix fingerprint tail, parts fall back to
+	// tail/provider (stable shape — any miss is provider-side).
 	tracker.Observe(buildPrefixShape(nil, []types.Message{
 		{Role: "user", Content: "one"},
 		{Role: "assistant", Content: "two"},
 	}, nil))
 	appended := tracker.Diagnostics()
-	if len(appended.ChangedParts) != 0 {
+	if !reflect.DeepEqual(appended.ChangedParts, []string{"tail/provider"}) {
 		t.Fatalf("append-only parts = %v", appended.ChangedParts)
 	}
 	if appended.HistoryCount != 2 || appended.HistoryHash == first.HistoryHash {

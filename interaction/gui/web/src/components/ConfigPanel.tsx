@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { cn } from '../lib/classnames'
-import { isWailsEnvironment, safeGetConfig, safeSaveConfig } from '../lib/wails'
+import { isWailsEnvironment, safeGetConfig, safeResolveModelProfile, safeSaveConfig } from '../lib/wails'
 import type { ConfigView, ImageGenConfig, MCPServerConfig, ModelConfig } from '../types/config'
 import { Select } from './Select'
 
@@ -19,6 +19,8 @@ const emptyModel = (name: string): ModelConfig => ({
   model: '',
   base_url: '',
   protocol: 'openai',
+  reasoning_effort: '',
+  context_window: 0,
 })
 
 type EditableModelConfig = ModelConfig & { uiKey: string }
@@ -118,6 +120,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
   const mcpEntries = Object.entries(cfg?.mcp_servers ?? {})
   const enabledMcpCount = mcpEntries.filter(([, srv]) => srv.enabled).length
   const selectedMcpEntry = mcpEntries.find(([name]) => name === selectedMcp) ?? mcpEntries[0]
+  const activeModel = cfg?.models.find((model) => model.name === cfg.active)
 
   if (!open) return null
 
@@ -130,8 +133,12 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
     setSaved(false)
     setCfg((prev) => {
       if (!prev) return prev
-      const models = prev.models.map((m, i) => (i === idx ? { ...m, ...patch } : m))
+      const profileChanged = 'provider' in patch || 'model' in patch || 'protocol' in patch || 'context_window' in patch
+      const models = prev.models.map((m, i) => i === idx ? { ...m, ...patch, ...(profileChanged ? { profile: undefined } : {}) } : m)
       const next: EditableConfigView = { ...prev, models }
+      const previousName = prev.models[idx]?.name
+      if (previousName && next.active === previousName) next.active = models[idx].name
+      if (previousName && next.flash_model === previousName) next.flash_model = models[idx].name
       if (!models.some((m) => m.name === next.active)) next.active = models[0]?.name ?? ''
       if (next.flash_model && !models.some((m) => m.name === next.flash_model)) next.flash_model = ''
       return next
@@ -327,7 +334,7 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
                 </div>
               </section>
 
-              <section className="grid gap-3 rounded-md border border-border/50 bg-surface px-4 py-3 md:grid-cols-3">
+              <section className="grid gap-3 rounded-md border border-border/50 bg-surface px-4 py-3 md:grid-cols-4">
                 <Field label="当前模型">
                   <Select
                     value={cfg.active}
@@ -342,12 +349,20 @@ export function ConfigPanel({ open, onClose, onSaved, initialTab = 'overview' }:
                     onChange={(v) => update({ flash_model: v })}
                   />
                 </Field>
-                <Field label="上下文窗口">
+                <Field label="当前有效窗口">
+                  <div className="field flex items-center justify-between bg-surface-3/70 text-text-2">
+                    <span>{formatNumber(activeModel?.profile?.context_window ?? 0)}</span>
+                    <span className="text-[10px] text-text-3">{contextWindowSource(activeModel?.profile?.context_window_source)}</span>
+                  </div>
+                </Field>
+                <Field label="自动压缩门限 (%)">
                   <input
                     className="field"
                     inputMode="numeric"
-                    value={String(cfg.context_window || '')}
-                    onChange={(e) => update({ context_window: Number(e.target.value) || 0 })}
+                    min={1}
+                    max={99}
+                    value={String(cfg.auto_compact_percent || '')}
+                    onChange={(e) => update({ auto_compact_percent: Number(e.target.value) || 0 })}
                   />
                 </Field>
               </section>
@@ -471,6 +486,22 @@ function ModelCard({
   onChange: (patch: Partial<ModelConfig>) => void
   onRemove: () => void
 }) {
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      safeResolveModelProfile(model).then((profile) => {
+        if (cancelled || !profile) return
+        const effort = model.reasoning_effort || ''
+        const supported = effort === '' || (profile.reasoning_efforts ?? []).includes(effort)
+        onChange({ profile, reasoning_effort: supported ? model.reasoning_effort : '' })
+      })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [model.context_window, model.model, model.protocol, model.provider])
+
   return (
     <div className="rounded-md border border-border/50 bg-surface px-4 py-3">
       <div className="mb-3 flex items-center gap-2">
@@ -488,6 +519,31 @@ function ModelCard({
             options={[{ value: 'openai', label: 'openai' }, { value: 'anthropic', label: 'anthropic' }]}
             onChange={(v) => onChange({ protocol: v as ModelConfig['protocol'] })}
           />
+        </Field>
+        <Field label="推理强度">
+          <Select
+            value={model.reasoning_effort || ''}
+            options={[
+              { value: '', label: 'Auto（模型默认）' },
+              ...(model.profile?.reasoning_efforts || []).map((value) => ({ value, label: value === 'none' ? 'Off' : value })),
+            ]}
+            onChange={(v) => onChange({ reasoning_effort: v as ModelConfig['reasoning_effort'] })}
+          />
+        </Field>
+        <Field label="上下文窗口覆盖">
+          <div>
+            <input
+              className="field font-mono"
+              inputMode="numeric"
+              min={1}
+              placeholder={`自动 · ${formatNumber(model.profile?.context_window ?? 0)}`}
+              value={model.context_window ? String(model.context_window) : ''}
+              onChange={(e) => onChange({ context_window: Number(e.target.value) || 0 })}
+            />
+            <span className="mt-1 block text-[10px] text-text-3">
+              {model.context_window ? '使用自定义覆盖值' : `自动解析 · ${contextWindowSource(model.profile?.context_window_source)}`}
+            </span>
+          </div>
         </Field>
         <Field label="API Key"><input className="field font-mono" type="password" value={model.api_key} onChange={(e) => onChange({ api_key: e.target.value })} /></Field>
         <Field label="Base URL"><input className="field font-mono" value={model.base_url ?? ''} onChange={(e) => onChange({ base_url: e.target.value })} /></Field>
@@ -652,10 +708,12 @@ function validateConfig(cfg: ConfigView | null): string {
     names.add(name)
     if (!model.provider.trim()) return `${name} 缺少 provider`
     if (!model.model.trim()) return `${name} 缺少模型 ID`
+    if ((model.context_window ?? 0) < 0) return `${name} 的上下文窗口不能为负数`
+    if (!model.profile) return `${name} 的模型能力正在解析`
   }
   if (!names.has(cfg.active)) return '当前模型不在模型列表中'
   if (cfg.flash_model && !names.has(cfg.flash_model)) return 'Flash 模型不在模型列表中'
-  if (!cfg.context_window || cfg.context_window <= 0) return '上下文窗口必须大于 0'
+  if (cfg.auto_compact_percent < 1 || cfg.auto_compact_percent > 99) return '自动压缩门限必须在 1% 到 99% 之间'
   const mcpNames = new Set<string>()
   for (const [rawName, srv] of Object.entries(cfg.mcp_servers ?? {})) {
     const name = rawName.trim()
@@ -687,6 +745,21 @@ function trimModel(model: ModelConfig): ModelConfig {
     model: model.model.trim(),
     base_url: model.base_url?.trim(),
     protocol: model.protocol || 'openai',
+    reasoning_effort: model.reasoning_effort || '',
+    context_window: model.context_window && model.context_window > 0 ? model.context_window : undefined,
+  }
+}
+
+function formatNumber(value: number): string {
+  return value > 0 ? new Intl.NumberFormat('en-US').format(value) : '—'
+}
+
+function contextWindowSource(source?: string): string {
+  switch (source) {
+    case 'override': return '自定义'
+    case 'model': return '模型内置'
+    case 'default': return '系统默认'
+    default: return '解析中'
   }
 }
 

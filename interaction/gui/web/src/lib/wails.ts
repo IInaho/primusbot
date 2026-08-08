@@ -13,6 +13,7 @@ import {
   CurrentModel,
   ReadImageBase64,
   RefreshSkillManagement,
+  ResolveModelProfile,
   ReplyConfirm,
   ReplyConfirmDecision,
   ReplyConfirmWithPermission,
@@ -23,7 +24,7 @@ import {
   SelectSkill,
   SwitchModel,
 } from '../../wailsjs/go/main/App'
-import type { ConfigView } from '../types/config'
+import type { ConfigView, ModelConfig, ModelProfile } from '../types/config'
 import type { protocol, runtime } from '../../wailsjs/go/models'
 export type GUICommandMenu = Omit<protocol.CommandMenu, 'convertValues'>
 type GUIContextSnapshot = runtime.ContextSnapshot
@@ -110,6 +111,20 @@ export function safeClearSelectedSkill(): Promise<void> {
 export function safeGetConfig(): Promise<ConfigView | null> {
   try {
     return GetConfig().then((cfg) => cfg as unknown as ConfigView)
+  } catch {
+    return Promise.resolve(null)
+  }
+}
+
+export function safeResolveModelProfile(model: ModelConfig): Promise<ModelProfile | null> {
+  try {
+    const spec = {
+      provider: model.provider,
+      model: model.model,
+      protocol: model.protocol,
+      context_window: model.context_window,
+    }
+    return ResolveModelProfile(spec as never).then((profile) => profile as unknown as ModelProfile)
   } catch {
     return Promise.resolve(null)
   }

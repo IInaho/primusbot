@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"nekocode/bot/config"
 	"nekocode/protocol"
 )
 
@@ -212,9 +213,6 @@ func (p *Parser) Menu(ctx context.Context, input string) (protocol.CommandMenu, 
 	if cmd.Name == "" {
 		return protocol.CommandMenu{}, false
 	}
-	if cmd.Prefix == SlashPrefix && cmd.Name == "help" && len(cmd.Args) == 0 {
-		return p.RootMenu(SlashPrefix), true
-	}
 	entry, exists := p.handlers[commandKey{Prefix: normalizePrefix(cmd.Prefix), Name: cmd.Name}]
 	if !exists || entry.Menu == nil || ctx.Err() != nil {
 		return protocol.CommandMenu{}, false
@@ -250,17 +248,6 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return formatCommandHelp(p.RootMenu(SlashPrefix), p.RootMenu(DollarPrefix)), true
 	})
 
-	p.RegisterInfo("clear", "Clear conversation history", func(_ context.Context, cmd *Command) (string, bool) {
-		if deps.ResetConversation == nil {
-			return "Conversation reset is unavailable.", true
-		}
-		result, err := deps.ResetConversation(false)
-		if err != nil {
-			return "Failed to clear conversation: " + err.Error(), true
-		}
-		return result, true
-	})
-
 	p.RegisterLocalInfo("context", "Show context usage", func(_ context.Context, cmd *Command) (string, bool) {
 		return ContextReport(deps.CtxMgr, deps.ToolRegistry.Descriptors()), true
 	})
@@ -277,7 +264,7 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		if deps.ResetConversation == nil {
 			return "Conversation reset is unavailable.", true
 		}
-		result, err := deps.ResetConversation(true)
+		result, err := deps.ResetConversation()
 		if err != nil {
 			return "Failed to start new conversation: " + err.Error(), true
 		}
@@ -302,10 +289,6 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return result, true
 	})
 
-	p.RegisterLocalInfo("config", "Show the active model", func(_ context.Context, cmd *Command) (string, bool) {
-		return getConfig(), true
-	})
-
 	p.RegisterInfo("model", "Choose the active model", func(_ context.Context, cmd *Command) (string, bool) {
 		if len(cmd.Args) == 0 {
 			var sb strings.Builder
@@ -324,6 +307,30 @@ func RegisterDefaults(p *Parser, deps Deps) {
 			return err.Error(), true
 		}
 		return "Switched to " + getConfig(), true
+	})
+
+	p.RegisterInfo("effort", "Choose the reasoning effort", func(_ context.Context, cmd *Command) (string, bool) {
+		model := deps.GetConfigFn()
+		values := config.ReasoningCapabilityFor(model).Values()
+		usage := "/effort [" + strings.Join(values, "|") + "]"
+		current := model.ReasoningEffort
+		if len(cmd.Args) == 0 {
+			return "Effort: " + displayReasoningEffort(current), true
+		}
+		if len(cmd.Args) != 1 {
+			return "Usage: " + usage, true
+		}
+		effort, ok := config.ParseReasoningEffort(cmd.Args[0])
+		if !ok || !config.ReasoningCapabilityFor(model).Supports(effort) {
+			return "Usage: " + usage, true
+		}
+		if deps.SetReasoningEffort == nil {
+			return "Reasoning effort switching is unavailable.", true
+		}
+		if err := deps.SetReasoningEffort(effort); err != nil {
+			return "Failed to switch reasoning effort: " + err.Error(), true
+		}
+		return "Effort: " + displayReasoningEffort(effort), true
 	})
 
 	// /permission: show or switch the permission mode. "manual" (the default)
@@ -348,6 +355,13 @@ func RegisterDefaults(p *Parser, deps Deps) {
 			return "Usage: /permission [manual|full]", true
 		}
 	})
+}
+
+func displayReasoningEffort(effort string) string {
+	if strings.TrimSpace(effort) == "" {
+		return "Auto"
+	}
+	return strings.ToLower(strings.TrimSpace(effort))
 }
 
 func permissionModeStatus(full bool) string {

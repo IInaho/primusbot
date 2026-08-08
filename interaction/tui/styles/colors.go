@@ -95,6 +95,7 @@ var (
 	PrimaryStyle = defaultStyles.Primary
 	TealStyle    = defaultStyles.Teal
 	YellowStyle  = defaultStyles.Yellow
+	RedStyle     = defaultStyles.Red
 	BorderStyle  = defaultStyles.Border
 	CatBodyStyle = defaultStyles.CatBody
 	CatEyeStyle  = defaultStyles.CatEye

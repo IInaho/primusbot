@@ -5,6 +5,15 @@ export interface ModelConfig {
   model: string
   base_url?: string
   protocol?: 'openai' | 'anthropic' | ''
+  reasoning_effort?: '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  context_window?: number
+  profile?: ModelProfile
+}
+
+export interface ModelProfile {
+  context_window: number
+  context_window_source: 'override' | 'model' | 'default'
+  reasoning_efforts?: string[]
 }
 
 export interface ImageGenConfig {
@@ -45,7 +54,7 @@ export interface ConfigView {
   path: string
   exists: boolean
   active: string
-  context_window: number
+  auto_compact_percent: number
   flash_model?: string
   models: ModelConfig[]
   image_gen_models?: ImageGenConfig[]

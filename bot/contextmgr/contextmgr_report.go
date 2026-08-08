@@ -2,44 +2,44 @@ package contextmgr
 
 import (
 	"nekocode/bot/contextmgr/token"
+	"nekocode/bot/provider/types"
 )
 
 type ContextReport struct {
-	Budget          int
-	SystemPrompt    int
-	TodoText        int
-	SkillList       int
-	Memory          int
-	Archive         int
-	ToolDefTokens   int
-	Messages        int
-	HasArchive      bool
-	Archived        int
-	CompactCount    int
-	TrimCount       int
-	ToolDefCount    int
-	UserMessages    int
-	SysInjections   int
-	AssistantMsgs   int
-	ToolResults     int
-	CacheHitTokens  int
-	CacheMissTokens int
-	CacheHitRatio   float64
-	SubCount        int
-	SubTokens       int
-	SubCacheHit     int
-	SubCacheMiss    int
-	PrefixTurn      PrefixTurnStats
+	Budget              int
+	SystemPrompt        int
+	TodoText            int
+	SkillList           int
+	Memory              int
+	Archive             int
+	ToolDefTokens       int
+	Messages            int
+	HasArchive          bool
+	Archived            int
+	CompactCount        int
+	CompactionThreshold int
+	TrimCount           int
+	ToolDefCount        int
+	UserMessages        int
+	SysInjections       int
+	AssistantMsgs       int
+	ToolResults         int
+	CacheHitTokens      int
+	CacheMissTokens     int
+	CacheHitRatio       float64
+	SubCount            int
+	SubTokens           int
+	SubCacheHit         int
+	SubCacheMiss        int
+	PrefixTurn          PrefixTurnStats
 }
 
 func (m *Manager) Report() ContextReport {
-	runtimePrompt := m.buildLayer4()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
 
 	r := ContextReport{}
-	r.SystemPrompt = token.EstimateString(m.state.ctx.SystemPrompt) + token.EstimateString(runtimePrompt)
-	r.TodoText = token.EstimateString(m.state.ctx.Todo)
+	r.SystemPrompt = token.EstimateString(m.state.ctx.SystemPrompt)
 	r.SkillList = token.EstimateString(m.state.ctx.Skills)
 	r.Memory = token.EstimateString(m.state.ctx.Memory)
 	r.Archive = token.EstimateString(m.state.ctx.Archive)
@@ -50,7 +50,8 @@ func (m *Manager) Report() ContextReport {
 		}
 		switch msg.Role {
 		case "user":
-			if msg.Source == "system" {
+			if msg.Source == "system" || msg.Source == types.MessageSourceRuntimeContext ||
+				msg.Source == types.MessageSourceHint || msg.Source == types.MessageSourceRuntimeEvent {
 				r.SysInjections++
 			} else {
 				r.UserMessages++
@@ -65,6 +66,7 @@ func (m *Manager) Report() ContextReport {
 	r.HasArchive = m.state.ctx.Archive != ""
 	r.Archived = m.state.trimCount
 	r.CompactCount = m.state.compactCount
+	r.CompactionThreshold = m.state.compressor.compactionThreshold(m.state.contextWindow)
 	r.TrimCount = m.state.trimCount
 	r.Budget = m.state.contextWindow
 	r.CacheHitTokens, r.CacheMissTokens = m.state.tracker.CacheStats()

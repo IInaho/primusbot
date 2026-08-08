@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -19,15 +20,17 @@ const (
 )
 
 type Input struct {
-	textarea       textarea.Model
-	width          int
-	follow         bool
-	permissionMode string
-	sending        bool
-	history        []string
-	historyIdx     int
-	savedInput     string
-	historyActive  bool
+	textarea        textarea.Model
+	width           int
+	follow          bool
+	permissionMode  string
+	model           string
+	reasoningEffort string
+	sending         bool
+	history         []string
+	historyIdx      int
+	savedInput      string
+	historyActive   bool
 }
 
 func NewInput(width int) *Input {
@@ -136,6 +139,14 @@ func (i *Input) SetFollow(follow bool) { i.follow = follow }
 // footer ("manual"/"full"; empty hides the field).
 func (i *Input) SetPermissionMode(mode string) { i.permissionMode = mode }
 
+// SetModel sets the current model shown in the footer after Perm.
+// Empty hides the field.
+func (i *Input) SetModel(model string) { i.model = model }
+
+// SetReasoningEffort sets the configured model effort shown after Model.
+// Empty means the provider/model default and is rendered as Auto.
+func (i *Input) SetReasoningEffort(effort string) { i.reasoningEffort = strings.TrimSpace(effort) }
+
 func (i *Input) CanCursorUp() bool {
 	return i.textarea.Line() > 0 || i.textarea.LineInfo().RowOffset > 0
 }
@@ -177,17 +188,46 @@ func (i *Input) View() string {
 	if !i.follow {
 		txt = "Manual"
 	}
-	footer := styles.BorderStyle.Render(styles.Vertical+" ") +
+	prefix := styles.BorderStyle.Render(styles.Vertical + " ")
+	footer := prefix +
 		styles.SubtleStyle.Render("Follow:") + " " +
 		styles.TealStyle.Render(txt)
+	permission := "Manual"
+	permissionStyle := styles.TealStyle
 	switch i.permissionMode {
 	case "full":
-		footer += styles.SubtleStyle.Render(" · Perm: ") + styles.YellowStyle.Bold(true).Render("FULL")
+		permission = "FULL"
+		permissionStyle = styles.RedStyle.Bold(true)
+		footer += styles.SubtleStyle.Render(" · Perm: ") + permissionStyle.Render(permission)
 	case "manual", "":
-		footer += styles.SubtleStyle.Render(" · Perm: Manual")
+		footer += styles.SubtleStyle.Render(" · Perm: ") + permissionStyle.Render(permission)
 	default:
-		footer += styles.SubtleStyle.Render(" · Perm: " + i.permissionMode)
+		permission = i.permissionMode
+		permissionStyle = styles.MutedStyle
+		footer += styles.SubtleStyle.Render(" · Perm: ") + permissionStyle.Render(permission)
 	}
+	if i.model != "" {
+		effort := i.displayReasoningEffort()
+		footer += styles.SubtleStyle.Render(" · Effort: ") + styles.YellowStyle.Render(effort)
+		footer += styles.SubtleStyle.Render(" · Model: ") + styles.CatEyeStyle.Render(i.model)
+	}
+
+	if lipgloss.Width(footer) > w-1 {
+		compact := prefix + styles.SubtleStyle.Render("F:") + styles.TealStyle.Render(txt) +
+			styles.SubtleStyle.Render(" · P:") + permissionStyle.Render(permission)
+		if i.model != "" {
+			compact += styles.SubtleStyle.Render(" · E:") + styles.YellowStyle.Render(i.displayReasoningEffort()) +
+				styles.SubtleStyle.Render(" · ") + styles.CatEyeStyle.Render(i.model)
+		}
+		footer = compact
+		if lipgloss.Width(footer) > w-1 {
+			footer = prefix + styles.SubtleStyle.Render("E:") + styles.YellowStyle.Render(i.displayReasoningEffort()) +
+				styles.SubtleStyle.Render(" · F:") + styles.TealStyle.Render(txt) +
+				styles.SubtleStyle.Render(" · P:") + permissionStyle.Render(permission) +
+				styles.SubtleStyle.Render(" · ") + styles.CatEyeStyle.Render(i.model)
+		}
+	}
+	footer = ansi.Truncate(footer, max(1, w-1), "")
 	pad := max(0, w-lipgloss.Width(footer)-1)
 
 	var b strings.Builder
@@ -196,6 +236,13 @@ func (i *Input) View() string {
 	fmt.Fprintf(&b, "%s%s%s\n", footer, strings.Repeat(" ", pad), styles.BorderStyle.Render(styles.Vertical))
 	b.WriteString(line)
 	return b.String()
+}
+
+func (i *Input) displayReasoningEffort() string {
+	if i.reasoningEffort == "" {
+		return "Auto"
+	}
+	return i.reasoningEffort
 }
 
 func (i *Input) Init() tea.Cmd { return tea.Batch(textarea.Blink, BlinkTick()) }

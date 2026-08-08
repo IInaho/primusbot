@@ -70,6 +70,10 @@ export function ReplyQuestion(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReplyQuestion'](arg1, arg2, arg3);
 }
 
+export function ResolveModelProfile(arg1) {
+  return window['go']['main']['App']['ResolveModelProfile'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }

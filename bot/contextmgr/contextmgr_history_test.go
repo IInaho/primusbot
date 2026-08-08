@@ -129,12 +129,3 @@ func TestClear(t *testing.T) {
 		t.Fatalf("Clear retained conversation state: %#v", snapshot)
 	}
 }
-
-func TestFreshStart(t *testing.T) {
-	m := newHistoryManager()
-	m.Add("user", "hello")
-	m.ResetHistory()
-	if n := len(m.Snapshot().Messages); n != 0 {
-		t.Errorf("after FreshStart: len = %d, want 0", n)
-	}
-}

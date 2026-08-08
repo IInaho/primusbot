@@ -103,7 +103,7 @@ func (m *Manager) LoadedSet() map[string]bool {
 // that list lives in the cache-stable prefix, so rewriting it mid-session
 // would invalidate the provider's cached prefix for the whole history.
 // The list is rebuilt at session boundaries instead (ClearLoaded on
-// /new, /clear, or session restore, and startup), where a prefix change
+// /new, session restore, or startup), where a prefix change
 // costs nothing — the injected skill content itself already tells the
 // model everything it needs for the current session.
 func (m *Manager) MarkLoaded(name string) {

@@ -32,7 +32,7 @@
 **目标**:prefix 稳定性变成可回归的资产。
 
 - [x] system prompt 字节稳定性单测（禁时间戳、禁 map 乱序、禁环境探测 flap)
-- [x] 模拟两轮 `Build()` 的前缀一致性测试（易变内容只许在 Layer 4/5 边界之后）
+- [x] 模拟工具循环两轮 `BuildRequest()`：动态 context 以 tagged user 消息追加，上一请求必须是下一请求的完整前缀
 - [x] prefix-shape 归因：缓存 miss 时记录 system/tools/history 哪段变了，进 `/context` 展示
 - [x] **验收**：人为往前缀插入日期 → golden SHA-256 字节锁测试红
 

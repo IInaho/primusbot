@@ -26,6 +26,52 @@ func TestBuildBodyOmitsInternalToolErrorFlag(t *testing.T) {
 	}
 }
 
+func TestBuildBodyUsesProviderDefaultTemperatureUnlessConfigured(t *testing.T) {
+	c := New("", "", "test-model")
+	body := c.buildBody(nil, nil, false)
+	if _, exists := body["temperature"]; exists {
+		t.Fatalf("default request forced temperature: %+v", body)
+	}
+	c.Temperature = 0.3
+	if got := c.buildBody(nil, nil, false)["temperature"]; got != 0.3 {
+		t.Fatalf("configured temperature = %#v, want 0.3", got)
+	}
+}
+
+func TestBuildBodyIncludesConfiguredReasoningEffort(t *testing.T) {
+	c := New("", "", "test-model")
+	c.SetReasoningSettings(types.ReasoningSettings{Requested: "high", Effort: "high", ThinkingToggle: true})
+	body := c.buildBody(nil, nil, false)
+	if got := body["reasoning_effort"]; got != "high" {
+		t.Fatalf("reasoning_effort = %#v, want high", got)
+	}
+	if got := body["thinking"]; got == nil {
+		t.Fatal("configured reasoning effort did not enable thinking")
+	}
+}
+
+func TestBuildBodyDoesNotGuessThinkingToggleFromProtocol(t *testing.T) {
+	c := New("", "", "gpt-5")
+	c.SetReasoningSettings(types.ReasoningSettings{Requested: "high", Effort: "high"})
+	body := c.buildBody(nil, nil, false)
+	if body["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v", body["reasoning_effort"])
+	}
+	if _, ok := body["thinking"]; ok {
+		t.Fatalf("model without a thinking toggle emitted one: %+v", body)
+	}
+}
+
+func TestBuildBodyLeavesAutoReasoningToProvider(t *testing.T) {
+	body := New("", "", "test-model").buildBody(nil, nil, false)
+	if _, ok := body["reasoning_effort"]; ok {
+		t.Fatalf("auto reasoning emitted reasoning_effort: %+v", body)
+	}
+	if _, ok := body["thinking"]; ok {
+		t.Fatalf("auto reasoning emitted thinking override: %+v", body)
+	}
+}
+
 // Volatile layers must keep their tail positions: the provider's prefix
 // cache matches byte-for-byte from the front, so hoisting a per-turn hint
 // ahead of the history would cold-start the cache on every turn.

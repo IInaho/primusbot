@@ -8,6 +8,7 @@ import (
 	"nekocode/interaction/tui/components/message"
 	"nekocode/interaction/tui/components/processing"
 	"nekocode/interaction/tui/styles"
+	"nekocode/protocol"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -190,7 +191,15 @@ func (m *Messages) messageItem(msg message.ChatMessage) Item {
 		if msg.Footer != "" {
 			a.SetFooter(msg.Footer)
 		}
+		if msg.Telemetry != nil {
+			a.SetTelemetry(*msg.Telemetry)
+		}
 		return a
+	case "telemetry":
+		if msg.Telemetry == nil {
+			return message.NewTelemetryMessageItem(m.sty, protocol.Metrics{})
+		}
+		return message.NewTelemetryMessageItem(m.sty, *msg.Telemetry)
 	case "system":
 		s := message.NewSystemMessageItem(m.sty, msg.Content)
 		if msg.Title != "" {

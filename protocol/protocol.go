@@ -2,12 +2,6 @@
 // the bot foundation and runtime adapters.
 package protocol
 
-import (
-	"time"
-
-	"nekocode/util/duration"
-)
-
 type PhaseFunc func(string)
 
 const (
@@ -170,30 +164,30 @@ type QuestionFunc func(QuestionRequest) QuestionReply
 
 // Metrics is the bot's operational measurement snapshot.
 type Metrics struct {
-	PromptTokens     int    `json:"promptTokens"`
-	CompletionTokens int    `json:"completionTokens"`
-	TurnPrompt       int    `json:"turnPrompt"`
-	TurnCompletion   int    `json:"turnCompletion"`
-	ContextTokens    int    `json:"contextTokens"`
-	CompactCount     int    `json:"compactCount"`
-	Duration         string `json:"duration"`
+	PromptTokens      int    `json:"promptTokens"`
+	CompletionTokens  int    `json:"completionTokens"`
+	TurnPrompt        int    `json:"turnPrompt"`
+	TurnCompletion    int    `json:"turnCompletion"`
+	TurnTotal         int    `json:"turnTotal"`
+	TurnInput         int    `json:"turnInput"`
+	TurnCached        int    `json:"turnCached"`
+	TurnNew           int    `json:"turnNew"`
+	TurnOutput        int    `json:"turnOutput"`
+	TurnReasoning     int    `json:"turnReasoning,omitempty"`
+	TurnCacheReported bool   `json:"turnCacheReported"`
+	ContextTokens     int    `json:"contextTokens"`
+	CompactCount      int    `json:"compactCount"`
+	Duration          string `json:"duration"`
 }
 
-type MetricsInput struct {
-	PromptTokens     int
-	CompletionTokens int
-	TurnPrompt       int
-	TurnCompletion   int
-	ContextTokens    int
-	CompactCount     int
-	Duration         time.Duration
-}
+// HasTurnUsage reports whether the snapshot contains an actual LLM request.
+// Command-only runs intentionally carry no turn usage.
+func (m Metrics) HasTurnUsage() bool { return m.TurnInput > 0 || m.TurnOutput > 0 }
 
-func NewMetrics(in MetricsInput) Metrics {
-	return Metrics{
-		PromptTokens: in.PromptTokens, CompletionTokens: in.CompletionTokens,
-		TurnPrompt: in.TurnPrompt, TurnCompletion: in.TurnCompletion,
-		ContextTokens: in.ContextTokens, CompactCount: in.CompactCount,
-		Duration: duration.FormatDuration(in.Duration),
-	}
+// WorkspaceChanges is a privacy-safe summary of the current Git worktree.
+type WorkspaceChanges struct {
+	Added     int  `json:"added"`
+	Deleted   int  `json:"deleted"`
+	Untracked int  `json:"untracked"`
+	Available bool `json:"available"`
 }

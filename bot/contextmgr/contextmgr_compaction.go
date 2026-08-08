@@ -34,7 +34,7 @@ func (m *Manager) compact(force bool) (bool, error) {
 	if compressor == nil {
 		return false, nil
 	}
-	if !force && !compressor.shouldAutoCompact(snap.history, snap.archive, snap.budget, snap.estimate) {
+	if !force && !compressor.shouldAutoCompact(snap.budget, snap.estimate) {
 		return false, nil
 	}
 
@@ -46,7 +46,7 @@ func (m *Manager) compact(force bool) (bool, error) {
 		return false, err
 	}
 	if trimmed == 0 {
-		if !force && compressor.currentLevel(snap.history, snap.archive, snap.budget, snap.estimate) == compactionBlocking {
+		if !force && snap.estimate >= compressor.effectiveBudget(snap.budget) {
 			return false, contextFullError(snap.estimate, snap.budget)
 		}
 		return false, nil
@@ -59,13 +59,15 @@ func (m *Manager) compact(force bool) (bool, error) {
 	}
 	m.state.ctx.Archive = archive
 	m.state.ctx.Messages = recent
+	m.restoreRuntimeContextLocked()
 	m.state.revision++
 	m.state.compactCount++
 	m.state.trimCount += trimmed
 	m.state.tracker.RecordPrompt(m.totalTokenEstimate())
 
-	if !force && compressor.currentLevel(recent, archive, snap.budget, m.estimatedTokens()) == compactionBlocking {
-		return true, contextFullError(m.estimatedTokens(), snap.budget)
+	used := m.estimatedTokens()
+	if !force && used >= compressor.effectiveBudget(snap.budget) {
+		return true, contextFullError(used, snap.budget)
 	}
 	return true, nil
 }

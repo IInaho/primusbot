@@ -28,20 +28,23 @@ var (
 
 // Config identifies one model endpoint.
 type Config struct {
-	APIKey   string
-	BaseURL  string
-	Model    string
-	Protocol string
+	APIKey    string
+	BaseURL   string
+	Model     string
+	Protocol  string
+	Reasoning types.ReasoningSettings
 }
 
 // New creates an LLM client. Protocol may be "openai" or "anthropic".
 func New(config Config) LLM {
 	switch config.Protocol {
 	case "anthropic":
-		return anthropic.New(config.APIKey, config.BaseURL, config.Model)
+		client := anthropic.New(config.APIKey, config.BaseURL, config.Model)
+		client.SetReasoningSettings(config.Reasoning)
+		return client
 	default:
 		client := openai.New(config.APIKey, config.BaseURL, config.Model)
-		client.SetDisableThinking(true)
+		client.SetReasoningSettings(config.Reasoning)
 		return client
 	}
 }

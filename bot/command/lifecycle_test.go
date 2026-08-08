@@ -108,24 +108,27 @@ func TestPlanModePrompt(t *testing.T) {
 	}
 }
 
-func TestPlanCommandAppendsModeToBaseSystemPrompt(t *testing.T) {
-	mgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "stale"})
+func TestPlanCommandUsesTaggedRuntimePolicyWithoutRewritingSystem(t *testing.T) {
+	mgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "stable behavior contract"})
 	registry := tools.New(fakePlanTool{})
 	executor := runner.NewExecutor(registry)
 	h := New(Deps{
-		CtxMgr:           mgr,
-		SetPlanMode:      executor.SetPlanMode,
-		ToolRegistry:     registry,
-		BaseSystemPrompt: func() string { return "stable behavior contract" },
+		CtxMgr:       mgr,
+		SetPlanMode:  executor.SetPlanMode,
+		ToolRegistry: registry,
 	})
 
 	if _, handled := h.Execute(context.Background(), "/plan inspect prompts", mgr); handled {
 		t.Fatal("plan command should continue into the agent")
 	}
-	got := mgr.Snapshot().SystemPrompt
+	request := mgr.BuildRequest(ctxmgr.ModelRequest{})
 	blocked := executor.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "write-test"}})[0]
-	if blocked.Error == "" || !strings.Contains(got, "stable behavior contract") || !strings.Contains(got, "<plan-mode>") {
-		t.Fatalf("plan mode did not preserve base contract or block writes: result=%+v prompt=%q", blocked, got)
+	if got := mgr.Snapshot().SystemPrompt; got != "stable behavior contract" {
+		t.Fatalf("plan mode rewrote stable system prompt: %q", got)
+	}
+	last := request[len(request)-1]
+	if blocked.Error == "" || last.Role != "user" || !strings.Contains(last.Content, "<runtime_context") || !strings.Contains(last.Content, "<plan-mode>") {
+		t.Fatalf("plan mode was not injected as tagged runtime policy or did not block writes: result=%+v message=%+v", blocked, last)
 	}
 }
 

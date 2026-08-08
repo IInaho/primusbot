@@ -42,6 +42,33 @@ func TestManagerCommandFinishesWithoutRunningAgent(t *testing.T) {
 	if !sawCommandResponse {
 		t.Fatal("command response event not found")
 	}
+	if got := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventInputAccepted}}); len(got) != 0 {
+		t.Fatalf("handled command was projected as user input: %+v", got)
+	}
+}
+
+func TestManagerCommandDoesNotPublishStaleTurnMetrics(t *testing.T) {
+	bot := &testBot{}
+	bot.command = func(string, RunHost) CommandResult {
+		return CommandResult{Action: CommandHandled, Output: "handled"}
+	}
+	rt := New(bot, Services{
+		ExecuteCommand: bot.ExecuteCommand,
+		CommandMenu:    bot.CommandMenu,
+		Metrics: func() MetricsSnapshot {
+			return MetricsSnapshot{TurnInput: 1000, TurnOutput: 20}
+		},
+	})
+
+	runID, err := rt.StartRun(context.Background(), Input{Source: SourceRef{Kind: "test"}, Text: "/help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRun(t, rt, runID)
+	got := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventMetricsUpdated}})
+	if len(got) != 0 {
+		t.Fatalf("command-only run published stale turn metrics: %+v", got)
+	}
 }
 
 func TestManagerCommandCanContinueToAgent(t *testing.T) {
@@ -65,6 +92,10 @@ func TestManagerCommandCanContinueToAgent(t *testing.T) {
 	}
 	if run.Output != "agent ran" {
 		t.Fatalf("run output = %q, want agent ran", run.Output)
+	}
+	accepted := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventInputAccepted}})
+	if len(accepted) != 1 {
+		t.Fatalf("continuing command input events = %d, want 1", len(accepted))
 	}
 }
 

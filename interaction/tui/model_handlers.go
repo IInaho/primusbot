@@ -36,6 +36,10 @@ func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 		accumulated = strings.TrimSpace(m.Messages.AccumulatedText())
 	}
 	m.transitionTo(stateReady)
+	var telemetry *controlruntime.MetricsSnapshot
+	if msg.metrics.HasTurnUsage() {
+		telemetry = &msg.metrics
+	}
 
 	if msg.err != nil {
 		// Preserve tool blocks even on error — show what was attempted.
@@ -49,34 +53,36 @@ func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 			Role:    "error",
 			Content: fmt.Sprintf("Error: %v", msg.err),
 		})
+		if telemetry != nil {
+			m.Messages.AddMessage(message.ChatMessage{Role: "telemetry", Telemetry: telemetry})
+		}
 	} else {
 		if accumulated == "" && len(finalBlocks) == 0 {
-			st := m.metrics
-			m.Header.SetTokens(st.PromptTokens + st.CompletionTokens)
-			return nil
+			if telemetry != nil {
+				m.Messages.AddMessage(message.ChatMessage{Role: "telemetry", Telemetry: telemetry})
+			}
+			m.refreshRuntimeStatus()
+			return loadWorkspaceChanges(m.Runtime)
 		}
 		footer := ""
-		if msg.duration != "" || msg.tokens != "" {
-			footer = "Duration: " + msg.duration
-			if msg.tokens != "" {
-				footer += "  " + msg.tokens
-			}
+		if telemetry == nil && msg.metrics.Duration != "" {
+			footer = "Duration: " + msg.metrics.Duration
 		}
 		m.Messages.AddMessage(message.ChatMessage{
 			Role:            "assistant",
 			Content:         msg.content,
 			RenderedContent: accumulated,
 			Footer:          footer,
+			Telemetry:       telemetry,
 			Blocks:          finalBlocks,
 		})
 	}
 
-	st := m.metrics
-	m.Header.SetTokens(st.PromptTokens + st.CompletionTokens)
+	m.refreshRuntimeStatus()
 	if m.Messages.Follow {
 		m.Messages.GotoBottom()
 	}
-	return nil
+	return loadWorkspaceChanges(m.Runtime)
 }
 
 // --- keys: confirm ---
@@ -436,9 +442,7 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 				RenderedContent: p.Content,
 			})
 		}
-		selection := m.Runtime.CurrentModel()
-		m.Header.SetModel(selection.Provider, selection.Model)
-		m.Input.SetPermissionMode(m.Runtime.PermissionMode())
+		m.refreshRuntimeStatus()
 	case controlruntime.EventRunStarted:
 		if m.state != stateProcessing {
 			m.transitionTo(stateProcessing)
@@ -519,9 +523,8 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 	case controlruntime.EventRunDone:
 		payload, _ := ev.Payload.(controlruntime.RunResult)
 		return m.handleDone(doneMsg{
-			content:  payload.Output,
-			duration: m.metrics.Duration,
-			tokens:   tokensSummary(m.metrics),
+			content: payload.Output,
+			metrics: m.metrics,
 		})
 	case controlruntime.EventRunFailed:
 		payload, _ := ev.Payload.(controlruntime.RunResult)
@@ -530,15 +533,16 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 			err = errors.New(payload.Error)
 		}
 		return m.handleDone(doneMsg{
-			content:  payload.Output,
-			duration: m.metrics.Duration,
-			tokens:   tokensSummary(m.metrics),
-			err:      err,
+			content: payload.Output,
+			metrics: m.metrics,
+			err:     err,
 		})
 	case controlruntime.EventRunCancelled:
-		return m.handleDone(doneMsg{err: errors.New("cancelled")})
+		return m.handleDone(doneMsg{metrics: m.metrics, err: errors.New("cancelled")})
 	case controlruntime.EventSessionChanged:
+		m.refreshRuntimeStatus()
 		m.loadSessionMessages()
+		return loadWorkspaceChanges(m.Runtime)
 	case controlruntime.EventConnectorStatus:
 		if p, ok := ev.Payload.(controlruntime.ConnectorStatusPayload); ok && p.Message != "" {
 			m.Messages.AddMessage(message.ChatMessage{

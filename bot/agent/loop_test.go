@@ -14,7 +14,7 @@ import (
 	"nekocode/bot/provider/types"
 )
 
-func TestRunReturnsAutoCompactErrorBeforeModelCall(t *testing.T) {
+func TestSmallContextWindowDoesNotTriggerSyntheticBlocking(t *testing.T) {
 	llm := &fakeLLM{}
 	a := New(context.Background(), Config{
 		Context: ctxmgr.New(ctxmgr.Config{
@@ -27,11 +27,11 @@ func TestRunReturnsAutoCompactErrorBeforeModelCall(t *testing.T) {
 	})
 
 	result := a.Run("hello", nil)
-	if result.Error == nil || !strings.Contains(result.Error.Error(), "context full") {
-		t.Fatalf("run error = %v, want context full", result.Error)
+	if result.Error != nil {
+		t.Fatalf("run error = %v", result.Error)
 	}
-	if llm.calls != 0 {
-		t.Fatalf("model calls = %d, want 0", llm.calls)
+	if llm.calls != 1 {
+		t.Fatalf("model calls = %d, want 1", llm.calls)
 	}
 }
 

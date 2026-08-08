@@ -17,8 +17,10 @@ import (
 	"nekocode/bot/extension/tool/runtime/runner"
 	aggov "nekocode/bot/policy"
 	"nekocode/bot/provider"
+	"nekocode/bot/provider/types"
 	"nekocode/logger"
 	"nekocode/protocol"
+	"nekocode/util/duration"
 )
 
 // Config contains the dependencies and optional behavior of an Agent.
@@ -69,7 +71,8 @@ type Agent struct {
 	interaction   Interaction
 
 	// Token accounting.
-	tokens tokenMeter
+	tokens   tokenMeter
+	llmUsage llmUsageMeter
 
 	// Current run state.
 	run runState
@@ -104,6 +107,12 @@ func New(ctx context.Context, cfg Config) *Agent {
 	a.modelRunner = newModelRunner(a)
 	a.turnRunner = newTurnRunner(a)
 	a.toolRunner = newToolRunner(a)
+	if a.deps.ctxMgr != nil {
+		a.deps.ctxMgr.SetLLMUsageRecorder(func(usage types.StreamUsage) {
+			a.AddCompletionTokens(usage.CompletionTokens)
+			a.RecordLLMUsage(usage)
+		})
+	}
 	return a
 }
 
@@ -144,6 +153,7 @@ func (a *Agent) Reset() {
 	}
 	a.deps.ctxMgr.SetTodos(nil)
 	a.deps.ctxMgr.SetHints("")
+	a.llmUsage.reset()
 }
 
 func (a *Agent) injectHint(h *aggov.Hint) {
@@ -189,8 +199,12 @@ func (a *Agent) Governance() *aggov.Policy {
 	return a.deps.gov
 }
 
-func (a *Agent) AddTokens(prompt, completion int) {
-	a.tokens.add(prompt, completion)
+func (a *Agent) AddCompletionTokens(completion int) {
+	a.tokens.addCompletion(completion)
+}
+
+func (a *Agent) RecordLLMUsage(usage types.StreamUsage) {
+	a.llmUsage.record(usage)
 }
 
 func (a *Agent) TokenUsage() (prompt, completion int) {
@@ -207,12 +221,15 @@ func (a *Agent) Metrics() protocol.Metrics {
 	contextTokens := status.Tokens
 	prompt, completion := a.tokens.total(contextTokens)
 	turnPrompt, turnCompletion := a.tokens.turn(contextTokens)
-	return protocol.NewMetrics(protocol.MetricsInput{
+	turnTotal, turnInput, turnCached, turnNew, turnOutput, turnReasoning, cacheReported := a.llmUsage.snapshot()
+	return protocol.Metrics{
 		PromptTokens: prompt, CompletionTokens: completion,
 		TurnPrompt: turnPrompt, TurnCompletion: turnCompletion,
+		TurnTotal: turnTotal, TurnInput: turnInput, TurnCached: turnCached, TurnNew: turnNew,
+		TurnOutput: turnOutput, TurnReasoning: turnReasoning, TurnCacheReported: cacheReported,
 		ContextTokens: contextTokens, CompactCount: status.CompactCount,
-		Duration: a.life.Duration(),
-	})
+		Duration: duration.FormatDuration(a.life.Duration()),
+	}
 }
 
 // Executor exposes the tool executor so callers can configure tool-level

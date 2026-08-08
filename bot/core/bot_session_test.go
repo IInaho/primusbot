@@ -43,7 +43,8 @@ func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b := &Bot{cwd: cwd, sess: manager, checkpoints: cp}
+	contextManager := ctxmgr.New(ctxmgr.Config{})
+	b := &Bot{cwd: cwd, sess: manager, checkpoints: cp, ctxMgr: contextManager}
 	parser := command.NewParser()
 	parser.Register("rewind", func(context.Context, *command.Command) (string, bool) { return "", true })
 	b.registerCommandMenus(parser)
@@ -51,6 +52,18 @@ func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
 	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/rewind "+turn ||
 		!menu.Items[0].Submit || !strings.Contains(menu.Items[0].Description, "1 files · +0 ~1 -0") {
 		t.Fatalf("rewind menu = %+v, %v", menu, ok)
+	}
+	message, err := b.rewindCheckpoint(turn)
+	if err != nil || !strings.Contains(message, "1 files across 1 directories") {
+		t.Fatalf("rewind = %q, %v", message, err)
+	}
+	messages := contextManager.Snapshot().Messages
+	event := messages[len(messages)-1]
+	if event.Source != types.MessageSourceRuntimeEvent ||
+		!strings.Contains(event.Content, filepath.ToSlash(path)) ||
+		!strings.Contains(event.Content, filepath.ToSlash(cwd)) ||
+		!strings.Contains(event.Content, `"action": "restored_previous_file"`) {
+		t.Fatalf("rewind event = %+v", event)
 	}
 }
 
@@ -121,7 +134,9 @@ func TestBotNewAndDeleteSessionResetCurrentConversation(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cwd := t.TempDir()
 	contextManager := ctxmgr.New(ctxmgr.Config{})
-	contextManager.Add("user", "old conversation")
+	contextManager.Restore(ctxmgr.ManagerSnapshot{
+		Archive: "old summary", Messages: []types.Message{{Role: "user", Content: "old conversation"}},
+	})
 	manager := session.New(cwd)
 	b := &Bot{cwd: cwd, ctxMgr: contextManager, sess: manager}
 
@@ -134,6 +149,9 @@ func TestBotNewAndDeleteSessionResetCurrentConversation(t *testing.T) {
 	}
 	if got := len(contextManager.Snapshot().Messages); got != 0 {
 		t.Fatalf("new session retained %d old messages", got)
+	}
+	if archive := contextManager.Snapshot().Archive; archive != "" {
+		t.Fatalf("new session retained old archive %q", archive)
 	}
 
 	if err := b.DeleteSession(meta.ID); err != nil {
@@ -168,7 +186,7 @@ func TestResetConversationStopsOldSessionProcesses(t *testing.T) {
 		t.Fatalf("managed process did not start: %q", shellTool.ProcessSummary())
 	}
 
-	if _, err := b.resetConversation(false); err != nil {
+	if _, err := b.resetConversation(); err != nil {
 		t.Fatal(err)
 	}
 	shellTool.SetSessionID(oldID)

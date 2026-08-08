@@ -78,6 +78,10 @@ func (a *adapter) ContextSnapshot() controlruntime.ContextSnapshot {
 	return viewmodel.ContextSnapshot(a.bot.ContextReport())
 }
 
+func (a *adapter) WorkspaceChanges() controlruntime.WorkspaceChanges {
+	return a.bot.WorkspaceChanges()
+}
+
 func (a *adapter) MemoryView(scope controlruntime.MemoryScope) controlruntime.MemoryView {
 	memory := a.bot.Memory()
 	return viewmodel.Memory(scope, memory.Path, memory.Content)
@@ -113,6 +117,10 @@ func (a *adapter) extensionView(snapshot extension.Snapshot) controlruntime.Skil
 
 func (a *adapter) ConfigView() controlruntime.ConfigView {
 	return viewmodel.Config(a.bot.Configuration())
+}
+
+func (a *adapter) ResolveModelProfile(model controlruntime.ModelSpec) controlruntime.ModelProfile {
+	return viewmodel.ModelProfileFromSpec(model)
 }
 
 func (a *adapter) ApplyConfig(view controlruntime.ConfigView) (controlruntime.ConfigView, error) {
@@ -166,6 +174,7 @@ func (a *adapter) services() controlruntime.Services {
 		PermissionMode:         a.PermissionMode,
 		SwitchModel:            a.SwitchModel,
 		ContextSnapshot:        a.ContextSnapshot,
+		WorkspaceChanges:       a.WorkspaceChanges,
 		MemoryView:             a.MemoryView,
 		SkillManagementView:    a.SkillManagementView,
 		SelectSkill:            a.SelectSkill,
@@ -173,6 +182,7 @@ func (a *adapter) services() controlruntime.Services {
 		RefreshSkillManagement: a.RefreshSkillManagement,
 		SetPluginEnabled:       a.SetPluginEnabled,
 		ConfigView:             a.ConfigView,
+		ResolveModelProfile:    a.ResolveModelProfile,
 		ApplyConfig:            a.ApplyConfig,
 		CurrentSessionID:       a.CurrentSessionID,
 		ListSessions:           a.ListSessions,

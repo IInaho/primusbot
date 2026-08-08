@@ -15,12 +15,13 @@ const (
 )
 
 type doneMsg struct {
-	content  string
-	duration string
-	tokens   string
-	err      error
+	content string
+	metrics controlruntime.MetricsSnapshot
+	err     error
 }
 
 type runtimeEventMsg struct {
 	event controlruntime.Event
 }
+
+type workspaceChangesMsg controlruntime.WorkspaceChanges

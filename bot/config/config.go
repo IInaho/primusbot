@@ -21,15 +21,15 @@ func Exists() bool {
 }
 
 type ModelConfig struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	BaseURL  string `json:"base_url,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
+	Name            string `json:"name"`
+	Provider        string `json:"provider"`
+	APIKey          string `json:"api_key"`
+	Model           string `json:"model"`
+	BaseURL         string `json:"base_url,omitempty"`
+	Protocol        string `json:"protocol,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// ContextWindow overrides the context window for this model. When 0,
-	// the window is resolved from the global context_window, then the
-	// built-in table (KnownContextWindow), then Default.
+	// the window is resolved from the built-in model table, then Default.
 	ContextWindow int `json:"context_window,omitempty"`
 }
 
@@ -68,21 +68,27 @@ type WorkspaceConfig struct {
 }
 
 type Config struct {
-	Active         string                     `json:"active"`                // name of the active model
-	FlashModel     string                     `json:"flash_model,omitempty"` // optional lightweight model; empty uses the active model
-	Models         []ModelConfig              `json:"models"`
-	ImageGenModels []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models
-	MCPServers     map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
-	Permissions    *PermissionsConfig         `json:"permissions,omitempty"`
-	Workspaces     []WorkspaceConfig          `json:"workspaces,omitempty"`
+	Active             string                     `json:"active"`                // name of the active model
+	FlashModel         string                     `json:"flash_model,omitempty"` // optional lightweight model; empty uses the active model
+	AutoCompactPercent int                        `json:"auto_compact_percent,omitempty"`
+	Models             []ModelConfig              `json:"models"`
+	ImageGenModels     []ImageGenConfig           `json:"image_gen_models,omitempty"` // text-to-image models
+	MCPServers         map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	Permissions        *PermissionsConfig         `json:"permissions,omitempty"`
+	Workspaces         []WorkspaceConfig          `json:"workspaces,omitempty"`
 }
 
 // DefaultContextWindow is the final fallback context window for models the
 // built-in table does not know and no config value overrides.
 const DefaultContextWindow = 128000
 
+// DefaultAutoCompactPercent starts full-summary compaction before the model's
+// context window is exhausted, leaving room for the summary request and output.
+const DefaultAutoCompactPercent = 80
+
 var Default = Config{
-	Active: "default",
+	Active:             "default",
+	AutoCompactPercent: DefaultAutoCompactPercent,
 	Models: []ModelConfig{
 		{
 			Name:     "default",
@@ -130,6 +136,14 @@ func Load() (*Config, error) {
 			cfg.Active = cfg.Models[0].Name
 		}
 	}
+	for i := range cfg.Models {
+		model := &cfg.Models[i]
+		model.ReasoningEffort = strings.ToLower(strings.TrimSpace(model.ReasoningEffort))
+		if !ReasoningCapabilityFor(*model).Supports(model.ReasoningEffort) {
+			fmt.Fprintf(os.Stderr, "config: model %q does not support reasoning_effort %q; using auto\n", model.Name, model.ReasoningEffort)
+			model.ReasoningEffort = ReasoningAuto
+		}
+	}
 
 	return &cfg, nil
 }
@@ -147,6 +161,13 @@ func (c *Config) EffectiveContextWindow() int {
 		return w
 	}
 	return DefaultContextWindow
+}
+
+func (c *Config) EffectiveAutoCompactPercent() int {
+	if c.AutoCompactPercent >= 1 && c.AutoCompactPercent <= 99 {
+		return c.AutoCompactPercent
+	}
+	return DefaultAutoCompactPercent
 }
 
 // Clone returns an independently mutable configuration value.
@@ -211,6 +232,12 @@ func Validate(cfg *Config) error {
 	if len(cfg.Models) == 0 {
 		return fmt.Errorf("at least one model is required")
 	}
+	if cfg.AutoCompactPercent == 0 {
+		cfg.AutoCompactPercent = DefaultAutoCompactPercent
+	}
+	if cfg.AutoCompactPercent < 1 || cfg.AutoCompactPercent > 99 {
+		return fmt.Errorf("auto_compact_percent must be between 1 and 99")
+	}
 
 	seen := make(map[string]bool, len(cfg.Models))
 	for i := range cfg.Models {
@@ -221,6 +248,7 @@ func Validate(cfg *Config) error {
 		m.Model = strings.TrimSpace(m.Model)
 		m.BaseURL = strings.TrimSpace(m.BaseURL)
 		m.Protocol = strings.TrimSpace(m.Protocol)
+		m.ReasoningEffort = strings.ToLower(strings.TrimSpace(m.ReasoningEffort))
 
 		if m.Name == "" {
 			return fmt.Errorf("model #%d name is required", i+1)
@@ -240,6 +268,10 @@ func Validate(cfg *Config) error {
 		}
 		if m.ContextWindow < 0 {
 			return fmt.Errorf("model %q context_window must not be negative", m.Name)
+		}
+		capability := ReasoningCapabilityFor(*m)
+		if !capability.Supports(m.ReasoningEffort) {
+			return fmt.Errorf("model %q reasoning_effort must be one of %s", m.Name, strings.Join(capability.Values(), ", "))
 		}
 	}
 
@@ -332,6 +364,23 @@ func Validate(cfg *Config) error {
 	}
 
 	return nil
+}
+
+var reasoningEfforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// ParseReasoningEffort normalizes a configured or command-line value. Auto
+// is the user-facing spelling of the empty provider-default value.
+func ParseReasoningEffort(value string) (string, bool) {
+	effort := strings.ToLower(strings.TrimSpace(value))
+	if effort == "" || effort == "auto" {
+		return "", true
+	}
+	for _, candidate := range reasoningEfforts {
+		if effort == candidate {
+			return effort, true
+		}
+	}
+	return effort, false
 }
 
 // ResolveModel looks up a named model. Empty names use the active model.

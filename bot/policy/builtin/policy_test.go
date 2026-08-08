@@ -208,4 +208,16 @@ func TestReadOnlySpiralHook(t *testing.T) {
 	if result := hook.On(state); result != nil {
 		t.Fatalf("same streak should dedupe, got %+v", result)
 	}
+	state.facts.Activity.ReadOnlyStreak = 6
+	if result := hook.On(state); result != nil {
+		t.Fatalf("same uninterrupted streak should only warn once, got %+v", result)
+	}
+	state.facts.Activity.ReadOnlyStreak = 0
+	if result := hook.On(state); result != nil {
+		t.Fatalf("progress reset should be silent, got %+v", result)
+	}
+	state.facts.Activity.ReadOnlyStreak = 3
+	if result := hook.On(state); result == nil || result.Hint == nil {
+		t.Fatalf("new streak should rearm reminder, got %+v", result)
+	}
 }

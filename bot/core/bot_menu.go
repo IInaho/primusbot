@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"nekocode/bot/command"
+	"nekocode/bot/config"
 	"nekocode/protocol"
 )
 
@@ -46,6 +47,38 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		}}, true
 	})
 
+	p.RegisterMenu("effort", func(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
+		if len(cmd.Args) != 0 {
+			return protocol.CommandMenu{}, false
+		}
+		model := b.cfg.ActiveModelConfig()
+		current := model.ReasoningEffort
+		levels := config.ReasoningCapabilityFor(model).Values()
+		currentValue := current
+		if currentValue == "" {
+			currentValue = "auto"
+		}
+		items := make([]protocol.CommandMenuItem, 0, len(levels))
+		for _, level := range levels {
+			description := reasoningEffortDescription(level)
+			if level == currentValue {
+				description += " · current"
+			}
+			label := level
+			switch level {
+			case "auto":
+				label = "Auto"
+			case "none":
+				label = "Off"
+			}
+			items = append(items, protocol.CommandMenuItem{
+				Value: "/effort " + level, Label: label,
+				Description: description, Submit: true,
+			})
+		}
+		return protocol.CommandMenu{Title: "Reasoning effort", Items: items}, true
+	})
+
 	p.RegisterMenu("rewind", func(_ context.Context, cmd *command.Command) (protocol.CommandMenu, bool) {
 		if len(cmd.Args) != 0 || b.checkpoints == nil || b.sess == nil {
 			return protocol.CommandMenu{}, false
@@ -66,4 +99,25 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		}
 		return protocol.CommandMenu{Title: "Rewind checkpoint", Empty: "No checkpoints available", Items: items}, true
 	})
+}
+
+func reasoningEffortDescription(effort string) string {
+	switch effort {
+	case "auto":
+		return "Use the provider/model default"
+	case "none":
+		return "Disable reasoning when supported"
+	case "minimal":
+		return "Minimum reasoning budget"
+	case "low":
+		return "Faster, lighter reasoning"
+	case "medium":
+		return "Balanced reasoning"
+	case "high":
+		return "Deeper reasoning"
+	case "xhigh":
+		return "Extra-high reasoning when supported"
+	default:
+		return "Maximum reasoning when supported"
+	}
 }

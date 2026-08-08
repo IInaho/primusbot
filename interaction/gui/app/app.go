@@ -62,6 +62,7 @@ type runtimeClient interface {
 	RefreshSkillManagement() (controlruntime.SkillManagementView, error)
 	SetPluginEnabled(string, bool) (controlruntime.SkillManagementView, error)
 	ConfigView() controlruntime.ConfigView
+	ResolveModelProfile(controlruntime.ModelSpec) controlruntime.ModelProfile
 	ApplyConfig(controlruntime.ConfigView) (controlruntime.ConfigView, error)
 	CurrentSessionID() string
 	ListSessions() []controlruntime.SessionMeta
@@ -306,7 +307,7 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		payload, _ := ev.Payload.(controlruntime.RunResult)
 		a.emitRunDone(payload.Output, "")
 	case controlruntime.EventSystemMessage:
-		// Command output (e.g. /devices, /config) reaches the UI as a
+		// Command output (e.g. /connect, /model) reaches the UI as a
 		// system message so the user sees the command's reply.
 		if p, ok := ev.Payload.(controlruntime.MessagePayload); ok && strings.TrimSpace(p.Content) != "" {
 			wailsruntime.EventsEmit(a.ctx, "agent:system", map[string]any{
@@ -448,6 +449,10 @@ func (a *App) ClearSelectedSkill() {
 
 func (a *App) GetConfig() controlruntime.ConfigView {
 	return a.rt.ConfigView()
+}
+
+func (a *App) ResolveModelProfile(model controlruntime.ModelSpec) controlruntime.ModelProfile {
+	return a.rt.ResolveModelProfile(model)
 }
 
 func (a *App) SaveConfig(cfg controlruntime.ConfigView) (controlruntime.ConfigView, error) {

@@ -30,7 +30,7 @@ func (menuRuntime) CommandMenu(_ context.Context, input string) (protocol.Comman
 	case "/":
 		return protocol.CommandMenu{Title: "Commands", Items: []protocol.CommandMenuItem{
 			{Value: "/model", Label: "/model"},
-			{Value: "/clear", Label: "/clear", Submit: true},
+			{Value: "/new", Label: "/new", Submit: true},
 		}}, true
 	case "/model":
 		return protocol.CommandMenu{Title: "Models", Items: []protocol.CommandMenuItem{

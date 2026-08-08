@@ -599,7 +599,7 @@ func (s *eventSink) Post(ctx context.Context, in connect.Intent) error {
 		}
 		s.broadcast(ctx, text)
 	case connect.IntentSystem:
-		// Command/system reply (e.g. /devices, /config): deliver directly,
+		// Command/system reply (e.g. /connect, /model): deliver directly,
 		// bypassing the run-terminalization logic of IntentResult.
 		s.broadcast(ctx, taskview.MarkdownToHTML(in.Text))
 	case connect.IntentFailed:

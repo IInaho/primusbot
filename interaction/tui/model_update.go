@@ -3,6 +3,7 @@ package tui
 
 import (
 	"nekocode/interaction/tui/components"
+	controlruntime "nekocode/runtime"
 	"nekocode/util/runtime"
 
 	"charm.land/bubbles/v2/cursor"
@@ -38,6 +39,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runtimeEventMsg:
 		return m, tea.Batch(m.handleRuntimeEvent(msg.event), listenRuntimeEvent(m.runtimeEvents))
+
+	case workspaceChangesMsg:
+		m.Header.SetWorkspace(controlruntime.WorkspaceChanges(msg))
+		return m, nil
 
 	case tea.KeyPressMsg:
 		if m.state == stateConfirming {

@@ -36,7 +36,7 @@ const (
 	IntentPreview IntentKind = "preview"
 	// IntentResult is the final output of a finished run.
 	IntentResult IntentKind = "result"
-	// IntentSystem is a command/system reply (e.g. /devices, /config) that
+	// IntentSystem is a command/system reply (e.g. /connect, /model) that
 	// is not the output of a finished run. Kept distinct from IntentResult
 	// so channels don't treat it as a run terminalization.
 	IntentSystem IntentKind = "system"

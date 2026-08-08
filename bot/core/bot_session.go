@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"nekocode/bot/contextmgr"
 	"nekocode/bot/extension/tool/runtime/execution"
 	"nekocode/bot/policy/ledger"
+	"nekocode/bot/provider/types"
 	"nekocode/bot/session"
 	"nekocode/protocol"
 )
@@ -134,7 +137,7 @@ func (b *Bot) resumeSession(id string) (*session.Snapshot, error) {
 		b.ctxMgr.SetSystemPrompt(b.promptBuilder.BuildStatic())
 	}
 	if ag := b.getAgent(); ag != nil {
-		ag.AddTokens(snapshot.PromptTokens, snapshot.CompletionTokens)
+		ag.AddCompletionTokens(snapshot.CompletionTokens)
 	}
 	if b.ext != nil {
 		b.ext.ClearLoadedSkills()
@@ -159,44 +162,18 @@ func (b *Bot) ListSessions() []session.Meta {
 }
 
 func (b *Bot) NewSession() (*session.Snapshot, error) {
-	_, err := b.resetConversation(false)
+	_, err := b.resetConversation()
 	if err != nil {
 		return nil, err
 	}
 	return b.sess.Current(), nil
 }
 
-func (b *Bot) resetConversation(keepSummary bool) (string, error) {
-	result := "Conversation history cleared."
-	var previousContext contextmgr.ManagerSnapshot
-	if keepSummary {
-		previousContext = b.ctxMgr.Snapshot()
-		before := b.ctxMgr.Status()
-		if before.Messages <= 2 {
-			result = "New session started."
-		} else {
-			if _, err := b.ctxMgr.AutoCompactIfNeeded(); err != nil {
-				return "", err
-			}
-			after := b.ctxMgr.Status()
-			summary := "no summary"
-			if after.HasArchive {
-				summary = "with summary"
-			}
-			result = fmt.Sprintf("%d messages, ~%d tokens → %s (~%d tokens)", before.Messages, before.Tokens, summary, after.Tokens)
-		}
-	}
+func (b *Bot) resetConversation() (string, error) {
 	if err := b.closeSessionRuntime(b.sess.CurrentID()); err != nil {
-		if keepSummary {
-			b.ctxMgr.Restore(previousContext)
-		}
 		return "", err
 	}
-	if keepSummary {
-		b.ctxMgr.ResetHistory()
-	} else {
-		b.ctxMgr.Reset()
-	}
+	b.ctxMgr.Reset()
 	newSession := b.sess.StartNew()
 	if b.checkpoints != nil {
 		b.checkpoints.Activate(newSession.ID, nil, 0)
@@ -211,7 +188,7 @@ func (b *Bot) resetConversation(keepSummary bool) (string, error) {
 		b.policy.Restore(ledger.Snapshot{})
 	}
 	b.syncPolicySessionID()
-	return result, nil
+	return "New session started.", nil
 }
 
 func (b *Bot) ensureSessionIdentity() {
@@ -266,12 +243,39 @@ func (b *Bot) rewindCheckpoint(turn string) (string, error) {
 	}
 	if ag := b.getAgent(); ag != nil {
 		state := ag.ToolExecutionState()
-		for _, path := range result.Paths {
-			state.FileCache.Invalidate(path)
+		for _, change := range result.Changes {
+			state.FileCache.Invalidate(change.Path)
 		}
 		state.SnapshotStore = execution.NewSnapshotStore()
 	}
-	return fmt.Sprintf("Rewound to turn %s: restored %d files.", result.Turn, result.Files), nil
+	event, directories := formatRewindEvent(result)
+	b.ctxMgr.Add("user", event, types.MessageSourceRuntimeEvent)
+	return fmt.Sprintf("Rewound to turn %s: %d files across %d directories.", result.Turn, len(result.Changes), len(directories)), nil
+}
+
+func formatRewindEvent(result checkpoint.Result) (string, []string) {
+	directorySet := make(map[string]struct{}, len(result.Changes))
+	for _, change := range result.Changes {
+		directorySet[filepath.Dir(change.Path)] = struct{}{}
+	}
+	directories := make([]string, 0, len(directorySet))
+	for directory := range directorySet {
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	payload := struct {
+		Turn                string                      `json:"turn"`
+		Files               []checkpoint.RollbackChange `json:"files"`
+		AffectedDirectories []string                    `json:"affected_directories"`
+		Instruction         string                      `json:"instruction"`
+		Scope               string                      `json:"scope"`
+	}{
+		Turn: result.Turn, Files: result.Changes, AffectedDirectories: directories,
+		Instruction: "The filesystem is authoritative. Earlier tool results describing these paths are stale; re-read a file before making further changes.",
+		Scope:       "Only the listed files were rolled back. Directory metadata was not restored; directories identify where affected files are located.",
+	}
+	encoded, _ := json.MarshalIndent(payload, "", "  ")
+	return "<workspace_event type=\"checkpoint_rewind\">\n" + string(encoded) + "\n</workspace_event>", directories
 }
 
 func checkpointChangeCounts(turn checkpoint.TurnInfo) (created, modified, deleted int) {

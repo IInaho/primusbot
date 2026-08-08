@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"nekocode/bot/config"
@@ -25,26 +26,27 @@ func TestNewBuildsCommandHandler(t *testing.T) {
 	}
 }
 
-func TestConversationCommandsDelegateReset(t *testing.T) {
+func TestNewCommandDelegatesReset(t *testing.T) {
 	manager := ctxmgr.New(ctxmgr.Config{})
-	var calls []bool
+	calls := 0
 	handler := New(Deps{
 		CtxMgr:       manager,
 		ToolRegistry: tools.New(),
 		GetConfigFn:  func() config.ModelConfig { return config.ModelConfig{} },
 		SwitchModel:  func(string) error { return nil },
-		ResetConversation: func(keepSummary bool) (string, error) {
-			calls = append(calls, keepSummary)
+		ResetConversation: func() (string, error) {
+			calls++
 			return "reset", nil
 		},
 	})
-	for _, input := range []string{"/clear", "/new"} {
-		if result, handled := handler.Execute(context.Background(), input, manager); !handled || result != "reset" {
-			t.Fatalf("%s result=%q handled=%v", input, result, handled)
-		}
+	if result, handled := handler.Execute(context.Background(), "/new", manager); !handled || result != "reset" {
+		t.Fatalf("/new result=%q handled=%v", result, handled)
 	}
-	if len(calls) != 2 || calls[0] || !calls[1] {
-		t.Fatalf("reset modes = %v, want [false true]", calls)
+	if calls != 1 {
+		t.Fatalf("reset calls = %d, want 1", calls)
+	}
+	if result, handled := handler.Execute(context.Background(), "/clear", manager); !handled || !strings.Contains(result, "Unknown command") {
+		t.Fatalf("removed /clear result=%q handled=%v", result, handled)
 	}
 }
 

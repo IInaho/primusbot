@@ -1,5 +1,48 @@
 # 更新日志
 
+## Unreleased - 2026-08-08
+
+### Append-only 上下文与压缩
+
+- 动态环境、Todo 和运行时策略不再改写 system 消息，改为带明确替代语义的 tagged user 消息按变化追加；提示类 hints 独立注入，不再夹带其他运行时状态。
+- 上下文压缩统一为全量摘要替换，移除没有独立行为的 Warning、MicroCompact、Compact、Blocking 分级；新增 `auto_compact_percent`，默认在模型窗口的 80% 触发。
+- 压缩轮次识别会忽略 runtime context、hint 和 rewind 隐藏事件，但 rewind 事实仍会作为摘要证据保留。
+- `/new` 始终创建全新会话且不继承旧上下文；删除语义重叠的 `/clear`。`/rewind` 仅回滚文件，并向模型追加包含文件、动作和受影响目录的隐藏工作区事件。
+
+### LLM 调用日志与用量展示
+
+- calllog 改为逐次记录所有 LLM 请求，包含耗时、TTFT、模型、协议、请求/生效 reasoning effort、输入、缓存命中、未缓存、输出和 reasoning tokens。
+- 日志不再保存 prompt、请求体、响应正文、凭据或完整 provider fingerprint；URL 会移除认证信息、路径和查询参数，错误只保留安全分类。
+- TUI 每轮结束后展示本轮总量、输入、缓存、未缓存、输出、可选 reasoning 和缓存命中率；command-only 运行不生成 turn telemetry。
+- TUI 顶栏改为平均缓存命中率、当前上下文占用、距压缩门限和工作区增删/未跟踪统计，移除模型名和累计 token 数。
+
+### 模型推理与上下文配置
+
+- 新增模型能力驱动的 `reasoning_effort`，支持 `/effort` 命令切换；可选值根据当前模型解析，未知模型只提供 Auto，支持关闭推理的模型额外提供 Off/`none`。
+- OpenAI 兼容与 Anthropic provider 统一 reasoning/thinking 配置、流式 reasoning 内容和 usage 解析；reasoning 配置使用独立的 provider-neutral 快照，避免跨层字段复制。
+- 上下文窗口改为模型属性：模型显式 `context_window` 优先，其次使用内置模型元数据，未知模型回退到 128K；不再维护可编辑的全局窗口值。
+- GUI 概览只读展示当前模型的有效窗口；模型卡片支持可选窗口覆盖。修改 provider/model/protocol 后会重新解析窗口和 effort，保存时不会固化自动默认值。
+
+### 命令与交互体验
+
+- `/model`、`/permission`、`/effort` 等纯状态切换命令不再把命令文本或冗余响应投影进会话；命令菜单与真实命令注册表统一。
+- 优化 TUI 状态栏的 Model/Effort 顺序、配色、工作区差异格式、窄屏降级和 telemetry 中文指标名称。
+- 系统消息改为左侧细线样式并保留正文空行；GUI 配置页同步支持压缩门限、推理强度和模型级上下文窗口。
+
+### 可靠性与工程结构
+
+- checkpoint rewind 结果统一以结构化 `Changes` 为唯一事实来源，文件缓存失效、用户文案和隐藏事件共用同一数据。
+- `BuildRequest` 改为完整 `ModelRequest`，calllog 直接接收规范化 `StreamUsage`；删除 token meter、Todo 和 TUI 渲染中的重复状态与兼容型分支。
+- reasoning 设置下沉到独立中立包；TUI header/telemetry 改为 profile 驱动的统一渲染器。
+- 修复 hints 在截断/恢复后的投影去重、命令运行复用上一轮 telemetry、模型重命名丢失 active/flash 引用，以及 Wails 外层绑定缺失导致生成的前端 API 不完整等问题。
+- 更新架构、用户指南和路线图，并补充 append-only、压缩、缓存 usage、reasoning、GUI 配置、rewind 和 Wails binding 回归测试。
+
+### 兼容性说明
+
+- 删除 `/clear`，请使用 `/new` 创建全新会话。
+- calllog JSONL 字段升级为 `total`、`in`、`cached`、`new`、`out`、`reasoning` 等新 schema；依赖旧字段的外部脚本需要同步调整。
+- 顶层 `context_window` 不再作为可编辑配置保存；需要覆盖时请在对应的 `models[]` 项内设置。
+
 ## v0.4.2 - 2026-08-04
 
 ### 前缀缓存修复(长对话成本显著下降)

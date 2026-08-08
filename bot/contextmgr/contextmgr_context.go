@@ -2,6 +2,8 @@ package contextmgr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"nekocode/bot/calllog"
 	"nekocode/bot/contextmgr/token"
@@ -11,49 +13,50 @@ import (
 	"nekocode/protocol"
 )
 
-// Build assembles the full request context in cache-stability order:
+// ModelRequest describes one complete provider request projection.
+type ModelRequest struct {
+	Tools       []types.ToolDef
+	PolicyHints string
+}
+
+// Build assembles the persisted context without mutating it:
 //
 //	Layer 0  system prompt + skill list (immutable within a session)
 //	Layer 1  long-term memory
 //	Layer 2  compaction archive
 //	Layer 3  message history (append-only)
-//	Layer 4  runtime environment (volatile: date, processes, roots)
-//	Layer 5  todos + hints (volatile tail)
 //
-// Layers 4-5 ride the tail: their content may change every turn, and a
-// change there only costs the tail itself, never the cached prefix.
+// Dynamic runtime state is represented by tagged user messages already
+// appended to Layer 3 by BuildRequest.
 func (m *Manager) Build() []types.Message {
-	runtimePrompt := m.buildLayer4()
 	m.state.mu.RLock()
 	defer m.state.mu.RUnlock()
-	return m.buildLocked(runtimePrompt, false)
+	return m.buildLocked(false)
 }
 
 // BuildRequest assembles one model request and records its cache-relevant
 // shape in the same state snapshot. Model callers should use this instead of
 // pairing Build and prefix observation manually.
-func (m *Manager) BuildRequest(toolDefs []types.ToolDef) []types.Message {
-	runtimePrompt := m.buildLayer4()
+func (m *Manager) BuildRequest(request ModelRequest) []types.Message {
+	runtimePrompt := m.renderRuntimeEnvironment()
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
-	out := m.buildLocked(runtimePrompt, true)
+	m.appendRuntimeContextLocked(runtimePrompt)
+	m.appendHintsLocked(m.state.ctx.Hints, request.PolicyHints)
+	out := m.buildLocked(true)
 	system := m.state.ctx.BuildLayer0()
 	system = append(system, m.state.ctx.BuildLayer1()...)
 	history := m.state.ctx.BuildLayer2()
-	history = append(history, m.buildLayer3()...)
-	m.state.prefix.Observe(buildPrefixShape(system, history, toolDefs))
+	history = append(history, m.visibleHistory()...)
+	m.state.prefix.Observe(buildPrefixShape(system, history, request.Tools))
 	return out
 }
 
-func (m *Manager) buildLocked(runtimePrompt string, preserveSource bool) []types.Message {
+func (m *Manager) buildLocked(preserveSource bool) []types.Message {
 	out := m.state.ctx.BuildLayer0()
 	out = append(out, m.state.ctx.BuildLayer1()...)
 	out = append(out, m.state.ctx.BuildLayer2()...)
-	out = append(out, m.buildLayer3()...)
-	if runtimePrompt != "" {
-		out = append(out, types.Message{Role: "system", Content: runtimePrompt, Source: types.MessageSourceVolatileTail})
-	}
-	out = append(out, m.state.ctx.BuildLayer5()...)
+	out = append(out, m.visibleHistory()...)
 	if !preserveSource {
 		for i := range out {
 			out[i].Source = ""
@@ -62,15 +65,87 @@ func (m *Manager) buildLocked(runtimePrompt string, preserveSource bool) []types
 	return out
 }
 
-// buildLayer3 returns the visible (post-compaction-boundary) history with
+// appendRuntimeContextLocked appends a complete dynamic-state snapshot only
+// when its provider-visible bytes changed. Explicit per-field states supersede
+// old values so stale todos or runtime policies do not remain active.
+func (m *Manager) appendRuntimeContextLocked(environment string) {
+	projection := &m.state.runtimeProjection
+	todos := m.state.ctx.TodoText()
+	if !hasRuntimeContextState(environment, todos, m.state.runtimePolicy) && !projection.seen {
+		return
+	}
+	current := renderRuntimeContext(environment, todos, m.state.runtimePolicy)
+	if !projection.changed(current) {
+		return
+	}
+	m.state.ctx.Messages = append(m.state.ctx.Messages, types.Message{
+		Role: "user", Content: current, Source: types.MessageSourceRuntimeContext,
+	})
+	m.state.tracker.AddNew(len("user") + len(current))
+	m.state.revision++
+}
+
+// appendHintsLocked appends only the active hint payload. Clearing a hint is
+// controller lifecycle state, not a new model instruction, so it only rearms
+// deduplication and does not append an empty/superseding runtime snapshot.
+func (m *Manager) appendHintsLocked(hints ...string) {
+	var active []string
+	for _, hint := range hints {
+		if hint = strings.TrimSpace(hint); hint != "" {
+			active = append(active, hint)
+		}
+	}
+	current := strings.Join(active, "\n")
+	if current == "" {
+		m.state.hintProjection.reset()
+		return
+	}
+	if !m.state.hintProjection.changed(current) {
+		return
+	}
+	m.state.ctx.Messages = append(m.state.ctx.Messages, types.Message{
+		Role: "user", Content: current, Source: types.MessageSourceHint,
+	})
+	m.state.tracker.AddNew(len("user") + len(current))
+	m.state.revision++
+}
+
+func hasRuntimeContextState(values ...string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func renderRuntimeContext(environment, todo, runtimePolicy string) string {
+	blocks := []string{
+		"<snapshot_semantics>This complete snapshot supersedes all earlier runtime_context messages.</snapshot_semantics>",
+		renderRuntimeSection("environment_state", environment, "unavailable"),
+		renderRuntimeSection("todo_state", formatTodo(todo), "empty"),
+		renderRuntimeSection("runtime_policy_state", runtimePolicy, "inactive"),
+	}
+	return "<runtime_context mode=\"replace\">\n" + strings.Join(blocks, "\n") + "\n</runtime_context>"
+}
+
+func renderRuntimeSection(name, value, emptyState string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Sprintf("<%s state=\"%s\"></%s>", name, emptyState, name)
+	}
+	return fmt.Sprintf("<%s>\n%s\n</%s>", name, value, name)
+}
+
+// visibleHistory returns the post-compaction history with
 // orphaned tool calls/results filtered out.
-func (m *Manager) buildLayer3() []types.Message {
+func (m *Manager) visibleHistory() []types.Message {
 	return m.filterValidMessages(m.state.ctx.Messages)
 }
 
-// buildLayer4 renders the runtime environment block via the registered
-// provider ("" when none is set).
-func (m *Manager) buildLayer4() string {
+// renderRuntimeEnvironment renders the current environment block via the
+// registered provider ("" when none is set).
+func (m *Manager) renderRuntimeEnvironment() string {
 	provider := m.runtimePrompt
 	if provider == nil {
 		return ""
@@ -142,11 +217,21 @@ func (m *Manager) SetHints(hints string) {
 	m.state.ctx.Hints = hints
 }
 
+// SetRuntimePolicy updates controller-owned policy for subsequent requests.
+// The policy is emitted as part of a tagged user message, never by rewriting
+// the stable system prompt.
+func (m *Manager) SetRuntimePolicy(policy string) {
+	m.state.mu.Lock()
+	defer m.state.mu.Unlock()
+	m.state.runtimePolicy = policy
+}
+
 // ModelContext contains the context settings that change together when the
 // active model changes.
 type ModelContext struct {
-	Window          int
-	CompactionModel provider.LLM
+	Window             int
+	AutoCompactPercent int
+	CompactionModel    provider.LLM
 }
 
 // ConfigureModel updates model-dependent context settings atomically.
@@ -159,11 +244,28 @@ func (m *Manager) ConfigureModel(cfg ModelContext) {
 	m.state.tracker.ResetCache()
 	m.state.prefix.Reset()
 	if m.state.compressor != nil {
+		m.state.compressor.autoCompactPercent = normalizeAutoCompactPercent(cfg.AutoCompactPercent)
 		var summarizer Summarizer
 		if cfg.CompactionModel != nil {
-			summarizer = makeSummarizer(context.Background(), cfg.CompactionModel)
+			summarizer = m.makeSummarizer(context.Background(), cfg.CompactionModel)
 		}
 		m.state.compressor.summarizer = summarizer
+	}
+}
+
+func (m *Manager) resetRuntimeContextLocked() {
+	m.state.runtimeProjection.reset()
+	m.state.hintProjection.reset()
+}
+
+func (m *Manager) restoreRuntimeContextLocked() {
+	m.resetRuntimeContextLocked()
+	for i := len(m.state.ctx.Messages) - 1; i >= 0; i-- {
+		msg := m.state.ctx.Messages[i]
+		if msg.Source == types.MessageSourceRuntimeContext {
+			m.state.runtimeProjection.changed(msg.Content)
+			return
+		}
 	}
 }
 
@@ -205,12 +307,6 @@ func (m *Manager) Status() Status {
 	}
 }
 
-func (m *Manager) RecordUsage(prompt int) {
-	m.state.mu.Lock()
-	defer m.state.mu.Unlock()
-	m.state.tracker.RecordPrompt(prompt)
-}
-
 // BeginModelTurn starts cache diagnostics for one user conversation. It keeps
 // the prior request shape so the next request can still detect prefix changes.
 func (m *Manager) BeginModelTurn() {
@@ -219,13 +315,21 @@ func (m *Manager) BeginModelTurn() {
 	m.state.prefix.BeginTurn()
 }
 
-func (m *Manager) RecordCache(hit, miss int) {
+// RecordModelUsage applies one complete provider usage event to token and
+// prefix diagnostics. The stream layer emits this once per LLM request.
+func (m *Manager) RecordModelUsage(usage types.StreamUsage) {
+	if !usage.HasTokens() {
+		return
+	}
 	m.state.mu.Lock()
 	defer m.state.mu.Unlock()
-	m.state.tracker.RecordCache(hit, miss)
-	diagnosis := m.state.prefix.RecordCache(hit, miss)
-	if miss > 0 {
-		logger.Log("prefix cache miss: tokens=%d changed=%v", miss, diagnosis.Parts)
+	m.state.tracker.RecordPrompt(usage.PromptTokens)
+	if usage.CacheUsageReported {
+		m.state.tracker.RecordCache(usage.CacheHitTokens, usage.CacheMissTokens)
+		diagnosis := m.state.prefix.RecordCache(usage.CacheHitTokens, usage.CacheMissTokens)
+		if usage.CacheMissTokens > 0 {
+			logger.Log("prefix cache miss: tokens=%d changed=%v", usage.CacheMissTokens, diagnosis.Parts)
+		}
 	}
 }
 
@@ -248,9 +352,7 @@ func (m *Manager) totalTokenEstimate() int {
 		token.EstimateString(m.state.ctx.Skills) +
 		token.EstimateString(m.state.ctx.Memory) +
 		token.EstimateString(m.state.ctx.Archive) +
-		token.EstimateTokens(m.state.ctx.Messages) +
-		token.EstimateString(m.state.ctx.Todo) +
-		token.EstimateString(m.state.ctx.Hints)
+		token.EstimateTokens(m.state.ctx.Messages)
 }
 
 func (m *Manager) estimatedTokens() int {

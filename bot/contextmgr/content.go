@@ -2,11 +2,11 @@ package contextmgr
 
 import (
 	"fmt"
-	"nekocode/protocol"
 	"strconv"
 	"strings"
 
 	"nekocode/bot/provider/types"
+	"nekocode/protocol"
 )
 
 // contextContent is the single source of truth for everything sent to the LLM
@@ -18,8 +18,7 @@ import (
 //	Layer 1 — long-term memory (~/.nekocode/memory.md)
 //	Layer 2 — compaction archive (only rewritten by the compactor)
 //	Layer 3 — active message history (replaced when compacted)
-//	Layer 4 — runtime environment block (volatile, rebuilt per request)
-//	Layer 5 — todos + hints (volatile tail)
+//	Dynamic runtime state — appended as tagged user messages when it changes
 //
 // External setters set fields directly:
 //
@@ -42,10 +41,10 @@ type contextContent struct {
 	// Layer 3 — message history.
 	Messages []types.Message
 
-	// Layer 5 — volatile suffix. ALL variable content goes HERE, after history.
-	Todo      string
-	TodoItems []protocol.TodoItem // structured copy, kept in sync with Todo
-	Hints     string              // per-turn system hints (quota, exploration status, etc.)
+	// Dynamic controller state. BuildRequest snapshots todos into runtime
+	// context and appends hints independently whenever their visible value changes.
+	TodoItems []protocol.TodoItem
+	Hints     string // per-turn system hints (quota, exploration status, etc.)
 
 }
 
@@ -60,8 +59,9 @@ func newContextContent(systemPrompt string) contextContent {
 
 func (c *contextContent) LoadTodos(items []protocol.TodoItem) {
 	c.TodoItems = items
-	c.Todo = formatTodoItems(items)
 }
+
+func (c *contextContent) TodoText() string { return formatTodoItems(c.TodoItems) }
 
 // AllTasksDone returns true when no tasks are pending (empty or all completed).
 func (c *contextContent) AllTasksDone() bool {
@@ -128,18 +128,9 @@ func (c *contextContent) BuildLayer2() []types.Message {
 	return nil
 }
 
-// BuildLayer5 returns the volatile tail: todos + hints.
-func (c *contextContent) BuildLayer5() []types.Message {
-	var out []types.Message
-	if c.Todo != "" {
-		out = append(out, types.Message{Role: "system", Content: formatTodo(c.Todo), Source: types.MessageSourceVolatileTail})
-	}
-	if c.Hints != "" {
-		out = append(out, types.Message{Role: "system", Content: c.Hints, Source: types.MessageSourceVolatileTail})
-	}
-	return out
-}
-
 func formatTodo(todo string) string {
+	if strings.TrimSpace(todo) == "" {
+		return ""
+	}
 	return fmt.Sprintf("<todo>%s</todo>", todo)
 }

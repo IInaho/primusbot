@@ -5,7 +5,7 @@ import "strings"
 // knownContextWindows maps lowercase model-name substrings to their context
 // window sizes. There is no standard provider API to query a model's context
 // window, so this table covers the common models; it is only a fallback —
-// an explicit context_window (per-model or global) always wins.
+// an explicit per-model context_window always wins.
 // First match wins, so list more specific names before their prefixes.
 // Values verified against provider announcements as of 2026-08.
 var knownContextWindows = []struct {

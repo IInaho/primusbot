@@ -7,6 +7,7 @@ import (
 
 	"nekocode/interaction/tui/components/block"
 	"nekocode/interaction/tui/styles"
+	"nekocode/protocol"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -16,6 +17,7 @@ type AssistantMessageItem struct {
 	content         string
 	renderedContent string
 	footer          string
+	telemetry       *protocol.Metrics
 	blocks          []block.ContentBlock
 	sty             *styles.Styles
 	cache           cachedRender
@@ -53,6 +55,13 @@ func (m *AssistantMessageItem) SetFooter(footer string) {
 	m.mu.Unlock()
 }
 
+func (m *AssistantMessageItem) SetTelemetry(telemetry protocol.Metrics) {
+	m.mu.Lock()
+	m.telemetry = &telemetry
+	m.cache = cachedRender{}
+	m.mu.Unlock()
+}
+
 func (m *AssistantMessageItem) Render(width int) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -85,6 +94,9 @@ func (m *AssistantMessageItem) Render(width int) string {
 	}
 	if m.footer != "" {
 		msgParts = append(msgParts, "", "  "+styles.SubtleStyle.Render(m.footer))
+	}
+	if m.telemetry != nil {
+		msgParts = append(msgParts, "", "  "+renderTelemetryLine(*m.telemetry, max(contentW-2, 1), m.sty))
 	}
 
 	msgBlock := lipgloss.NewStyle().

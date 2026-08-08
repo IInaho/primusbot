@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,10 +47,20 @@ type manifest struct {
 }
 
 type Result struct {
-	Turn  string
-	Files int
-	Paths []string
+	Turn    string
+	Changes []RollbackChange
 }
+
+type RollbackChange struct {
+	Path   string `json:"path"`
+	Action string `json:"action"`
+}
+
+const (
+	RollbackRemovedCreatedFile  = "removed_created_file"
+	RollbackRestoredFile        = "restored_previous_file"
+	RollbackRestoredDeletedFile = "restored_deleted_file"
+)
 
 type FileChange struct {
 	Path string
@@ -321,6 +332,7 @@ func (m *Manager) Rewind(session, target string) (Result, error) {
 	}
 
 	result := Result{Turn: target}
+	changes := make(map[string]string)
 	var restoreErr error
 	for i := len(turns) - 1; i >= idx; i-- {
 		turn := turns[i]
@@ -334,12 +346,27 @@ func (m *Manager) Rewind(session, target string) (Result, error) {
 				restoreErr = errors.Join(restoreErr, err)
 				continue
 			}
-			result.Files++
-			result.Paths = append(result.Paths, mf.Entries[j].Path)
+			action := RollbackRestoredFile
+			switch {
+			case mf.Entries[j].Before == "absent":
+				action = RollbackRemovedCreatedFile
+			case mf.Entries[j].Change == ChangeDeleted:
+				action = RollbackRestoredDeletedFile
+			}
+			changes[mf.Entries[j].Path] = action
 		}
 	}
 	if restoreErr != nil {
 		return result, restoreErr
+	}
+	paths := make([]string, 0, len(changes))
+	for path := range changes {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	result.Changes = make([]RollbackChange, 0, len(paths))
+	for _, path := range paths {
+		result.Changes = append(result.Changes, RollbackChange{Path: path, Action: changes[path]})
 	}
 	for _, turn := range turns[idx:] {
 		if err := os.RemoveAll(m.turnDir(session, turn)); err != nil {

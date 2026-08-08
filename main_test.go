@@ -6,4 +6,5 @@ import controlruntime "nekocode/runtime"
 // GUI implementation. Wails generates frontend bindings from main.App.
 var _ interface {
 	CommandMenu(string) *controlruntime.CommandMenu
+	ResolveModelProfile(controlruntime.ModelSpec) controlruntime.ModelProfile
 } = (*App)(nil)

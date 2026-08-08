@@ -74,7 +74,9 @@ func ReadOnlySpiralHook() policy.Hook {
 				s.SetInt("last_warned", 0)
 				return nil
 			}
-			if int64(streak)-s.Int("last_warned") < policy.ReadOnlySpiralThreshold {
+			// One reminder per uninterrupted read-only streak. A non-read-only
+			// batch resets the activity streak and rearms the reminder above.
+			if s.Int("last_warned") != 0 {
 				return nil
 			}
 			s.SetInt("last_warned", int64(streak))

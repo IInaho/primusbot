@@ -34,6 +34,7 @@ NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前�
 ```json
 {
   "active": "deepseek",
+  "auto_compact_percent": 80,
   "models": [
     {
       "name": "deepseek",
@@ -41,7 +42,8 @@ NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前�
       "api_key": "你的 API Key",
       "model": "deepseek-v4-flash",
       "base_url": "https://api.deepseek.com/v1",
-      "protocol": "openai"
+      "protocol": "openai",
+      "reasoning_effort": "medium"
     }
   ]
 }
@@ -71,32 +73,33 @@ NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前�
 在输入框输入 `/` 会弹出命令菜单。命令名用 Tab 或方向键选择；对于候选值有限的命令，输入完整命令后按 Enter 会继续展开选择菜单：
 
 - `/model`：选择已配置模型
+- `/effort`：选择当前模型的推理强度
+- `/permission`：选择手动审批或全接管模式
 - `/rewind`：选择最近 10 个有效 checkpoint，并显示时间和文件变更数量
 - `/sessions`：选择历史会话
 - `/plugin`：先选择操作；enable/disable/info/uninstall 再选择插件
 - `/connect`、`/disconnect`：选择连接器
 
-菜单使用 `↑`/`↓` 或 Tab 移动，Enter 选择；叶子选项会直接执行，Esc 关闭菜单，在多级菜单中则返回上一级。自由文本参数（例如 `/plan <任务>`、`/plugin install <来源>`）不会强行弹出菜单，仍然直接输入。
+菜单使用 `↑`/`↓` 或 Tab 移动，Enter 选择；叶子选项会直接执行，Esc 关闭菜单，在多级菜单中则返回上一级。模型、推理强度、权限等控制命令只更新系统状态和底部状态栏，不会显示为用户对话。自由文本参数（例如 `/plan <任务>`、`/plugin install <来源>`）不会强行弹出菜单，仍然直接输入。
 
 GUI 使用同一份命令数据：输入 `/` 后在输入框上方弹出面板，方向键移动、Enter 选择、Esc 关闭。GUI、TUI 和远程消息渠道不会各自维护命令列表。
 
 | 命令 | 作用 |
 |---|---|
 | `/help` | 显示帮助 |
-| `/new` | 开始新对话（自动带上前一段对话的摘要） |
-| `/clear` | 清空全部对话历史 |
+| `/new` | 创建一个不继承旧上下文的空白会话 |
 | `/context` | 查看上下文用量，以及整场会话/上一轮的缓存命中率和异常归因 |
 | `/summarize` | 立即压缩上下文（对话太长时用） |
-| `/rewind [turn]` | 打开 checkpoint 菜单；也可手动指定 turn，回滚该回合及之后的文件改动 |
+| `/rewind [turn]` | 打开 checkpoint 菜单；也可手动指定 turn，回滚该回合及之后的文件改动，并向模型追加隐藏的精确回滚清单 |
 | `/model [名字]` | 打开模型菜单；也可手动指定名字切换模型 |
-| `/config` | 显示当前使用的服务商和模型 |
+| `/effort [级别]` | 打开当前模型的推理强度菜单；只显示该模型支持的级别，未知模型仅提供 `auto` |
+| `/permission [manual\|full]` | 打开权限菜单；也可手动切换审批模式 |
 | `/plan <任务>` | 让 AI 先出方案，你确认后再动手 |
 | `/sessions [id]` | 打开历史会话菜单；也可手动指定 id 恢复会话 |
 | `/export` | 导出当前对话到文件 |
 | `/plugin` | 管理插件（见「插件」一节） |
 | `/connect` | 连接 IM 平台（见下一节） |
 | `/disconnect <平台>` | 断开某个 IM 平台 |
-| `/devices` | 查看各平台已配对的设备 |
 | `$<技能名>` | 使用技能（见「技能」一节） |
 
 ### 快捷键
@@ -282,6 +285,7 @@ MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数�
 ```json
 {
   "active": "deepseek",
+  "auto_compact_percent": 80,
   "models": [
     {
       "name": "deepseek",
@@ -289,7 +293,8 @@ MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数�
       "api_key": "sk-xxx",
       "model": "deepseek-v4-flash",
       "base_url": "https://api.deepseek.com/v1",
-      "protocol": "openai"
+      "protocol": "openai",
+      "reasoning_effort": "medium"
     },
     {
       "name": "claude",
@@ -297,7 +302,8 @@ MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数�
       "api_key": "sk-ant-xxx",
       "model": "claude-sonnet-4-5",
       "base_url": "https://api.anthropic.com",
-      "protocol": "anthropic"
+      "protocol": "anthropic",
+      "reasoning_effort": "high"
     }
   ],
   "mcp_servers": {
@@ -320,7 +326,9 @@ MCP(Model Context Protocol）可以为 AI 接入外部工具和数据源（数�
 主要字段说明：
 
 - `active` / `models`：模型配置（见「首次配置」)
-- `context_window`：上下文窗口大小。**这是模型的属性，通常不用填**——NekoCode 内置了常见模型的对照表，会根据模型名自动确定（如 deepseek 1M、Claude 200K~1M、Gemini 1M)。需要精确控制时（比如自部署模型），在 `models[]` 里给对应模型填 `context_window`：单模型覆盖 > 内置表 > 默认 128K
+- `reasoning_effort`：可选的模型推理强度，留空或设为 `auto` 时使用模型默认值。可选级别由模型能力表决定，`/effort` 和配置界面只展示当前模型支持的值；未知模型严格退化为 `auto`，`none`（界面显示为 Off）也只在模型明确支持关闭推理时出现。OpenAI 与 Anthropic 协议适配器只翻译已解析的生效值，不根据协议猜测模型能力
+- `context_window`：上下文窗口大小。**这是模型的属性，通常不用填**——NekoCode 内置了常见模型的对照表，会根据模型名自动确定（如 deepseek 1M、Claude 200K~1M、Gemini 1M)。需要精确控制时（比如自部署模型），在 `models[]` 里给对应模型填 `context_window`：单模型覆盖 > 内置表 > 默认 128K。GUI 概览只读显示当前模型的有效窗口；模型卡片中的“上下文窗口覆盖”留空即保持自动解析，不会把默认值固化进配置
+- `auto_compact_percent`：自动摘要压缩的上下文占用门限，范围 1～99，默认 80。达到门限后执行一次全量摘要替换；压缩后若仍达到模型窗口上限，才返回上下文已满错误
 - `permissions`：权限规则（见下一节）
 - `workspaces`：允许 AI 访问的项目外目录，`access` 为 `read-only` 或 `read-write`
 

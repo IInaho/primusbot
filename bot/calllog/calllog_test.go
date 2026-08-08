@@ -1,27 +1,50 @@
 package calllog
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"nekocode/bot/provider/types"
+	utilhttp "nekocode/util/http"
 )
 
-func TestSevereMiss(t *testing.T) {
-	cases := []struct {
-		hit, miss int
-		want      bool
-	}{
-		{3_500, 348_501, true},    // the observed collapse: ~1% hit
-		{0, 60_000, true},         // total loss just above threshold
-		{0, 49_999, false},        // below the size threshold
-		{100_000, 348_501, false}, // healthy hit ratio
+func TestRecordSetUsage(t *testing.T) {
+	var rec Record
+	rec.SetUsage(types.StreamUsage{PromptTokens: 21_865, CacheHitTokens: 21_200, CompletionTokens: 732, ReasoningTokens: 283, CacheUsageReported: true})
+	if rec.TotalTokens != 22_597 || rec.InTokens != 21_865 || rec.CachedTokens != 21_200 || rec.NewTokens != 665 || rec.OutTokens != 732 || rec.ReasoningTokens != 283 {
+		t.Fatalf("normalized usage = %+v", rec)
 	}
-	for _, c := range cases {
-		if got := SevereMiss(c.hit, c.miss); got != c.want {
-			t.Errorf("SevereMiss(%d, %d) = %v, want %v", c.hit, c.miss, got, c.want)
-		}
+	if rec.CacheHitRatio == nil || *rec.CacheHitRatio < 0.96 || rec.Usage != "22.6k tok · in 21.9k · cached 21.2k · new 665 · out 732 · reasoning 283" {
+		t.Fatalf("usage analysis = %+v", rec)
+	}
+	var unknown Record
+	unknown.SetUsage(types.StreamUsage{PromptTokens: 100, CompletionTokens: 10})
+	if unknown.CacheUsageReported || unknown.CacheHitRatio != nil || unknown.Usage != "110 tok · in 100 · cached ? · new ? · out 10" {
+		t.Fatalf("unknown cache usage = %+v", unknown)
+	}
+}
+
+func TestPrivacySafeDiagnostics(t *testing.T) {
+	if got := FingerprintID("fp-cluster-secret"); got == "" || strings.Contains(got, "secret") {
+		t.Fatalf("fingerprint id leaked raw value: %q", got)
+	}
+	err := utilhttp.NewHTTPError(400, `{"error":"prompt contained sk-secret"}`)
+	if got := ErrorSummary(err); got != "API error (HTTP 400)" {
+		t.Fatalf("HTTP error summary = %q", got)
+	}
+	if got := ErrorSummary(context.Canceled); got != "context canceled" {
+		t.Fatalf("cancellation summary = %q", got)
+	}
+	if got := ErrorSummary(errors.New("user prompt secret")); got != "error: *errors.errorString" {
+		t.Fatalf("generic error summary = %q", got)
+	}
+	if got := SafeBaseURL("https://user:secret@example.com/v1/secret?api_key=secret#token"); got != "https://example.com" {
+		t.Fatalf("safe base URL = %q", got)
 	}
 }
 
@@ -29,7 +52,7 @@ func TestSinkWriteAppendsJSONL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "calls.jsonl")
 	s := &sink{path: path}
 
-	s.write(Record{Source: "main", Model: "m1", CacheMissTokens: 10})
+	s.write(Record{Source: "main", Model: "m1", NewTokens: 10})
 	s.write(Record{Source: "subagent", Err: "boom"})
 
 	data, err := os.ReadFile(path)
@@ -44,7 +67,7 @@ func TestSinkWriteAppendsJSONL(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
 		t.Fatalf("line 1 not JSON: %v", err)
 	}
-	if first.Source != "main" || first.Model != "m1" || first.CacheMissTokens != 10 {
+	if first.Source != "main" || first.Model != "m1" || first.NewTokens != 10 {
 		t.Errorf("record 1 = %+v", first)
 	}
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
@@ -55,14 +78,7 @@ func TestSinkWriteAppendsJSONL(t *testing.T) {
 	}
 }
 
-func TestBodyHashStable(t *testing.T) {
-	body := []byte(`{"model":"m","messages":[]}`)
-	if BodyHash(body) != BodyHash(append([]byte(nil), body...)) {
-		t.Fatal("same bytes must hash equal")
-	}
-	if BodyHash(body) == BodyHash([]byte(`{"model":"m","messages":[{}]}`)) {
-		t.Fatal("different bytes must hash differently")
-	}
+func TestShortDigest(t *testing.T) {
 	if got := ShortDigest([32]byte{0xab, 0xcd, 0xef, 1, 2, 3}); got != "abcdef010203" {
 		t.Fatalf("ShortDigest = %q", got)
 	}

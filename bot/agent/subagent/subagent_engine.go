@@ -16,9 +16,10 @@ import (
 
 func (e *Engine) newContextManager(cfg RunConfig) *ctxmgr.Manager {
 	mgr := ctxmgr.New(ctxmgr.Config{
-		SystemPrompt:    buildSystemPrompt(cfg),
-		ContextWindow:   cfg.ContextWindow,
-		CompactionModel: e.compactionModel,
+		SystemPrompt:       buildSystemPrompt(cfg),
+		ContextWindow:      cfg.ContextWindow,
+		AutoCompactPercent: cfg.AutoCompactPercent,
+		CompactionModel:    e.compactionModel,
 		RuntimePrompt: func() string {
 			if cfg.Environment == nil {
 				return ""
@@ -128,13 +129,14 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 func applyReadOnlySpiralGuard(ctxMgr *ctxmgr.Manager, calls []core.ToolCallItem, state *runState) {
 	if isAllExploratory(calls) {
 		state.readOnlyStreak++
-		if hint := policy.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil {
+		if hint := policy.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil && !state.readOnlyWarned {
 			ctxMgr.SetHints(policy.FormatHints([]policy.Hint{*hint}))
-			state.readOnlyStreak = 0
+			state.readOnlyWarned = true
 		}
 		return
 	}
 	state.readOnlyStreak = 0
+	state.readOnlyWarned = false
 }
 
 // isAllExploratory reports whether every call in the batch is a read-only
@@ -155,9 +157,9 @@ func isAllExploratory(calls []core.ToolCallItem) bool {
 	return true
 }
 
-func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), phase func(string)) ([]core.ToolCallItem, string, error) {
+func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), recordCall func(types.StreamUsage), phase func(string)) ([]core.ToolCallItem, string, error) {
 	toolDefs := e.filteredToolDefs(allowed)
-	messages := mgr.BuildRequest(toolDefs)
+	messages := mgr.BuildRequest(ctxmgr.ModelRequest{Tools: toolDefs})
 	result, err := llmstream.CallLLMWithRetry(ctx, e.llmClient, func() llmstream.LLMCallOptions {
 		return llmstream.LLMCallOptions{
 			Ctx:      ctx,
@@ -170,10 +172,12 @@ func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []stri
 						addTokens(p, c)
 					}
 				},
-				RecordUsage: func(prompt, _ int) {
-					mgr.RecordUsage(prompt)
+				OnUsage: func(usage types.StreamUsage) {
+					mgr.RecordModelUsage(usage)
+					if recordCall != nil {
+						recordCall(usage)
+					}
 				},
-				RecordCache: mgr.RecordCache,
 			},
 			CheckDone:   func() bool { return false },
 			Source:      "subagent",

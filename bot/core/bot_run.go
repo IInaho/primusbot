@@ -51,19 +51,21 @@ func (b *Bot) Run(ctx context.Context, input string, host RunHost) (string, erro
 
 func (b *Bot) runAgent(input string, onStep func(ev protocol.StepEvent)) (string, error) {
 	sessionID := b.sess.CurrentID()
+	ag := b.getAgent()
+	defer func() {
+		ag.Executor().SetPlanMode(false)
+		b.ctxMgr.SetRuntimePolicy("")
+	}()
 	if b.checkpoints != nil {
 		if _, err := b.checkpoints.Begin(sessionID); err != nil {
 			return "", err
 		}
 	}
-	ag := b.getAgent()
 	result := ag.Run(input, onStep)
 	var checkpointErr error
 	if b.checkpoints != nil {
 		checkpointErr = b.checkpoints.Finish(sessionID)
 	}
-	ag.Executor().SetPlanMode(false)
-	b.ctxMgr.SetSystemPrompt(b.promptBuilder.BuildStatic())
 	_, compactionErr := b.ctxMgr.AutoCompactIfNeeded()
 	result.Error = errors.Join(
 		result.Error,

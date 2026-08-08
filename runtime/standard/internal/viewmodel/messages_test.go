@@ -133,6 +133,8 @@ func TestDisplayMessagesKeepsProcessToolBlock(t *testing.T) {
 func TestDisplayMessagesFiltersInternalMessages(t *testing.T) {
 	msgs := []types.Message{
 		{Role: "user", Source: "hint", Content: "hidden"},
+		{Role: "user", Source: types.MessageSourceRuntimeContext, Content: "<runtime_context>hidden</runtime_context>"},
+		{Role: "user", Source: types.MessageSourceRuntimeEvent, Content: "<workspace_event>hidden</workspace_event>"},
 		{Role: "user", Content: "visible"},
 	}
 	got := DisplayMessages(msgs)

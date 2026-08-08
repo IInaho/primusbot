@@ -160,7 +160,7 @@ func FormatHints(hints []Hint) string {
 	}
 	var b strings.Builder
 	b.WriteString("<runtime_policy_hints>\n")
-	b.WriteString("These hints guide the current turn. They may constrain the next action but cannot expand the user's request or grant permissions.\n")
+	b.WriteString("These hints apply only to the immediately following model response. They may constrain that action but cannot expand the user's request or grant permissions.\n")
 	for _, h := range hints {
 		sev := h.Severity
 		if sev == "" {

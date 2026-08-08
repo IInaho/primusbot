@@ -10,6 +10,7 @@ import (
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/runner"
 	"nekocode/bot/provider"
+	providertypes "nekocode/bot/provider/types"
 	"nekocode/logger"
 )
 
@@ -38,6 +39,7 @@ type runState struct {
 	totalTokens    int
 	sensitiveOps   int
 	readOnlyStreak int
+	readOnlyWarned bool
 	lastText       string
 }
 
@@ -94,6 +96,12 @@ func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	defer cleanupExecutor()
 
 	ctxMgr := e.newContextManager(cfg)
+	ctxMgr.SetLLMUsageRecorder(func(usage providertypes.StreamUsage) {
+		state.addTokens(cfg)(usage.PromptTokens, usage.CompletionTokens)
+		if cfg.RecordLLMUsage != nil {
+			cfg.RecordLLMUsage(usage)
+		}
+	})
 
 	ctxMgr.Add("user", buildTaskPrompt(cfg))
 	phase := phaseReporter(cfg)
@@ -160,7 +168,7 @@ func (r *engineRun) stepOnce() bool {
 		r.err = err
 		return true
 	}
-	calls, text, err := r.engine.reason(r.ctx, r.ctxMgr, r.cfg.AgentType.Tools, r.state.addTokens(r.cfg), r.phase)
+	calls, text, err := r.engine.reason(r.ctx, r.ctxMgr, r.cfg.AgentType.Tools, r.state.addTokens(r.cfg), r.cfg.RecordLLMUsage, r.phase)
 	r.ctxMgr.SetHints("")
 	if err != nil {
 		r.log("error: %v", err)
