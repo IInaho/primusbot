@@ -4,19 +4,75 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+      day: monday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: npm
     directory: /interaction/gui/web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+      day: tuesday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      gui-development-minor-patch:
+        dependency-type: development
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      gui-production-minor-patch:
+        dependency-type: production
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: npm
     directory: /official
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+      day: wednesday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      website-development-minor-patch:
+        dependency-type: development
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+      website-production-minor-patch:
+        dependency-type: production
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+      day: thursday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"

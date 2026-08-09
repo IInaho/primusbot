@@ -202,3 +202,9 @@ README 中的 Star 趋势图由独立的 [`update-star-history.yml`](../.github/
 assets/star-history/star-history-light.svg
 assets/star-history/star-history-dark.svg
 ```
+
+## 依赖更新
+
+Dependabot 每周分别检查 Go Modules、GUI npm、官网 npm 和 GitHub Actions，并错开到周一至周四凌晨运行，避免四类更新同时占用 CI。普通版本更新每个生态最多保留三个开放 PR；Go 的 minor/patch、两个 npm 项目的 production/development minor/patch，以及全部 GitHub Actions 更新分别成组。major 升级保持独立，便于识别不兼容改动。
+
+安全更新不受普通版本更新的开放 PR 上限约束，也不与常规升级混组，避免一个依赖的兼容性问题阻塞其他安全修复。Dependabot PR 必须通过路径感知 CI，并在合并前检查上游发布说明；项目当前不自动合并依赖升级。
