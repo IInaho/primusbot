@@ -93,6 +93,16 @@ nekocode-tui
 
 After configuration, start the TUI and enter a request.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=lznauy%2FNekoCode&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-dark.svg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-light.svg" />
+   <img alt="NekoCode Star History Chart" src="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-light.svg" />
+ </picture>
+</a>
+
 ## Learn More
 
 - Detailed usage and configuration guide: [User Guide](docs/USER_GUIDE.md)

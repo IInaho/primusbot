@@ -94,6 +94,16 @@ nekocode-tui
 
 配置完成后即可开始使用。
 
+## Star 趋势
+
+<a href="https://www.star-history.com/?repos=lznauy%2FNekoCode&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-dark.svg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-light.svg" />
+   <img alt="NekoCode Star 趋势图" src="https://raw.githubusercontent.com/lznauy/NekoCode/star-history/assets/star-history/star-history-light.svg" />
+ </picture>
+</a>
+
 ## 了解更多
 
 - 详细使用、配置指南，可以参考文档 [用户使用指南](docs/USER_GUIDE.md)
