@@ -90,10 +90,9 @@ func TestTranslateSystemMessage(t *testing.T) {
 
 func TestTranslateApprovalIntent(t *testing.T) {
 	view := controlruntime.ApprovalView{
-		ID:                    "a1",
-		ToolName:              "bash",
-		Args:                  map[string]any{"command": "rm -rf /tmp/x"},
-		CanEscalatePermission: true,
+		ID:       "a1",
+		ToolName: "bash",
+		Args:     map[string]any{"command": "rm -rf /tmp/x"},
 	}
 	intents := Translate(controlruntime.Event{Type: controlruntime.EventApprovalRequested, Payload: view})
 	if len(intents) != 1 {
@@ -110,7 +109,7 @@ func TestTranslateApprovalIntent(t *testing.T) {
 	for _, a := range in.Actions {
 		ids = append(ids, a.ID)
 	}
-	want := []string{ActionOnce, ActionAlways, ActionReject, ActionEscalate}
+	want := []string{ActionOnce, ActionAlways, ActionReject}
 	if strings.Join(ids, ",") != strings.Join(want, ",") {
 		t.Fatalf("action ids = %v, want %v", ids, want)
 	}
@@ -157,14 +156,21 @@ func TestApprovalDecisionAndVerdict(t *testing.T) {
 	if _, err := ApprovalDecisionFor("bogus"); err == nil {
 		t.Fatal("unknown action must error")
 	}
-	if VerdictForAction(ActionEscalate) != "已批准并授权" {
-		t.Fatalf("escalate verdict = %q", VerdictForAction(ActionEscalate))
+	if VerdictForAction(ActionAlways) != "已记住并允许" {
+		t.Fatalf("always verdict = %q", VerdictForAction(ActionAlways))
 	}
 	if !IsResolvedErr(errString("runtime: approval a1 already resolved")) {
 		t.Fatal("already-resolved error not detected")
 	}
 	if IsResolvedErr(errString("connection refused")) {
 		t.Fatal("unrelated error misclassified as resolved")
+	}
+}
+
+func TestApprovalActionsHideRememberForOnceScope(t *testing.T) {
+	actions := ApprovalActions(controlruntime.ApprovalView{Approval: &controlruntime.ApprovalContext{Scope: controlruntime.ApprovalScopeOnce}})
+	if len(actions) != 2 || actions[0].ID != ActionOnce || actions[1].ID != ActionReject {
+		t.Fatalf("once-scope actions = %+v", actions)
 	}
 }
 

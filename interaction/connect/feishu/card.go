@@ -96,17 +96,18 @@ func markdownCard(content string) map[string]any {
 
 // approvalCard builds the interactive approval card (msg_type=interactive):
 // a header with the tool name, a summary body, and the decision buttons
-// whose action values carry the approval ID and decision. The fourth
-// "allow and escalate" button only appears when the approval view allows
-// permission escalation.
+// whose action values carry the approval ID and decision. The same three
+// canonical decisions are used by every connector.
 func approvalCard(p controlruntime.ApprovalView) map[string]any {
-	buttons := []any{
-		cardButton("批准一次", "default", p.ID, connect.ActionOnce),
-		cardButton("永久允许", "primary", p.ID, connect.ActionAlways),
-		cardButton("拒绝", "danger", p.ID, connect.ActionReject),
-	}
-	if p.CanEscalatePermission {
-		buttons = append(buttons, cardButton("允许并授权", "primary", p.ID, connect.ActionEscalate))
+	buttons := make([]any, 0, 3)
+	for _, action := range connect.ApprovalActions(p) {
+		style := "default"
+		if action.ID == connect.ActionAlways {
+			style = "primary"
+		} else if action.ID == connect.ActionReject {
+			style = "danger"
+		}
+		buttons = append(buttons, cardButton(action.Label, style, p.ID, action.ID))
 	}
 	return map[string]any{
 		"config": map[string]any{"wide_screen_mode": true},
@@ -168,13 +169,14 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 	}
 	if cmd, ok := p.Args["command"].(string); ok && cmd != "" {
 		fmt.Fprintf(&b, "\n**命令**：\n```\n%s\n```", connect.TruncateRunes(cmd, 600))
-		return b.String()
-	}
-	if path, ok := p.Args["path"].(string); ok && path != "" {
+	} else if path, ok := p.Args["path"].(string); ok && path != "" {
 		fmt.Fprintf(&b, "\n**路径**：`%s`", path)
 	}
 	if preview, ok := p.Args["_preview"].(string); ok && preview != "" {
 		fmt.Fprintf(&b, "\n**预览**：\n```\n%s\n```", connect.TruncateRunes(preview, 900))
+	}
+	for _, detail := range connect.ApprovalDetails(p) {
+		fmt.Fprintf(&b, "\n**%s**：%s", detail.Label, detail.Value)
 	}
 	return b.String()
 }

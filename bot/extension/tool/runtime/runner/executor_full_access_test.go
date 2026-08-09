@@ -30,6 +30,21 @@ func TestFullAccessRunsGuardedCommandsWithoutPrompt(t *testing.T) {
 	}
 }
 
+func TestFullAccessRunsDynamicCommandsWithoutPrompt(t *testing.T) {
+	e := newTestExecutor(fakeRegistry{
+		"shell": fakeTool{name: "shell", mode: core.ModeSequential},
+	})
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+	e.SetFullAccess(true)
+
+	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
+		ID: "1", Name: "shell", Args: map[string]any{"command": `echo "$(date)"`},
+	}})[0]
+	if got.Error != "" || got.Output != "ok" {
+		t.Fatalf("full access should keep its no-prompt contract for dynamic commands: %+v", got)
+	}
+}
+
 // Full-takeover mode bypasses approvals, never explicit deny rules.
 func TestFullAccessKeepsDenyRules(t *testing.T) {
 	e := newTestExecutor(fakeRegistry{

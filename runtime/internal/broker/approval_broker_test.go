@@ -80,6 +80,29 @@ func TestApprovalBrokerHashesAreStable(t *testing.T) {
 	}
 }
 
+func TestApprovalBrokerRejectsRememberForOnceScope(t *testing.T) {
+	broker := NewApprovalBroker(nil, core.SourceRef{Kind: "test"}, nil)
+	wait := broker.Register(protocol.ConfirmRequest{
+		ToolName: "shell",
+		Kind:     protocol.ConfirmKindPermission,
+		Approval: &protocol.ApprovalContext{Scope: protocol.ApprovalScopeOnce},
+	})
+	pending := broker.Pending()
+	if len(pending) != 1 {
+		t.Fatalf("pending approvals = %d, want 1", len(pending))
+	}
+	if err := broker.Decide(pending[0].ID, core.ApprovalDecision{Allowed: true, Remember: true}); err == nil {
+		t.Fatal("once-scoped approval accepted a remembered decision")
+	}
+	if err := broker.Decide(pending[0].ID, core.ApprovalDecision{Allowed: true}); err != nil {
+		t.Fatalf("decide once: %v", err)
+	}
+	reply := wait()
+	if !reply.Allowed || reply.Remember {
+		t.Fatalf("reply = %+v, want allowed without remember", reply)
+	}
+}
+
 func TestApprovalBrokerRequestAfterCloseIsRejected(t *testing.T) {
 	broker := NewApprovalBroker(nil, core.SourceRef{Kind: "test"}, nil)
 	broker.Close()

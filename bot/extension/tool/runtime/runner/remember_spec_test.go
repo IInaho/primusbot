@@ -5,11 +5,23 @@ import (
 	"testing"
 )
 
-func TestBashRememberSpecsUsesShellAST(t *testing.T) {
+func TestBashRememberRulesKeepsDynamicCommandLiteral(t *testing.T) {
 	cmd := `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`
-	want := []string{"echo *", "pwd", "date"}
-	if got := bashRememberSpecs(cmd); !reflect.DeepEqual(got, want) {
-		t.Fatalf("bashRememberSpecs() = %#v, want %#v", got, want)
+	got := bashRememberRules("shell", cmd)
+	if len(got) != 1 || got[0].Literal != cmd || got[0].Specifier != "" {
+		t.Fatalf("bashRememberRules() = %#v, want one exact literal", got)
+	}
+}
+
+func TestBashRememberRulesBroadensOnlyStaticCommands(t *testing.T) {
+	got := bashRememberRules("shell", `echo hello && date`)
+	wantSpecs := []string{"echo *", "date"}
+	var gotSpecs []string
+	for _, rule := range got {
+		gotSpecs = append(gotSpecs, rule.Specifier)
+	}
+	if !reflect.DeepEqual(gotSpecs, wantSpecs) {
+		t.Fatalf("bashRememberRules() specs = %#v, want %#v", gotSpecs, wantSpecs)
 	}
 }
 

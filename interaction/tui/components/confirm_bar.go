@@ -78,19 +78,12 @@ func (c *ConfirmBar) CanRemember() bool {
 	if c.req == nil {
 		return false
 	}
-	scope, _ := c.req.Args["permission_scope"].(string)
-	return scope != "once"
+	return c.req.Approval.CanRemember()
 }
 
-// options builds the vertical option list for the confirm bar.
-//
-// Capability escalation (host execution, outbound network, writing outside the
-// workspace, ...) is deliberately NOT merged into these options: a "允许并
-// 授权" button tells the user nothing about what they're authorizing. The
-// first dialog here only approves running the call as-is; if the call then
-// raises a PermissionError, tryPermissionEscalation issues a SECOND dialog
-// that names the actual capabilities and scope. That progressive disclosure
-// keeps the user in control of exactly which capability they grant.
+// options builds one canonical decision set. When the request includes
+// predicted sandbox capabilities, the same decision atomically covers the
+// command and the capabilities shown in the card.
 func (c *ConfirmBar) options() []confirmOption {
 	if c.req == nil {
 		return nil
@@ -211,6 +204,9 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 }
 
 func (c *ConfirmBar) titleText() string {
+	if c.isExecutionApproval() {
+		return "执行确认"
+	}
 	if c.isPermissionConfirm() {
 		return "权限确认"
 	}
@@ -222,8 +218,7 @@ func (c *ConfirmBar) titleText() string {
 
 func (c *ConfirmBar) levelText() string {
 	if c.isPermissionConfirm() {
-		scope, _ := c.req.Args["permission_scope"].(string)
-		if scope == "once" {
+		if c.req.Approval != nil && c.req.Approval.Scope == controlruntime.ApprovalScopeOnce {
 			return c.sty.Yellow.Render("临时授权")
 		}
 		return c.sty.Yellow.Render("可记住")
@@ -272,15 +267,41 @@ func (c *ConfirmBar) formatDesc() string {
 }
 
 func (c *ConfirmBar) isPermissionConfirm() bool {
-	_, ok := c.req.Args["permission_reason"]
-	return ok
+	return c.req != nil && c.req.Approval != nil
+}
+
+func (c *ConfirmBar) isCombinedApproval() bool {
+	return c.req != nil && c.req.Approval != nil && c.req.Approval.Combined
+}
+
+func (c *ConfirmBar) isExecutionApproval() bool {
+	return c.isCombinedApproval() ||
+		(c.req != nil && c.req.Approval != nil && len(c.req.Approval.Structures) > 0)
 }
 
 func (c *ConfirmBar) formatPermissionDesc() string {
 	var lines []string
 	lines = append(lines, permissionSummary(c.req))
-	if reason, ok := c.req.Args["permission_reason"].(string); ok && reason != "" {
-		lines = append(lines, "原因: "+friendlyPermissionReason(reason))
+	if c.isExecutionApproval() {
+		if command, ok := c.req.Args["command"].(string); ok && command != "" {
+			lines = append(lines, "命令: "+formatCommandPreview(command, 600))
+		}
+	}
+	approval := c.req.Approval
+	if approval == nil {
+		return strings.Join(lines, "\n")
+	}
+	approvalReason := approval.Risk
+	if approvalReason != "" {
+		lines = append(lines, "风险: "+friendlyPermissionReason(approvalReason))
+	}
+	if len(approval.Structures) > 0 {
+		lines = append(lines, "结构: "+friendlyShellStructures(approval.Structures))
+	}
+	if reason := approval.Reason; reason != "" {
+		if reason != approvalReason {
+			lines = append(lines, "原因: "+friendlyPermissionReason(reason))
+		}
 	}
 	if path, ok := c.req.Args["path"].(string); ok && path != "" {
 		lines = append(lines, "路径: "+path)
@@ -289,14 +310,17 @@ func (c *ConfirmBar) formatPermissionDesc() string {
 	if reqPath != "" && reqPath != c.req.Args["path"] {
 		lines = append(lines, "请求: "+reqPath)
 	}
-	if caps, ok := c.req.Args["permission_capabilities"].(string); ok && caps != "" {
-		lines = append(lines, "权限: "+friendlyCapabilities(caps))
+	if len(approval.Capabilities) > 0 {
+		lines = append(lines, "权限: "+friendlyCapabilities(strings.Join(approval.Capabilities, ", ")))
 	}
-	if scope, ok := c.req.Args["permission_scope"].(string); ok && scope != "" {
-		lines = append(lines, "范围: "+friendlyPermissionScope(scope))
+	if approval.Scope != "" {
+		lines = append(lines, "范围: "+friendlyPermissionScope(string(approval.Scope)))
 	}
-	if workspace, ok := c.req.Args["workspace"].(string); ok && workspace != "" {
-		lines = append(lines, "工作区: "+workspace)
+	if approval.Workspace != "" {
+		lines = append(lines, "工作区: "+approval.Workspace)
+	}
+	if len(approval.WritePaths) > 0 {
+		lines = append(lines, "可写目录: "+strings.Join(approval.WritePaths, "、"))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -305,11 +329,22 @@ func permissionSummary(req *controlruntime.ConfirmRequest) string {
 	if req == nil {
 		return "需要确认权限"
 	}
-	scope, _ := req.Args["permission_scope"].(string)
-	switch scope {
-	case "once":
+	if req.Approval != nil && req.Approval.Combined {
+		if len(req.Approval.Capabilities) > 0 {
+			return "将执行命令并开放所列权限"
+		}
+		return "命令包含需要确认的动态执行结构"
+	}
+	if req.Approval != nil && len(req.Approval.Structures) > 0 {
+		return "命令包含需要确认的动态执行结构"
+	}
+	if req.Approval == nil {
+		return "需要确认权限"
+	}
+	switch req.Approval.Scope {
+	case controlruntime.ApprovalScopeOnce:
 		return "需要临时授权"
-	case "project":
+	case controlruntime.ApprovalScopeProject:
 		return "需要项目级授权"
 	}
 	return "需要确认权限"
@@ -319,10 +354,39 @@ func friendlyPermissionReason(reason string) string {
 	switch strings.TrimSpace(reason) {
 	case "command contains dynamic shell syntax that cannot be safely persisted":
 		return "命令包含动态 Shell 语法，无法安全记住为固定规则。"
+	case "dynamic shell execution":
+		return "命令包含运行时才能确定的间接执行。"
 	case "command requires public network access":
 		return "命令需要访问公共网络。"
 	}
 	return reason
+}
+
+func friendlyShellStructures(structures []string) string {
+	labels := make([]string, 0, len(structures))
+	for _, structure := range structures {
+		switch structure {
+		case "command_substitution":
+			labels = append(labels, "命令替换")
+		case "process_substitution":
+			labels = append(labels, "进程替换")
+		case "dynamic_command":
+			labels = append(labels, "动态命令名")
+		case "eval":
+			labels = append(labels, "eval")
+		case "source":
+			labels = append(labels, "source")
+		case "shell_command_string":
+			labels = append(labels, "Shell -c")
+		case "shell_heredoc_code":
+			labels = append(labels, "heredoc 内联代码")
+		case "unparseable":
+			labels = append(labels, "无法解析的 Shell 语法")
+		default:
+			labels = append(labels, structure)
+		}
+	}
+	return strings.Join(labels, "、")
 }
 
 func friendlyCapabilities(caps string) string {

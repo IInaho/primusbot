@@ -150,9 +150,7 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 	if cmd, ok := stringArg(p.Args, "command"); ok && cmd != "" {
 		fmt.Fprintf(&b, "\n%s", labelText("命令", ""))
 		fmt.Fprintf(&b, "\n%s", htmlPre(connect.TruncateRunes(cmd, 900)))
-		return b.String()
-	}
-	if path, ok := stringArg(p.Args, "path"); ok && path != "" {
+	} else if path, ok := stringArg(p.Args, "path"); ok && path != "" {
 		fmt.Fprintf(&b, "\n%s", labelCode("路径", path))
 	}
 	if summary, ok := stringArg(p.Args, "summary"); ok && summary != "" {
@@ -161,6 +159,9 @@ func approvalSummary(p controlruntime.ApprovalView) string {
 	if preview, ok := stringArg(p.Args, "_preview"); ok && preview != "" {
 		fmt.Fprintf(&b, "\n%s", labelText("预览", ""))
 		fmt.Fprintf(&b, "\n%s", htmlPre(connect.TruncateRunes(preview, 1600)))
+	}
+	for _, detail := range connect.ApprovalDetails(p) {
+		fmt.Fprintf(&b, "\n%s", labelText(detail.Label, detail.Value))
 	}
 	return b.String()
 }

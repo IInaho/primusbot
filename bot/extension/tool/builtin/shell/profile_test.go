@@ -2,11 +2,45 @@ package shell
 
 import (
 	"context"
+	"slices"
 	"testing"
 
+	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/sandbox"
 	"nekocode/bot/extension/tool/runtime/workspace"
 )
+
+func TestPermissionPlanUsesShellSandboxSchema(t *testing.T) {
+	tool := &ShellTool{}
+	request := tool.PermissionPlan(map[string]any{
+		"network":        true,
+		"writable_roots": []any{"/cache"},
+	}, "/repo")
+	if request == nil {
+		t.Fatal("expected permission plan")
+	}
+	if !slices.Equal(request.Capabilities, []string{core.CapNetOutbound, core.CapFsWritePath}) {
+		t.Fatalf("capabilities = %v", request.Capabilities)
+	}
+	if request.Details["workspace"] != "/repo" {
+		t.Fatalf("details = %v", request.Details)
+	}
+}
+
+func TestPermissionPlanHostIsOnceScoped(t *testing.T) {
+	tool := &ShellTool{}
+	request := tool.PermissionPlan(map[string]any{
+		"sandbox_mode":   "host",
+		"network":        true,
+		"writable_roots": []any{"/cache"},
+	}, "/repo")
+	if request == nil || !slices.Equal(request.Capabilities, []string{core.CapProcessHost}) {
+		t.Fatalf("request = %+v", request)
+	}
+	if request.Scope != "once" {
+		t.Fatalf("scope = %q", request.Scope)
+	}
+}
 
 func TestApplyWorkspaceRoots(t *testing.T) {
 	cwd := t.TempDir()

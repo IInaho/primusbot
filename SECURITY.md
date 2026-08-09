@@ -52,9 +52,11 @@ Security-sensitive areas include, but are not limited to:
   provider fingerprints. They retain token usage, endpoint origins, local
   prefix hashes, and a short hash of the provider fingerprint for diagnostics.
 - Permission rules and sandboxing reduce the impact of dangerous tool calls.
-  Dynamic shell classification is still being strengthened; do not treat the
-  current permission layer as a complete defense against prompt injection or
-  indirect shell execution.
+  Shell commands are parsed before rule evaluation; indirect execution such as
+  substitutions, dynamic command names, `eval`, `source`, shell `-c`, and shell
+  heredoc code requires an explicit decision unless that exact command was
+  previously remembered. Unparseable commands cannot be remembered. This is a
+  safety boundary, not a complete defense against prompt injection.
 - Release assets include checksums and a software bill of materials. The
   release workflow also records GitHub build provenance. The installer verifies
   the selected binary against `SHA256SUMS`, or vetted checksums bundled for

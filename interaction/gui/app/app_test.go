@@ -80,70 +80,47 @@ func TestCompactConfirmArgsEditUsesV2Fields(t *testing.T) {
 	}
 }
 
-func TestReplyConfirmDecisionNoLongerAutoEscalates(t *testing.T) {
-	// Regression guard for the GUI bug where ReplyConfirmDecision silently
-	// granted AllowWithPermission whenever req.CanEscalatePermission was
-	// true — making the GUI's "允许" button indistinguishable from a "允许
-	// 并授权" button. Allow-with-permission now requires an explicit call
-	// to ReplyConfirmWithPermission.
-	app, id, replies := startApprovalApp(t, true)
+func TestCompactConfirmArgsKeepsApprovalMetadataOutOfToolArgs(t *testing.T) {
+	got := compactConfirmArgs(controlruntime.ConfirmRequest{
+		ToolName: "shell",
+		Args: map[string]any{
+			"command": `echo "$(date)"`,
+		},
+		Approval: &controlruntime.ApprovalContext{Combined: true, Structures: []string{"command_substitution"}},
+	})
+	if len(got) != 1 || got["command"] == nil {
+		t.Fatalf("approval metadata leaked into tool args: %#v", got)
+	}
+}
+
+func TestReplyConfirmDecisionCarriesUnifiedApproval(t *testing.T) {
+	app, id, replies := startApprovalApp(t)
 
 	app.ReplyConfirmDecision(id, true, true)
 	reply := waitConfirmReply(t, replies)
 	if !reply.Allowed || !reply.Remember {
 		t.Fatalf("reply = %+v, want allowed+remember", reply)
 	}
-	if reply.AllowWithPermission {
-		t.Fatalf("ReplyConfirmDecision must not auto-escalate permission; got %+v", reply)
-	}
-}
-
-func TestReplyConfirmWithPermission(t *testing.T) {
-	app, id, replies := startApprovalApp(t, true)
-
-	app.ReplyConfirmWithPermission(id, true, true, true)
-	reply := waitConfirmReply(t, replies)
-	if !reply.Allowed || !reply.Remember || !reply.AllowWithPermission {
-		t.Fatalf("reply = %+v, want allowed+remember+permission", reply)
-	}
-}
-
-func TestReplyConfirmWithPermissionIgnoredWhenCannotEscalate(t *testing.T) {
-	app, id, replies := startApprovalApp(t, false)
-
-	app.ReplyConfirmWithPermission(id, true, false, true)
-	reply := waitConfirmReply(t, replies)
-	if !reply.Allowed {
-		t.Fatalf("reply should be allowed, got %+v", reply)
-	}
-	if reply.AllowWithPermission {
-		t.Fatalf("AllowWithPermission must be forced false for non-escalatable tools, got %+v", reply)
-	}
 }
 
 type approvalBot struct {
-	allowEscalate bool
-	replies       chan controlruntime.ConfirmReply
+	replies chan controlruntime.ConfirmReply
 }
 
 func (b *approvalBot) Run(_ context.Context, _ string, host controlruntime.RunHost) (string, error) {
 	req := controlruntime.ConfirmRequest{
-		ToolName:              "shell",
-		Args:                  map[string]any{"command": "go get example.com/pkg"},
-		Kind:                  controlruntime.ConfirmKindPermission,
-		CanEscalatePermission: b.allowEscalate,
+		ToolName: "shell",
+		Args:     map[string]any{"command": "go get example.com/pkg"},
+		Kind:     controlruntime.ConfirmKindPermission,
 	}
 	reply := host.Confirm(req)
 	b.replies <- reply
 	return "", nil
 }
 
-func startApprovalApp(t *testing.T, allowEscalate bool) (*App, string, <-chan controlruntime.ConfirmReply) {
+func startApprovalApp(t *testing.T) (*App, string, <-chan controlruntime.ConfirmReply) {
 	t.Helper()
-	bot := &approvalBot{
-		allowEscalate: allowEscalate,
-		replies:       make(chan controlruntime.ConfirmReply, 1),
-	}
+	bot := &approvalBot{replies: make(chan controlruntime.ConfirmReply, 1)}
 	rt := controlruntime.New(bot, controlruntime.Services{})
 	t.Cleanup(func() {
 		if err := rt.Close(); err != nil {

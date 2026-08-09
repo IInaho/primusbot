@@ -446,9 +446,12 @@ case runtime.EventQuestionRequested:
     })
 ```
 
-关闭问题弹窗时传 `QuestionReply{Rejected: true}`。只有
-`ApprovalView.CanEscalatePermission` 为 true 时才允许设置
-`AllowWithPermission`。
+关闭问题弹窗时传 `QuestionReply{Rejected: true}`。原始工具参数位于
+`ApprovalView.Args`；动态 Shell 结构、能力、授权范围、工作区和可写目录
+位于强类型 `ApprovalView.Approval`。`Allowed: true` 原子覆盖该事件中
+已展示的全部内容。
+`CanEscalatePermission` 和 `AllowWithPermission` 仅为旧 Go 客户端保留，
+新代码不应再设置。
 
 控制方法使用稳定的 `ProtocolError.Code`：
 

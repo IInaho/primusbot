@@ -18,6 +18,7 @@ type Registry struct {
 	targetResolvers map[string]TargetResolver
 	previewers      map[string]PreviewFunc
 	privileged      map[string]PrivilegedFunc
+	permissionPlans map[string]PermissionPlanFunc
 }
 
 // CallTarget is the effective identity used by permission, audit, and UI
@@ -40,21 +41,28 @@ type PreviewFunc func(context.Context, map[string]any) string
 // concrete tool implementation.
 type PrivilegedFunc func(context.Context, map[string]any, core.PermissionRequest) (string, error)
 
+// PermissionPlanFunc predicts the capability request implied by explicit tool
+// arguments. It lives beside PrivilegedFunc so only the tool that owns an
+// argument schema interprets it; the generic runner never guesses by key name.
+type PermissionPlanFunc func(args map[string]any, workspace string) *core.PermissionRequest
+
 // RegistrationOptions describes executor metadata attached to one tool.
 type RegistrationOptions struct {
-	ResolveTarget TargetResolver
-	Preview       PreviewFunc
-	Privileged    PrivilegedFunc
-	PlanAllowed   bool
+	ResolveTarget  TargetResolver
+	Preview        PreviewFunc
+	Privileged     PrivilegedFunc
+	PermissionPlan PermissionPlanFunc
+	PlanAllowed    bool
 }
 
 // Entry is one atomic registry snapshot used by the executor.
 type Entry struct {
-	Tool          core.Tool
-	ResolveTarget TargetResolver
-	Preview       PreviewFunc
-	Privileged    PrivilegedFunc
-	PlanAllowed   bool
+	Tool           core.Tool
+	ResolveTarget  TargetResolver
+	Preview        PreviewFunc
+	Privileged     PrivilegedFunc
+	PermissionPlan PermissionPlanFunc
+	PlanAllowed    bool
 }
 
 // New creates a registry containing the supplied tools.
@@ -66,6 +74,7 @@ func New(items ...core.Tool) *Registry {
 		targetResolvers: make(map[string]TargetResolver),
 		previewers:      make(map[string]PreviewFunc),
 		privileged:      make(map[string]PrivilegedFunc),
+		permissionPlans: make(map[string]PermissionPlanFunc),
 	}
 	r.RegisterAll(items)
 	return r
@@ -101,6 +110,11 @@ func (r *Registry) RegisterWithOptions(item core.Tool, options RegistrationOptio
 	} else {
 		r.privileged[item.Name()] = options.Privileged
 	}
+	if options.PermissionPlan == nil {
+		delete(r.permissionPlans, item.Name())
+	} else {
+		r.permissionPlans[item.Name()] = options.PermissionPlan
+	}
 	if options.PlanAllowed {
 		r.planTools[item.Name()] = struct{}{}
 	} else {
@@ -122,6 +136,7 @@ func (r *Registry) Unregister(name string) {
 	delete(r.targetResolvers, name)
 	delete(r.previewers, name)
 	delete(r.privileged, name)
+	delete(r.permissionPlans, name)
 	delete(r.planTools, name)
 	r.mu.Unlock()
 }
@@ -138,7 +153,7 @@ func (r *Registry) Lookup(name string) (Entry, error) {
 	_, planAllowed := r.planTools[name]
 	return Entry{
 		Tool: t, ResolveTarget: r.targetResolvers[name], Preview: r.previewers[name],
-		Privileged: r.privileged[name], PlanAllowed: planAllowed,
+		Privileged: r.privileged[name], PermissionPlan: r.permissionPlans[name], PlanAllowed: planAllowed,
 	}, nil
 }
 

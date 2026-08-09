@@ -22,7 +22,10 @@ import (
 
 func registerAll(r *tools.Registry, imageGenModels []config.ImageGenConfig, shellTool *shell.ShellTool, lspTool *lsp.LSPTool, taskTool *task.TaskTool, questionTool *question.Tool, todoTool *todo.TodoWriteTool) {
 	plan := tools.RegistrationOptions{PlanAllowed: true}
-	r.RegisterWithOptions(shellTool, tools.RegistrationOptions{Privileged: shellTool.ExecuteWithPermission})
+	r.RegisterWithOptions(shellTool, tools.RegistrationOptions{
+		Privileged:     shellTool.ExecuteWithPermission,
+		PermissionPlan: shellTool.PermissionPlan,
+	})
 	r.Register(shell.NewProcessTool(shellTool))
 	r.RegisterWithOptions(&read.ReadTool{}, plan)
 	writeTool := &write.WriteTool{}

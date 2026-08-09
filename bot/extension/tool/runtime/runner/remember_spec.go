@@ -4,8 +4,26 @@ import (
 	"path/filepath"
 	"strings"
 
+	"nekocode/bot/extension/tool/runtime/permission"
+
 	"mvdan.cc/sh/v3/syntax"
 )
+
+func bashRememberRules(toolName, cmd string) []permission.Rule {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return nil
+	}
+	if permission.ClassifyShellStructure(cmd).Dynamic() {
+		return []permission.Rule{{Tool: toolName, Literal: cmd, Effect: permission.EffectAllow}}
+	}
+	specs := bashRememberSpecs(cmd)
+	rules := make([]permission.Rule, 0, len(specs))
+	for _, spec := range specs {
+		rules = append(rules, permission.Rule{Tool: toolName, Specifier: spec, Effect: permission.EffectAllow})
+	}
+	return rules
+}
 
 func bashRememberSpecs(cmd string) []string {
 	cmd = strings.TrimSpace(cmd)

@@ -33,7 +33,8 @@ func (s *Store) rememberRule(workspace string, rule Rule) error {
 			if err != nil {
 				continue
 			}
-			if existing.Tool == rule.Tool && existing.Specifier == rule.Specifier && existing.Effect == rule.Effect {
+			if existing.Tool == rule.Tool && existing.Specifier == rule.Specifier &&
+				existing.Literal == rule.Literal && existing.Effect == rule.Effect {
 				return false // already remembered
 			}
 		}
@@ -47,17 +48,32 @@ func (s *Store) rememberRule(workspace string, rule Rule) error {
 func canonicalRememberedRule(rule Rule) (Rule, error) {
 	rule.Tool = normalizeToolName(strings.ToLower(strings.TrimSpace(rule.Tool)))
 	rule.Specifier = strings.TrimSpace(rule.Specifier)
+	rule.Literal = strings.TrimSpace(rule.Literal)
 	if rule.Tool == "" {
 		return Rule{}, fmt.Errorf("remembered rule requires a tool")
 	}
-	if rule.Specifier == "" {
-		return Rule{}, fmt.Errorf("remembered rule for %s requires a specifier", rule.Tool)
+	if rule.Specifier == "" && rule.Literal == "" {
+		return Rule{}, fmt.Errorf("remembered rule for %s requires a specifier or literal", rule.Tool)
+	}
+	if rule.Literal != "" {
+		if rule.Specifier == "" {
+			// Older binaries ignore Literal. Mirroring the exact command into
+			// Specifier makes rollback exact-match it instead of interpreting an
+			// empty specifier as a bare allow-all rule.
+			rule.Specifier = rule.Literal
+		} else if rule.Specifier != rule.Literal {
+			return Rule{}, fmt.Errorf("remembered literal for %s requires an equal compatibility specifier", rule.Tool)
+		}
 	}
 	if rule.Effect != EffectAllow {
 		return Rule{}, fmt.Errorf("remembered rule for %s must be allow", rule.Tool)
 	}
 	if rule.Tool == "bash" || rule.Tool == "shell" {
-		if err := validateRememberedBashSpecifier(rule.Specifier); err != nil {
+		if rule.Literal != "" {
+			if _, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(rule.Literal), ""); err != nil {
+				return Rule{}, fmt.Errorf("remembered bash literal must be parseable: %w", err)
+			}
+		} else if err := validateRememberedBashSpecifier(rule.Specifier); err != nil {
 			return Rule{}, err
 		}
 	}

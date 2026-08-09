@@ -8,6 +8,7 @@ import (
 
 	tools "nekocode/bot/extension/tool"
 	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/permission"
 	"nekocode/protocol"
 )
 
@@ -68,39 +69,28 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, privileged tools
 		return "", false, failNoConfirmFn, execErr
 	}
 	if hasPreApproval && preApproved.requestCoveredBy(req) {
-		// The user pre-approved escalation in the merged confirm dialog
-		// ("仅本次允许并授权" / "始终允许并授权") and the actual request is
-		// within the predicted scope shown in that dialog. Either way we must
-		// make the grant visible to the retry path (permissionAllowed =
-		// sessionGrants + store.Match); the difference is whether it also
-		// persists to disk:
-		//   - remember=true  → session + disk (store.Allow)
-		//   - remember=false → session only (one-time, lives for this
-		//     process; never written to permissions.json)
-		// Previously both branches went through rememberPermission, which
-		// silently persisted one-time grants to disk — polluting the project
-		// file with capability openings the user explicitly chose NOT to
-		// remember. CapProcessHost is filtered out by rememberPermission /
-		// addSessionGrant / store.Allow, so it still prompts every time.
+		// The unified dialog already showed this call's predicted capabilities.
+		// Its call-ID-bound token authorizes the privileged retry directly;
+		// only an explicit remembered decision is persisted for later calls.
 		e.rememberPermission(tc.Name, req, preApproved.remember)
-		if !preApproved.remember {
-			e.addSessionGrant(tc.Name, req)
-		}
 		out, err := privileged(e.toolContext(ctx), tc.Args, req)
 		if err == nil {
 			return out, true, 0, nil
 		}
 		return "", false, failRetryError, err
 	}
-	confirmReq := protocol.NewConfirmRequest(canonicalPermissionTool(tc.Name), permissionConfirmArgs(tc.Args, req), protocol.ConfirmKindPermission)
+	confirmReq := protocol.NewApprovalRequest(
+		canonicalPermissionTool(tc.Name),
+		cloneToolArgs(tc.Args),
+		protocol.ConfirmKindPermission,
+		approvalContextFromPermission(req),
+	)
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
 		return "", false, failUserDenied, execErr
 	}
 	if reply.Remember {
 		e.rememberPermission(tc.Name, req, true)
-	} else {
-		e.addSessionGrant(tc.Name, req)
 	}
 	out, err := privileged(e.toolContext(ctx), tc.Args, req)
 	if err == nil {
@@ -177,26 +167,6 @@ func permissionFailureMessage(tc core.ToolCallItem, execErr error, reason escala
 	return execErr.Error()
 }
 
-func stringSliceArg(args map[string]any, key string) []string {
-	raw, ok := args[key]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		return v
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
-}
-
 func (e *Executor) permissionDenied(toolName string, req core.PermissionRequest) bool {
 	e.fnMu.RLock()
 	store := e.permStore
@@ -213,11 +183,6 @@ func (e *Executor) permissionDenied(toolName string, req core.PermissionRequest)
 }
 
 func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest) bool {
-	// Session-scope grants first (one-time approvals live here without ever
-	// being written to disk). Then the disk-backed project store.
-	if e.matchSessionGrant(toolName, req) {
-		return true
-	}
 	e.fnMu.RLock()
 	store := e.permStore
 	e.fnMu.RUnlock()
@@ -232,11 +197,8 @@ func (e *Executor) permissionAllowed(toolName string, req core.PermissionRequest
 	return false
 }
 
-// rememberPermission persists a capability grant so the retry path's
-// permissionAllowed (= sessionGrants + store.Match) finds it. persistStore
-// controls whether the grant is also written to the project's
-// permissions.json file (remembered approval) or kept in-memory only
-// (one-time approval: see addSessionGrant).
+// rememberPermission persists a capability grant only for an explicit
+// remembered approval. One-time approvals remain bound to the current call.
 func (e *Executor) rememberPermission(toolName string, req core.PermissionRequest, persistStore bool) {
 	// CapProcessHost must never be persisted — every unsandboxed host
 	// execution requires an explicit user prompt, regardless of prior
@@ -287,17 +249,18 @@ func permissionToolAliases(toolName string) []string {
 	return out
 }
 
-func permissionConfirmArgs(args map[string]any, req core.PermissionRequest) map[string]any {
-	out := map[string]any{
-		"permission_reason":       req.Reason,
-		"permission_capabilities": strings.Join(req.Capabilities, ", "),
-		"permission_scope":        req.Scope,
+func approvalContextFromPermission(req core.PermissionRequest) *protocol.ApprovalContext {
+	context := &protocol.ApprovalContext{
+		Reason:       req.Reason,
+		Capabilities: append([]string(nil), req.Capabilities...),
+		Scope:        protocol.ApprovalScope(req.Scope),
+		WritePaths:   permission.WritePathsFromRequest(req),
 	}
-	if cmd, ok := args["command"].(string); ok {
-		out["command"] = cmd
+	if workspace, ok := req.Details["workspace"].(string); ok {
+		context.Workspace = workspace
 	}
-	for k, v := range req.Details {
-		out[k] = v
+	if sandbox, ok := req.Details["sandbox"].(string); ok {
+		context.Sandbox = sandbox
 	}
-	return out
+	return context
 }

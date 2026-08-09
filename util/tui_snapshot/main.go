@@ -116,14 +116,18 @@ func renderConfirmPermission() string {
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
-			"command":                 "go test ./...",
-			"permission_reason":       "command requests sandbox profile: net.outbound, fs.write.path",
-			"permission_capabilities": "net.outbound, fs.write.path",
-			"permission_scope":        "project",
-			"workspace":               "/home/user/project",
-			"sandbox":                 "native",
+			"command": "go test ./...",
 		},
 		Kind: controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Reason:       "command requests sandbox profile: net.outbound, fs.write.path",
+			Capabilities: []string{"net.outbound", "fs.write.path"},
+			Scope:        controlruntime.ApprovalScopeProject,
+			Workspace:    "/home/user/project",
+			Sandbox:      "native",
+			WritePaths:   []string{"/home/user/.cache"},
+			Combined:     true,
+		},
 	}, nil)
 	return cb.View(width, 40)
 }
@@ -133,14 +137,16 @@ func renderConfirmProcessHost() string {
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
-			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
-			"permission_reason":       "command requests unsandboxed host execution",
-			"permission_capabilities": "process.host",
-			"permission_scope":        "once",
-			"workspace":               "/home/lznauy/precode/NekoCode",
-			"sandbox":                 "native",
+			"command": `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
 		},
 		Kind: controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Reason:       "command requests unsandboxed host execution",
+			Capabilities: []string{"process.host"},
+			Scope:        controlruntime.ApprovalScopeOnce,
+			Workspace:    "/home/lznauy/precode/NekoCode",
+			Sandbox:      "native",
+		},
 	}, nil)
 	return cb.View(width, 40)
 }

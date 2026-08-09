@@ -31,9 +31,10 @@ type approvalRecord struct {
 }
 
 type approvalHashInput struct {
-	ToolName string               `json:"tool_name"`
-	Kind     protocol.ConfirmKind `json:"kind"`
-	ArgsHash string               `json:"args_hash"`
+	ToolName string                    `json:"tool_name"`
+	Kind     protocol.ConfirmKind      `json:"kind"`
+	ArgsHash string                    `json:"args_hash"`
+	Approval *protocol.ApprovalContext `json:"approval,omitempty"`
 }
 
 func NewApprovalBroker(eventBus *eventbus.EventBus, source core.SourceRef, runID func() core.RunID) *ApprovalBroker {
@@ -62,16 +63,16 @@ func (b *ApprovalBroker) Register(req protocol.ConfirmRequest) func() protocol.C
 		reply: make(chan protocol.ConfirmReply, 1),
 		runID: b.currentRunID(),
 		view: core.ApprovalView{
-			ID:                    id,
-			ToolName:              req.ToolName,
-			Args:                  cloneMap(req.Args),
-			ArgsHash:              argsHash,
-			ToolCallHash:          stableHash(approvalHashInput{ToolName: req.ToolName, Kind: req.Kind, ArgsHash: argsHash}),
-			Kind:                  string(req.Kind),
-			CanEscalatePermission: req.CanEscalatePermission,
-			Status:                core.ApprovalPending,
-			CreatedAt:             now,
-			Source:                b.source,
+			ID:           id,
+			ToolName:     req.ToolName,
+			Args:         cloneMap(req.Args),
+			ArgsHash:     argsHash,
+			ToolCallHash: stableHash(approvalHashInput{ToolName: req.ToolName, Kind: req.Kind, ArgsHash: argsHash, Approval: req.Approval}),
+			Kind:         string(req.Kind),
+			Status:       core.ApprovalPending,
+			CreatedAt:    now,
+			Source:       b.source,
+			Approval:     req.Approval.Clone(),
 		},
 	}
 
@@ -81,16 +82,15 @@ func (b *ApprovalBroker) Register(req protocol.ConfirmRequest) func() protocol.C
 		return nil
 	}
 	b.pending[id] = rec
-	viewCopy := rec.view
+	viewCopy := cloneApprovalView(rec.view)
 	b.mu.Unlock()
 
 	b.publish(rec.runID, core.EventApprovalRequested, viewCopy)
 	return func() protocol.ConfirmReply {
 		reply := <-rec.reply
-		if !req.CanEscalatePermission {
-			reply.AllowWithPermission = false
+		if !rec.view.Approval.CanRemember() {
+			reply.Remember = false
 		}
-
 		b.mu.Lock()
 		if current, ok := b.pending[id]; ok && current.view.Status == core.ApprovalPending {
 			resolvedAt := time.Now()
@@ -101,7 +101,7 @@ func (b *ApprovalBroker) Register(req protocol.ConfirmRequest) func() protocol.C
 				current.view.Status = core.ApprovalRejected
 			}
 			delete(b.pending, id)
-			b.publish(current.runID, core.EventApprovalResolved, current.view)
+			b.publish(current.runID, core.EventApprovalResolved, cloneApprovalView(current.view))
 		}
 		b.mu.Unlock()
 		return reply
@@ -119,6 +119,10 @@ func (b *ApprovalBroker) Decide(id string, decision core.ApprovalDecision) error
 		b.mu.Unlock()
 		return fmt.Errorf("runtime: approval %s already resolved", id)
 	}
+	if decision.Remember && !rec.view.Approval.CanRemember() {
+		b.mu.Unlock()
+		return fmt.Errorf("runtime: approval %s only supports a one-time decision", id)
+	}
 	resolvedAt := time.Now()
 	rec.view.ResolvedAt = &resolvedAt
 	if decision.Allowed {
@@ -127,14 +131,11 @@ func (b *ApprovalBroker) Decide(id string, decision core.ApprovalDecision) error
 		rec.view.Status = core.ApprovalRejected
 	}
 	delete(b.pending, id)
-	viewCopy := rec.view
+	viewCopy := cloneApprovalView(rec.view)
 	b.publish(rec.runID, core.EventApprovalResolved, viewCopy)
 	b.mu.Unlock()
 
 	reply := decision.ConfirmReply()
-	if !viewCopy.CanEscalatePermission {
-		reply.AllowWithPermission = false
-	}
 	rec.reply <- reply
 	return nil
 }
@@ -174,8 +175,15 @@ func (b *ApprovalBroker) rejectAll(closeBroker bool) {
 
 	for _, rec := range records {
 		rec.reply <- protocol.ConfirmReply{Allowed: false}
-		b.publish(rec.runID, core.EventApprovalResolved, rec.view)
+		b.publish(rec.runID, core.EventApprovalResolved, cloneApprovalView(rec.view))
 	}
+}
+
+func cloneApprovalView(view core.ApprovalView) core.ApprovalView {
+	view.Args = cloneMap(view.Args)
+	view.Metadata = cloneMap(view.Metadata)
+	view.Approval = view.Approval.Clone()
+	return view
 }
 
 func (b *ApprovalBroker) publish(runID core.RunID, typ core.EventType, payload any) {

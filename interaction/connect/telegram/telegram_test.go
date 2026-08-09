@@ -193,7 +193,7 @@ func TestApprovalKeyboard(t *testing.T) {
 		ID: "apr_1",
 		Actions: []connect.Action{
 			{ID: connect.ActionOnce, Label: "批准一次"},
-			{ID: connect.ActionAlways, Label: "永久允许"},
+			{ID: connect.ActionAlways, Label: "始终允许"},
 			{ID: connect.ActionReject, Label: "拒绝"},
 		},
 	}

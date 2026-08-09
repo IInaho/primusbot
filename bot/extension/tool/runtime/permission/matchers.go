@@ -24,6 +24,27 @@ import (
 // process wrapper (timeout/time/nice/nohup) is stripped before matching.
 type BashMatcher struct{}
 
+func (BashMatcher) Assess(info map[string]any) CallAssessment {
+	command, _ := info["command"].(string)
+	report := ClassifyShellStructure(command)
+	if !report.Dynamic() {
+		return CallAssessment{}
+	}
+	structures := make([]string, len(report.Structures))
+	for i, structure := range report.Structures {
+		structures[i] = string(structure)
+	}
+	return CallAssessment{
+		Reason:  "dynamic shell execution",
+		Signals: structures,
+	}
+}
+
+func (BashMatcher) MatchLiteral(literal string, info map[string]any) bool {
+	command, _ := info["command"].(string)
+	return strings.TrimSpace(literal) != "" && strings.TrimSpace(literal) == strings.TrimSpace(command)
+}
+
 func (BashMatcher) Match(spec string, info map[string]any) (bool, error) {
 	return BashRuleMatches(spec, info, MatchAllSubcommands), nil
 }
@@ -150,48 +171,36 @@ func matchBashPattern(pattern, cmd string) bool {
 	return false
 }
 
-var bashWrappers = []string{"timeout", "time", "nice", "nohup", "stdbuf"}
-
-// stripWrappers removes a leading process wrapper so "timeout 30 npm test"
-// matches a "npm test *" rule.
+// stripWrappers uses the same option-aware invocation model as dynamic-shell
+// classification, so matching and approval cannot disagree about the command
+// hidden behind a wrapper.
 func stripWrappers(cmd string) string {
-	for {
-		stripped := false
-		for _, w := range bashWrappers {
-			if strings.HasPrefix(cmd, w+" ") {
-				rest := strings.TrimPrefix(cmd, w+" ")
-				// drop a leading numeric arg for timeout/nice (best-effort):
-				// "30" or "-n 5" etc. — consume a single token after timeout.
-				fields := strings.Fields(rest)
-				if len(fields) >= 2 && (w == "timeout" || w == "nice" || w == "stdbuf") {
-					// skip the first token only if it looks like a flag/number
-					if fields[0][0] == '-' || isAllDigits(fields[0]) {
-						rest = rest[len(fields[0]):]
-						rest = strings.TrimSpace(rest)
-					}
-				}
-				cmd = strings.TrimSpace(rest)
-				stripped = true
-				break
-			}
-		}
-		if !stripped {
-			break
-		}
+	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+	file, err := parser.Parse(strings.NewReader(cmd), "")
+	if err != nil || len(file.Stmts) != 1 {
+		return cmd
 	}
-	return cmd
-}
-
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
+	call, ok := file.Stmts[0].Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return cmd
 	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
+	tokens := make([]shellInvocationToken, len(call.Args))
+	for i, word := range call.Args {
+		value, static := staticShellWord(word)
+		if !static {
+			return cmd
 		}
+		tokens[i] = shellInvocationToken{value: value, static: true}
 	}
-	return true
+	unwrapped, dynamic := unwrapShellInvocation(tokens)
+	if dynamic || len(unwrapped) == 0 || len(unwrapped) == len(tokens) {
+		return cmd
+	}
+	words := make([]string, len(unwrapped))
+	for i, token := range unwrapped {
+		words[i] = token.value
+	}
+	return strings.Join(words, " ")
 }
 
 // shellParseCacheMax bounds the memoization of shell parses; once full, the

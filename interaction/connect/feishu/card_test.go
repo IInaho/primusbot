@@ -37,7 +37,7 @@ func TestApprovalCardThreeButtons(t *testing.T) {
 	if len(buttons) != 3 {
 		t.Fatalf("buttons = %d, want 3 without escalation", len(buttons))
 	}
-	wantTexts := []string{"批准一次", "永久允许", "拒绝"}
+	wantTexts := []string{"仅本次允许", "始终允许", "拒绝"}
 	wantDecisions := []string{connect.ActionOnce, connect.ActionAlways, connect.ActionReject}
 	wantStyles := []string{"default", "primary", "danger"}
 	for i, btn := range buttons {
@@ -55,23 +55,19 @@ func TestApprovalCardThreeButtons(t *testing.T) {
 	}
 }
 
-func TestApprovalCardEscalationAddsFourthButton(t *testing.T) {
+func TestApprovalCardOnceScopeHidesPermanentOption(t *testing.T) {
 	card := approvalCard(controlruntime.ApprovalView{
-		ID:                    "ap_2",
-		ToolName:              "shell",
-		CanEscalatePermission: true,
+		ID:       "ap_2",
+		ToolName: "shell",
+		Approval: &controlruntime.ApprovalContext{Scope: controlruntime.ApprovalScopeOnce},
 	})
 	buttons := cardButtons(card)
-	if len(buttons) != 4 {
-		t.Fatalf("buttons = %d, want 4 with escalation", len(buttons))
+	if len(buttons) != 2 {
+		t.Fatalf("buttons = %d, want approve-once and reject", len(buttons))
 	}
-	last := buttons[3].(map[string]any)
-	if got := last["text"].(map[string]any)["content"]; got != "允许并授权" {
-		t.Fatalf("escalation button text = %v", got)
-	}
-	id, dec := buttonDecision(t, buttons[3])
-	if id != "ap_2" || dec != connect.ActionEscalate {
-		t.Fatalf("escalation value = %v/%v", id, dec)
+	id, dec := buttonDecision(t, buttons[1])
+	if id != "ap_2" || dec != connect.ActionReject {
+		t.Fatalf("reject value = %v/%v", id, dec)
 	}
 }
 
@@ -82,10 +78,9 @@ func TestResolvedCardVerdicts(t *testing.T) {
 		title    string
 		template string
 	}{
-		{connect.ActionOnce, "已批准: edit", "green"},
-		{connect.ActionAlways, "已永久允许: edit", "green"},
+		{connect.ActionOnce, "已允许本次: edit", "green"},
+		{connect.ActionAlways, "已记住并允许: edit", "green"},
 		{connect.ActionReject, "已拒绝: edit", "red"},
-		{connect.ActionEscalate, "已批准并授权: edit", "green"},
 	}
 	for _, tc := range cases {
 		card := resolvedCard(p, tc.decision)
@@ -103,8 +98,12 @@ func TestResolvedCardVerdicts(t *testing.T) {
 }
 
 func TestApprovalSummaryVariants(t *testing.T) {
-	withCmd := approvalSummary(controlruntime.ApprovalView{ToolName: "shell", Args: map[string]any{"command": "ls"}})
-	if !containsAll(withCmd, "shell", "ls") {
+	withCmd := approvalSummary(controlruntime.ApprovalView{ToolName: "shell", Args: map[string]any{
+		"command": "ls",
+	}, Approval: &controlruntime.ApprovalContext{
+		Capabilities: []string{"net.outbound"}, Scope: controlruntime.ApprovalScopeOnce,
+	}})
+	if !containsAll(withCmd, "shell", "ls", "出站网络", "仅当前调用") {
 		t.Fatalf("command summary = %q", withCmd)
 	}
 	withPath := approvalSummary(controlruntime.ApprovalView{ToolName: "edit", Args: map[string]any{"path": "a.go", "_preview": "diff..."}})
@@ -131,7 +130,7 @@ func TestDecodeCardActionValue(t *testing.T) {
 	if _, _, err := decodeCardActionValue(map[string]interface{}{"approval_id": "ap_1", "decision": "approve"}); err == nil {
 		t.Fatal("legacy decision value should error")
 	}
-	for _, dec := range []string{connect.ActionOnce, connect.ActionAlways, connect.ActionReject, connect.ActionEscalate} {
+	for _, dec := range []string{connect.ActionOnce, connect.ActionAlways, connect.ActionReject} {
 		id, got, err := decodeCardActionValue(map[string]interface{}{"approval_id": "ap_1", "decision": dec})
 		if err != nil || id != "ap_1" || got != dec {
 			t.Fatalf("valid decode %q = %v, %v, %v", dec, id, got, err)
@@ -186,10 +185,9 @@ func TestHandleCardActionDecisions(t *testing.T) {
 		want     controlruntime.ApprovalDecision
 		toast    string
 	}{
-		{connect.ActionOnce, controlruntime.ApprovalDecision{Allowed: true}, "已批准"},
-		{connect.ActionAlways, controlruntime.ApprovalDecision{Allowed: true, Remember: true}, "已永久允许"},
+		{connect.ActionOnce, controlruntime.ApprovalDecision{Allowed: true}, "已允许本次"},
+		{connect.ActionAlways, controlruntime.ApprovalDecision{Allowed: true, Remember: true}, "已记住并允许"},
 		{connect.ActionReject, controlruntime.ApprovalDecision{}, "已拒绝"},
-		{connect.ActionEscalate, controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}, "已批准并授权"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.decision, func(t *testing.T) {

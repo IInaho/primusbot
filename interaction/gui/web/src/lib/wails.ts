@@ -16,7 +16,6 @@ import {
   ResolveModelProfile,
   ReplyConfirm,
   ReplyConfirmDecision,
-  ReplyConfirmWithPermission,
   ReplyQuestion,
   SaveConfig,
   SendMessage,
@@ -202,12 +201,8 @@ export function safeReadImageBase64(path: string): Promise<string | null> {
   }
 }
 
-export function safeReplyConfirm(id: string, ok: boolean, remember = false, allowWithPermission = false): void {
+export function safeReplyConfirm(id: string, ok: boolean, remember = false): void {
   try {
-    if (allowWithPermission) {
-      ReplyConfirmWithPermission(id, ok, remember, true)
-      return
-    }
     if (remember) {
       ReplyConfirmDecision(id, ok, remember)
       return

@@ -10,13 +10,13 @@ import (
 	"nekocode/protocol"
 )
 
-// Regression: a pre-approval ("允许并授权") only covers the capabilities
+// Regression: a unified pre-approval only covers the capabilities
 // shown in the confirm dialog. A tool whose actual escalation request is
 // broader than the prediction must NOT be silently privileged — it falls
 // back to a fresh dialog showing the real request.
 func TestPreApprovalDoesNotCoverBroaderActualRequest(t *testing.T) {
 	// Tool always escalates to process.host; the sandbox args predict only
-	// net.outbound, so the dialog offers "allow and authorize" for network.
+	// net.outbound, so the unified dialog includes network access.
 	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	tool.req = core.PermissionRequest{Reason: "needs host", Capabilities: []string{core.CapProcessHost}}
 	e := newTestExecutor(fakeRegistry{"shell": tool})
@@ -26,8 +26,8 @@ func TestPreApprovalDoesNotCoverBroaderActualRequest(t *testing.T) {
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
 		confirms++
 		if confirms == 1 {
-			// First dialog (command permission): click "allow and authorize".
-			return protocol.ConfirmReply{Allowed: true, AllowWithPermission: true}
+			// First dialog: approve the command and displayed network access.
+			return protocol.ConfirmReply{Allowed: true}
 		}
 		// Second dialog (actual process.host escalation): deny.
 		return protocol.Deny()
@@ -59,9 +59,12 @@ func TestPreApprovalCoversPredictedRequest(t *testing.T) {
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
 	var confirms int
-	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
+	e.SetConfirmFn(func(request protocol.ConfirmRequest) protocol.ConfirmReply {
 		confirms++
-		return protocol.ConfirmReply{Allowed: true, AllowWithPermission: true}
+		if request.Approval == nil || !request.Approval.Combined {
+			t.Fatalf("unified approval context missing: %+v", request)
+		}
+		return protocol.ConfirmReply{Allowed: true}
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{

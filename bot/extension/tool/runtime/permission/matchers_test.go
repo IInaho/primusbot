@@ -95,13 +95,17 @@ func TestBashDenyMatchesCommandSubstitution(t *testing.T) {
 
 func TestBashMatcherStripsWrappers(t *testing.T) {
 	m := BashMatcher{}
-	got, _ := m.Match("npm run *", map[string]any{"command": "timeout 30 npm run test"})
-	if !got {
-		t.Error("timeout wrapper should be stripped, then match npm run *")
-	}
-	got, _ = m.Match("git status", map[string]any{"command": "time git status"})
-	if !got {
-		t.Error("time wrapper should be stripped")
+	for _, command := range []string{
+		"timeout 30 npm run test",
+		"nice -n 5 npm run test",
+		"time -p npm run test",
+		"stdbuf -oL npm run test",
+		"env -u HOME npm run test",
+	} {
+		got, _ := m.Match("npm run *", map[string]any{"command": command})
+		if !got {
+			t.Errorf("wrapper should be stripped from %q", command)
+		}
 	}
 }
 

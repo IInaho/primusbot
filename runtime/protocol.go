@@ -307,10 +307,14 @@ const (
 )
 
 type ConfirmKind = protocol.ConfirmKind
+type ApprovalScope = protocol.ApprovalScope
+type ApprovalContext = protocol.ApprovalContext
 
 const (
 	ConfirmKindPermission = protocol.ConfirmKindPermission
 	ConfirmKindInstall    = protocol.ConfirmKindInstall
+	ApprovalScopeOnce     = protocol.ApprovalScopeOnce
+	ApprovalScopeProject  = protocol.ApprovalScopeProject
 )
 
 type ConfirmRequest = protocol.ConfirmRequest

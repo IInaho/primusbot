@@ -162,6 +162,19 @@ func TestRememberRuleRejectsAutoBroadenedBashSpecifier(t *testing.T) {
 	}
 }
 
+func TestRememberRulePersistsExactBashLiteral(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	literal := `bash -c "$(cat task.txt)"`
+	if err := store.RememberRule(dir, Rule{Tool: "shell", Literal: literal, Effect: EffectAllow}); err != nil {
+		t.Fatalf("RememberRule literal: %v", err)
+	}
+	rules := store.RememberedRules(dir)
+	if len(rules) != 1 || rules[0].Literal != literal || rules[0].Specifier != literal {
+		t.Fatalf("remembered literal = %+v", rules)
+	}
+}
+
 func TestStoreConcurrentRemembersDoNotLoseRules(t *testing.T) {
 	dir := t.TempDir()
 	const n = 32

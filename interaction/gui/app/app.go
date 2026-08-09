@@ -149,21 +149,12 @@ func compactConfirmArgs(req controlruntime.ConfirmRequest) map[string]any {
 			}
 			if s, ok := v.(string); ok && len(s) > 200 {
 				m[k] = s[:200] + "..."
-			} else if k == "content" || k == "path" || k == "command" || strings.HasPrefix(k, "permission_") || isPermissionContextKey(k) {
+			} else if k == "content" || k == "path" || k == "command" {
 				m[k] = v
 			}
 		}
 	}
 	return m
-}
-
-func isPermissionContextKey(k string) bool {
-	switch k {
-	case "workspace", "sandbox", "writePaths":
-		return true
-	default:
-		return false
-	}
 }
 
 func truncateConfirmString(s string) string {
@@ -288,12 +279,12 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		if p, ok := ev.Payload.(controlruntime.ApprovalView); ok {
 			req := p.ToConfirmRequest()
 			wailsruntime.EventsEmit(a.ctx, "agent:confirm", map[string]any{
-				"id":           p.ID,
-				"toolName":     req.ToolName,
-				"args":         compactConfirmArgs(req),
-				"preview":      confirmPreview(req),
-				"kind":         string(req.Kind),
-				"can_escalate": req.CanEscalatePermission,
+				"id":       p.ID,
+				"toolName": req.ToolName,
+				"args":     compactConfirmArgs(req),
+				"preview":  confirmPreview(req),
+				"kind":     string(req.Kind),
+				"approval": req.Approval,
 			})
 		}
 	case controlruntime.EventQuestionRequested:
@@ -604,30 +595,12 @@ func (a *App) ReplyConfirm(id string, ok bool) {
 	a.ReplyConfirmDecision(id, ok, false)
 }
 
-// ReplyConfirmDecision 由前端调用，回复确认弹窗并可选择记住项目级权限。
-//
-// 注意：此方法不再自动授权升级 (AllowWithPermission)，即使
-// req.CanEscalatePermission == true。前端在"允许并授权"按钮被点时应调用
-// ReplyConfirmWithPermission(id, ok, remember, true)，否则升级路径会保持
-// 默认行为（即等待第二次确认弹窗或匹配既有授权）。此前的实现把
-// req.CanEscalatePermission 当作"用户已勾选授权"使用，导致 GUI 中用户点
-// "允许"按钮就静默授权了沙箱/主机升级，与 TUI 的两个独立按钮语义不一致。
+// ReplyConfirmDecision 由前端调用，回复统一审批并可选择记住项目级权限。
+// 请求卡已经列出当前命令和可预测的沙箱能力；一次决定原子覆盖两者。
 func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	_ = a.rt.DecideApproval(a.ctx, id, controlruntime.ApprovalDecision{
 		Allowed:  ok,
 		Remember: ok && remember,
-	})
-}
-
-// ReplyConfirmWithPermission 由前端调用，回复确认弹窗并显式声明是否同时
-// 授权权限升级。只有当 req.CanEscalatePermission 为 true 时 withPermission
-// 才会被采用；否则 withPermission 强制为 false（防止前端误用"允许并授权"
-// 按钮对不可升级的工具下放授权）。
-func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, withPermission bool) {
-	_ = a.rt.DecideApproval(a.ctx, id, controlruntime.ApprovalDecision{
-		Allowed:             ok,
-		Remember:            ok && remember,
-		AllowWithPermission: ok && withPermission,
 	})
 }
 

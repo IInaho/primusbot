@@ -30,14 +30,6 @@ type Executor struct {
 	previewFn  func(toolName string, args map[string]any, preview string)
 	permStore  *permission.Store
 	fnMu       sync.RWMutex
-	// escalationApproved tracks tool calls (keyed by ToolCallItem.ID) for
-	// which the user pre-approved permission escalation in the merged confirm
-	// dialog. Keying by call ID — not tool name — prevents a pre-approval
-	// granted for one call from being silently spent by a later, unrelated
-	// call to the same tool (which used to let a one-time "allow & escalate"
-	// on an innocent ls bypass the second dialog for a process.host call).
-	escalationMu       sync.Mutex
-	escalationApproved map[string]escalationApproval
 	// Permission rule engine (claude-code style allow/ask/deny). The engine's
 	// deny→ask→allow decision is the single authority for whether a tool call
 	// runs, prompts, or is blocked.
@@ -45,22 +37,6 @@ type Executor struct {
 	permDecl      permission.PermissionsDecl
 	permWorkspace string
 	permHome      string
-
-	// sessionGrants holds in-memory capability grants created by one-time
-	// ("仅本次允许并授权") approvals. They live for the current process only
-	// and are never written to disk — the retry path queries them via
-	// permissionAllowed, but closing NekoCode forgets them. Remembered
-	// ("始终允许并授权") approvals go through rememberPermission → permStore
-	// and additionally register here for the live session.
-	sessionGrantsMu sync.RWMutex
-	sessionGrants   []sessionGrant
-}
-
-// sessionGrant is an in-memory capability grant scoped to the running process.
-type sessionGrant struct {
-	tool         string
-	capabilities []string
-	writePaths   []string
 }
 
 func NewExecutor(r *tools.Registry) *Executor {
@@ -70,11 +46,11 @@ func NewExecutor(r *tools.Registry) *Executor {
 		manager = r.Workspace()
 	}
 	e := &Executor{
-		registry:           r,
-		workspace:          manager,
-		state:              execution.NewExecutionState(),
-		permStore:          permission.NewStore(root),
-		escalationApproved: make(map[string]escalationApproval),
+		registry:      r,
+		workspace:     manager,
+		state:         execution.NewExecutionState(),
+		permStore:     permission.NewStore(root),
+		permWorkspace: root,
 	}
 	e.rebuildEngine(permission.PermissionsDecl{}, e.permStore, root)
 	return e
@@ -248,9 +224,9 @@ func (e *Executor) SandboxEngine() *permission.Engine {
 
 type escalationApproval struct {
 	remember bool
-	// predicted is the capability request shown in the confirm dialog when
-	// the user clicked "allow and authorize". The pre-approval only covers
-	// escalation requests within this scope — see requestCoveredBy.
+	// predicted is the capability request included in the unified dialog.
+	// The pre-approval only covers escalation requests within this scope —
+	// see requestCoveredBy.
 	predicted *core.PermissionRequest
 }
 
@@ -271,111 +247,4 @@ func (a escalationApproval) requestCoveredBy(req core.PermissionRequest) bool {
 		permission.WritePathsFromRequest(*a.predicted),
 		permission.WritePathsFromRequest(req),
 	)
-}
-
-// preApproveEscalation marks a tool call (by its ID) as having user
-// pre-approved permission escalation in the merged confirm dialog, so
-// tryPermissionEscalation will skip the second dialog. Keying by call ID
-// prevents pre-approvals from leaking to unrelated later calls. The
-// predicted request bounds what the pre-approval covers.
-func (e *Executor) preApproveEscalation(callID string, remember bool, predicted *core.PermissionRequest) {
-	if callID == "" {
-		return
-	}
-	e.escalationMu.Lock()
-	e.escalationApproved[callID] = escalationApproval{remember: remember, predicted: predicted}
-	e.escalationMu.Unlock()
-}
-
-// escalationPreApproved checks (and clears) the pre-approval flag for a tool
-// call. Returns (approval, true) if a pre-approval was set for this call ID.
-func (e *Executor) escalationPreApproved(callID string) (escalationApproval, bool) {
-	if callID == "" {
-		return escalationApproval{}, false
-	}
-	e.escalationMu.Lock()
-	defer e.escalationMu.Unlock()
-	if approval, ok := e.escalationApproved[callID]; ok {
-		delete(e.escalationApproved, callID)
-		return approval, true
-	}
-	return escalationApproval{}, false
-}
-
-// dropEscalationApproval unconditionally clears any pre-approval outstanding
-// for callID. Called from executeOne on every terminal path so a successful
-// "allow & escalate" click never leaves a stale token waiting to be spent by
-// some later call that happens to reuse the ID.
-func (e *Executor) dropEscalationApproval(callID string) {
-	if callID == "" {
-		return
-	}
-	e.escalationMu.Lock()
-	delete(e.escalationApproved, callID)
-	e.escalationMu.Unlock()
-}
-
-// addSessionGrant records an in-memory capability grant for the current
-// process. One-time approvals use this so the retry path finds the grant
-// without anything being persisted to disk. CapProcessHost is never stored
-// — every host execution must prompt, by design.
-func (e *Executor) addSessionGrant(toolName string, req core.PermissionRequest) {
-	if toolName == "" || len(req.Capabilities) == 0 {
-		return
-	}
-	toolName = canonicalPermissionTool(toolName)
-	for _, c := range req.Capabilities {
-		if c == core.CapProcessHost {
-			return
-		}
-	}
-	caps := append([]string(nil), req.Capabilities...)
-	writePaths := permission.WritePathsFromRequest(req)
-	e.sessionGrantsMu.Lock()
-	defer e.sessionGrantsMu.Unlock()
-	for _, g := range e.sessionGrants {
-		if g.tool == toolName && slices.Equal(g.capabilities, caps) && slices.Equal(g.writePaths, writePaths) {
-			return
-		}
-	}
-	e.sessionGrants = append(e.sessionGrants, sessionGrant{tool: toolName, capabilities: caps, writePaths: writePaths})
-}
-
-// matchSessionGrant reports whether an in-memory session grant covers the
-// requested capabilities for the tool.
-func (e *Executor) matchSessionGrant(toolName string, req core.PermissionRequest) bool {
-	if len(req.Capabilities) == 0 {
-		return false
-	}
-	aliases := permissionToolAliases(toolName)
-	e.sessionGrantsMu.RLock()
-	defer e.sessionGrantsMu.RUnlock()
-	for _, g := range e.sessionGrants {
-		if !slices.Contains(aliases, g.tool) {
-			continue
-		}
-		if sessionGrantMatches(g, req) {
-			return true
-		}
-	}
-	return false
-}
-
-func sessionGrantMatches(g sessionGrant, req core.PermissionRequest) bool {
-	for _, need := range req.Capabilities {
-		found := false
-		for _, have := range g.capabilities {
-			if have == need {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	if !slices.Contains(req.Capabilities, core.CapFsWritePath) {
-		return true
-	}
-	return permission.ContainsAllWritePaths(g.writePaths, permission.WritePathsFromRequest(req))
 }

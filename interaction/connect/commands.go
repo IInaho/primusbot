@@ -38,7 +38,7 @@ func (h CommandHandler) Handle(ctx context.Context, text string) (reply string, 
 	case strings.HasPrefix(text, "/always "):
 		id := strings.TrimSpace(strings.TrimPrefix(text, "/always "))
 		err := h.RT.DecideApproval(ctx, id, controlruntime.ApprovalDecision{Allowed: true, Remember: true})
-		return errReply("已永久允许。", err), true
+		return errReply("已记住并允许。", err), true
 	case strings.HasPrefix(text, "/reject "):
 		id := strings.TrimSpace(strings.TrimPrefix(text, "/reject "))
 		err := h.RT.DecideApproval(ctx, id, controlruntime.ApprovalDecision{})

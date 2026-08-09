@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"nekocode/bot/extension/tool/runtime/core"
@@ -38,15 +39,15 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 
 	// Predict the escalation request a privileged tool will raise from explicit
 	// sandbox arguments. This lets the command approval dialog offer a single
-	// "allow and authorize" path without exposing legacy capability args.
+	// unified decision without exposing legacy capability args.
 	// If a grant already matches, skip the engine's default "ask" prompt.
-	predictedReq := e.predictedPermissionRequest(tc.Name, tc.Args)
+	predictedReq := e.permissionRequestFromEntry(entry, tc.Args)
+	var preApproval *escalationApproval
 	if dec := e.evaluatePermission(tc, predictedReq); dec.block {
 		return core.ToolCallResult{ID: tc.ID, Name: resultName, Error: dec.reason}
 	} else if dec.prompt {
-		reply, ok := e.promptConfirm(tc, entry.Privileged != nil, confirmFn, predictedReq, dec)
+		reply, ok := e.promptConfirm(tc, confirmFn, predictedReq, dec)
 		if !ok {
-			e.dropEscalationApproval(tc.ID)
 			return core.ToolCallResult{ID: tc.ID, Name: resultName, Error: "cancelled"}
 		}
 		if reply.Remember {
@@ -58,15 +59,14 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 			}
 			e.rememberAllowRule(toolName, args, dec.matchedRule)
 		}
-		if reply.AllowWithPermission && predictedReq != nil {
-			e.preApproveEscalation(tc.ID, reply.Remember, predictedReq)
+		if predictedReq != nil {
+			preApproval = &escalationApproval{remember: reply.Remember, predicted: predictedReq}
 		}
 	}
 
 	var errMsg string
 	var ok bool
 	if tc, errMsg, ok = e.ensureWorkspaceAccess(tc, confirmFn); !ok {
-		e.dropEscalationApproval(tc.ID)
 		return core.ToolCallResult{ID: tc.ID, Name: resultName, Error: errMsg}
 	}
 	captured, captureErr := e.captureMutationPaths(tc)
@@ -79,20 +79,18 @@ func (e *Executor) executeOne(ctx context.Context, tc core.ToolCallItem) core.To
 	paths := toolPaths(tc)
 	output, execErr := e.callTool(ctx, tool, tc)
 	if execErr != nil {
-		preApproved, hasPreApproval := e.escalationPreApproved(tc.ID)
-		escOut, escOk, escReason, escCause := e.tryPermissionEscalation(ctx, entry.Privileged, tc, execErr, confirmFn, preApproved, hasPreApproval)
+		preApproved := escalationApproval{}
+		if preApproval != nil {
+			preApproved = *preApproval
+		}
+		escOut, escOk, escReason, escCause := e.tryPermissionEscalation(ctx, entry.Privileged, tc, execErr, confirmFn, preApproved, preApproval != nil)
 		if escOk {
 			e.invalidateMutatedPaths(tc.Name, paths)
 			return core.ToolCallResult{ID: tc.ID, Name: resultName, Output: formatOutput(resultName, escOut)}
 		}
-		e.dropEscalationApproval(tc.ID)
 		return core.ToolCallResult{ID: tc.ID, Name: resultName, Error: permissionFailureMessage(tc, execErr, escReason, escCause)}
 	}
 
-	// Successful execution with no escalation: drop any pre-approval token
-	// so it cannot be spent by a later call reusing the id (defense in depth
-	// alongside the tc.ID-keyed map).
-	e.dropEscalationApproval(tc.ID)
 	e.invalidateMutatedPaths(tc.Name, paths)
 	return core.ToolCallResult{ID: tc.ID, Name: resultName, Output: formatOutput(resultName, output)}
 }
@@ -133,6 +131,7 @@ type permissionDecision struct {
 	matchedRule  permission.Rule
 	rememberTool string
 	rememberArgs map[string]any
+	approval     *protocol.ApprovalContext
 }
 
 // evaluatePermission runs the rule engine and either blocks, prompts, or
@@ -205,13 +204,36 @@ func (e *Executor) permissionDecisionForRule(dec permission.Decision, tc core.To
 		// default effect (no explicit rule matched — dec.Rule.Tool == ""),
 		// and (b) a predicted capability request is already covered by a grant.
 		// Otherwise the user's explicit command-level ask must be honored.
-		if predictedReq != nil && dec.Rule.Tool == "" && e.permissionAllowed(tc.Name, *predictedReq) {
+		if predictedReq != nil && dec.Rule.Tool == "" && !dec.Assessment.RequiresApproval() &&
+			e.permissionAllowed(tc.Name, *predictedReq) {
 			return permissionDecision{}
 		}
-		return permissionDecision{prompt: true, promptTool: tc.Name, promptArgs: tc.Args, matchedRule: dec.Rule}
+		return permissionDecision{
+			prompt:      true,
+			promptTool:  tc.Name,
+			promptArgs:  tc.Args,
+			matchedRule: dec.Rule,
+			approval:    approvalContextFromAssessment(dec.Assessment),
+		}
 	default:
 		return permissionDecision{}
 	}
+}
+
+func approvalContextFromAssessment(assessment permission.CallAssessment) *protocol.ApprovalContext {
+	if !assessment.RequiresApproval() {
+		return nil
+	}
+	context := &protocol.ApprovalContext{
+		Risk:       assessment.Reason,
+		Reason:     assessment.Reason,
+		Structures: append([]string(nil), assessment.Signals...),
+		Scope:      protocol.ApprovalScopeProject,
+	}
+	if slices.Contains(assessment.Signals, string(permission.ShellUnparseable)) {
+		context.Scope = protocol.ApprovalScopeOnce
+	}
+	return context
 }
 
 func shellCommandForPolicy(tc core.ToolCallItem) (string, bool) {
@@ -248,11 +270,9 @@ func defaultPermissionEffect(toolName string) permission.Effect {
 // permission engine decided needs a prompt.
 // Returns (reply, true) if the user allowed, (zero, false) on deny/no-fn.
 //
-// CanEscalatePermission is only set when the call has a predicted permission
-// request. Offering a "允许并授权" button on a call that cannot escalate is
-// misleading and used to leave stale pre-approval tokens that could be reused
-// elsewhere.
-func (e *Executor) promptConfirm(tc core.ToolCallItem, privileged bool, confirmFn protocol.ConfirmFunc, predictedReq *core.PermissionRequest, dec permissionDecision) (protocol.ConfirmReply, bool) {
+// Predicted capabilities are merged into this request so one decision covers
+// the command and the exact capability scope shown to the user.
+func (e *Executor) promptConfirm(tc core.ToolCallItem, confirmFn protocol.ConfirmFunc, predictedReq *core.PermissionRequest, dec permissionDecision) (protocol.ConfirmReply, bool) {
 	if confirmFn == nil {
 		return protocol.ConfirmReply{}, false
 	}
@@ -264,10 +284,22 @@ func (e *Executor) promptConfirm(tc core.ToolCallItem, privileged bool, confirmF
 	if args == nil {
 		args = tc.Args
 	}
-	req := protocol.NewConfirmRequest(toolName, args, protocol.ConfirmKindPermission)
-	if privileged && predictedReq != nil {
-		req.CanEscalatePermission = true
+	approval := dec.approval.Clone()
+	if predictedReq != nil {
+		predicted := approvalContextFromPermission(*predictedReq)
+		if approval == nil {
+			approval = predicted
+		} else {
+			approval.Reason = predicted.Reason
+			approval.Capabilities = predicted.Capabilities
+			approval.Scope = predicted.Scope
+			approval.Workspace = predicted.Workspace
+			approval.Sandbox = predicted.Sandbox
+			approval.WritePaths = predicted.WritePaths
+		}
+		approval.Combined = true
 	}
+	req := protocol.NewApprovalRequest(toolName, args, protocol.ConfirmKindPermission, approval)
 	reply := confirmFn(req)
 	if !reply.Allowed {
 		return reply, false
@@ -296,9 +328,7 @@ func (e *Executor) rememberAllowRule(toolName string, args map[string]any, match
 	spec := matched.Specifier
 	if toolName == "shell" {
 		if cmd, _ := args["command"].(string); cmd != "" {
-			for _, s := range bashRememberSpecs(cmd) {
-				rules = append(rules, permission.Rule{Tool: toolName, Specifier: s, Effect: permission.EffectAllow})
-			}
+			rules = append(rules, bashRememberRules(toolName, cmd)...)
 		}
 	} else if p, _ := args["path"].(string); p != "" {
 		spec = pathRememberSpec(p, ws, home)
@@ -310,6 +340,14 @@ func (e *Executor) rememberAllowRule(toolName string, args map[string]any, match
 		_ = store.RememberRule(ws, rule)
 	}
 	e.rebuildEngine(decl, store, ws)
+}
+
+func cloneToolArgs(args map[string]any) map[string]any {
+	out := make(map[string]any, len(args)+3)
+	for key, value := range args {
+		out[key] = value
+	}
+	return out
 }
 
 func (e *Executor) callbacks() (protocol.PhaseFunc, protocol.ConfirmFunc, bool) {

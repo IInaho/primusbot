@@ -60,12 +60,11 @@ const (
 // Canonical approval action IDs shared by every channel's buttons, card
 // callbacks, and slash commands.
 const (
-	ActionOnce     = "once"
-	ActionAlways   = "always"
-	ActionEscalate = "escalate"
-	ActionReject   = "reject"
-	ActionDismiss  = "dismiss"
-	ActionConfirm  = "confirm"
+	ActionOnce    = "once"
+	ActionAlways  = "always"
+	ActionReject  = "reject"
+	ActionDismiss = "dismiss"
+	ActionConfirm = "confirm"
 )
 
 // Action is a platform-agnostic decision affordance attached to an intent.

@@ -241,7 +241,7 @@ func TestPermEngine_RememberedCompoundBashSkipsFuturePrompt(t *testing.T) {
 	}
 }
 
-func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
+func TestPermEngine_RememberedDynamicBashStaysExact(t *testing.T) {
 	dir := t.TempDir()
 	store := permission.NewStore(dir + "/perms.json")
 	e := newTestExecutor(fakeRegistry{
@@ -263,8 +263,57 @@ func TestPermEngine_RememberedBashCommandsCoverChangedArguments(t *testing.T) {
 		{ID: "2", Name: "shell", Args: map[string]any{"command": `echo "喵~ 第二次！当前目录: $(pwd)" && date`}},
 	})
 
+	if askCount != 2 {
+		t.Fatalf("changed dynamic command must require a fresh approval, got %d prompts", askCount)
+	}
+}
+
+func TestPermEngine_BroadAllowCannotApproveDynamicBash(t *testing.T) {
+	dir := t.TempDir()
+	store := permission.NewStore(dir + "/perms.json")
+	e := newTestExecutor(fakeRegistry{"shell": fakeToolForPerm{name: "shell"}})
+	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{Allow: []string{"Bash(*)"}}, "/repo", "/home/user")
+
+	askCount := 0
+	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
+		askCount++
+		return protocol.AllowRemembered()
+	})
+	call := core.ToolCallItem{ID: "1", Name: "shell", Args: map[string]any{"command": `echo "$(date)"`}}
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{call})
+	call.ID = "2"
+	e.ExecuteBatch(context.Background(), []core.ToolCallItem{call})
+
 	if askCount != 1 {
-		t.Fatalf("remembered echo/pwd/date command rules should cover changed echo text, got %d prompts", askCount)
+		t.Fatalf("broad allow must prompt once before exact literal is remembered, got %d prompts", askCount)
+	}
+}
+
+func TestCapabilityGrantDoesNotSuppressDynamicShellApproval(t *testing.T) {
+	dir := t.TempDir()
+	store := permission.NewStore(dir + "/perms.json")
+	request := core.PermissionRequest{
+		Capabilities: []string{core.CapNetOutbound},
+		Scope:        "project",
+		Details:      map[string]any{"workspace": "/repo"},
+	}
+	if err := store.Allow("shell", request); err != nil {
+		t.Fatalf("allow capability: %v", err)
+	}
+	e := newTestExecutor(fakeRegistry{"shell": fakeToolForPerm{name: "shell"}})
+	e.SetPermissionStore(store)
+	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
+
+	decision := e.permissionDecisionForRule(permission.Decision{
+		Effect: permission.EffectAsk,
+		Assessment: permission.CallAssessment{
+			Reason:  "dynamic shell execution",
+			Signals: []string{string(permission.ShellCommandSubstitution)},
+		},
+	}, core.ToolCallItem{Name: "shell"}, &request)
+	if !decision.prompt || decision.approval == nil {
+		t.Fatalf("capability grant suppressed dynamic approval: %+v", decision)
 	}
 }
 

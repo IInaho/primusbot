@@ -5,7 +5,7 @@ import ConfirmDialog from '../ConfirmDialog'
 const replyConfirm = vi.fn()
 
 vi.mock('../../lib/wails', () => ({
-  safeReplyConfirm: (id: string, ok: boolean, remember?: boolean, allowWithPermission?: boolean) => replyConfirm(id, ok, remember, allowWithPermission),
+  safeReplyConfirm: (id: string, ok: boolean, remember?: boolean) => replyConfirm(id, ok, remember),
 }))
 
 describe('ConfirmDialog', () => {
@@ -38,7 +38,7 @@ describe('ConfirmDialog', () => {
     expect(screen.getAllByText((text) => text.includes('cat > /tmp/test_edit.txt'))).toHaveLength(1)
 
     fireEvent.click(screen.getByRole('button', { name: '仅本次允许' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true, false, false)
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-1', true, false)
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
@@ -88,27 +88,31 @@ describe('ConfirmDialog', () => {
           toolName: 'shell',
           args: {
             command: 'go test ./...',
-            permission_reason: 'command requires public network access',
-            permission_capabilities: 'net.public, cache.write',
-            permission_scope: 'project',
-            workspace: '/repo',
             commandClass: 'network',
-            sandbox: 'bubblewrap',
           },
           kind: 'permission',
+          approval: {
+            reason: 'command requires public network access',
+            capabilities: ['net.public', 'cache.write'],
+            scope: 'project',
+            workspace: '/repo',
+            sandbox: 'bubblewrap',
+            write_paths: ['/tmp/cache'],
+          },
         }}
         onDone={vi.fn()}
       />,
     )
 
-    expect(screen.getByText('权限升级')).toBeInTheDocument()
+    expect(screen.getByText('审批详情')).toBeInTheDocument()
     expect(screen.getByText('command requires public network access')).toBeInTheDocument()
+    expect(screen.getByText('/tmp/cache')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '仅本次允许' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '始终允许' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-permission', true, true, false)
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-permission', true, true)
   })
 
-  it('pre-approves permission escalation for privileged tools', () => {
+  it('combines command and predictable capability approval', () => {
     render(
       <ConfirmDialog
         entry={{
@@ -116,21 +120,27 @@ describe('ConfirmDialog', () => {
           toolName: 'shell',
           args: {
             command: 'go get github.com/hajimehoshi/ebiten/v2',
-            permission_reason: 'command requires public network access',
-            permission_scope: 'project',
           },
           kind: 'permission',
-          can_escalate: true,
+          approval: {
+            reason: 'command requires public network access',
+            capabilities: ['net.public'],
+            scope: 'project',
+            combined: true,
+            structures: ['command_substitution'],
+          },
         }}
         onDone={vi.fn()}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '始终允许并授权' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash', true, true, true)
+    expect(screen.getByText('命令替换')).toBeInTheDocument()
+    expect(screen.queryByText('始终允许并授权')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '始终允许' }))
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash', true, true)
   })
 
-  it('does not pre-approve permission escalation from the plain allow button', () => {
+  it('hides remember for once-only capability approval', () => {
     render(
       <ConfirmDialog
         entry={{
@@ -138,16 +148,42 @@ describe('ConfirmDialog', () => {
           toolName: 'shell',
           args: {
             command: 'go get github.com/hajimehoshi/ebiten/v2',
-            permission_scope: 'project',
           },
           kind: 'permission',
-          can_escalate: true,
+          approval: {
+            reason: 'host execution required',
+            scope: 'once',
+          },
         }}
         onDone={vi.fn()}
       />,
     )
 
+    expect(screen.queryByRole('button', { name: '始终允许' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '仅本次允许' }))
-    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash-plain', true, false, false)
+    expect(replyConfirm).toHaveBeenCalledWith('confirm-bash-plain', true, false)
+  })
+
+  it('describes dynamic command approval without inventing capabilities', () => {
+    render(
+      <ConfirmDialog
+        entry={{
+          id: 'confirm-dynamic',
+          toolName: 'shell',
+          args: { command: 'env -S "bash -c echo"' },
+          kind: 'permission',
+          approval: {
+            risk: 'dynamic shell execution',
+            reason: 'dynamic shell execution',
+            scope: 'project',
+            structures: ['dynamic_command'],
+          },
+        }}
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('此决定可记住为该命令的精确授权。')).toBeInTheDocument()
+    expect(screen.queryByText(/列出的.*能力/)).toBeNull()
   })
 })

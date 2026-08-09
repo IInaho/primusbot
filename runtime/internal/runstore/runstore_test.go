@@ -201,10 +201,11 @@ func TestRunStoreDeepCopiesInteractionViews(t *testing.T) {
 	store := NewRunStore(0)
 	args := map[string]any{"nested": map[string]any{"value": "original"}}
 	metadata := map[string]any{"items": []any{"original"}}
+	approval := &protocol.ApprovalContext{WritePaths: []string{"/original"}}
 	store.Record(core.Event{
 		RunID: "run_1", Type: core.EventApprovalRequested, Time: time.Now(),
 		Payload: core.ApprovalView{
-			ID: "approval_1", Args: args, Metadata: metadata,
+			ID: "approval_1", Args: args, Metadata: metadata, Approval: approval,
 		},
 	})
 	options := []protocol.QuestionOption{{Label: "original"}}
@@ -220,15 +221,18 @@ func TestRunStoreDeepCopiesInteractionViews(t *testing.T) {
 
 	args["nested"].(map[string]any)["value"] = "changed before lookup"
 	metadata["items"].([]any)[0] = "changed before lookup"
+	approval.WritePaths[0] = "/changed-before-lookup"
 	options[0].Label = "changed before lookup"
 	first, _ := store.Lookup("run_1")
 	first.Approvals[0].Args["nested"].(map[string]any)["value"] = "changed"
 	first.Approvals[0].Metadata["items"].([]any)[0] = "changed"
+	first.Approvals[0].Approval.WritePaths[0] = "/changed"
 	first.Questions[0].Questions[0].Options[0].Label = "changed"
 
 	second, _ := store.Lookup("run_1")
 	if second.Approvals[0].Args["nested"].(map[string]any)["value"] != "original" ||
 		second.Approvals[0].Metadata["items"].([]any)[0] != "original" ||
+		second.Approvals[0].Approval.WritePaths[0] != "/original" ||
 		second.Questions[0].Questions[0].Options[0].Label != "original" {
 		t.Fatalf("snapshot internals were mutated: %#v", second)
 	}

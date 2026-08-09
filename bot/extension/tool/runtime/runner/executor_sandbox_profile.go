@@ -1,37 +1,19 @@
 package runner
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
+	tools "nekocode/bot/extension/tool"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/permission"
 )
 
-func (e *Executor) predictedPermissionRequest(toolName string, args map[string]any) *core.PermissionRequest {
-	caps := sandboxCapsFromArgs(args)
-	if len(caps) == 0 {
+func (e *Executor) permissionRequestFromEntry(entry tools.Entry, args map[string]any) *core.PermissionRequest {
+	if entry.PermissionPlan == nil {
 		return nil
 	}
-	reason := fmt.Sprintf("command requests sandbox profile: %s", strings.Join(caps, ", "))
-	_, ws, _ := e.permissionEngine()
-	if ws == "" {
-		ws, _ = os.Getwd()
-	}
-	req := core.PermissionRequest{
-		Reason:       reason,
-		Capabilities: caps,
-		Scope:        "project",
-		Details:      map[string]any{"workspace": ws, "sandbox": "native"},
-	}
-	if writePaths := stringSliceArg(args, "writable_roots"); len(writePaths) > 0 {
-		req.Details["writePaths"] = writePaths
-	}
-	if hasProcessHost(caps) {
-		req.Scope = "once"
-	}
-	return &req
+	_, workspace, _ := e.permissionEngine()
+	return entry.PermissionPlan(args, workspace)
 }
 
 func (e *Executor) applySandboxProfile(tc core.ToolCallItem) core.ToolCallItem {
@@ -92,38 +74,4 @@ func hasNonEmptyArg(args map[string]any, key string) bool {
 		return strings.TrimSpace(s) != ""
 	}
 	return true
-}
-
-func sandboxCapsFromArgs(args map[string]any) []string {
-	mode, _ := args["sandbox_mode"].(string)
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "host":
-		return []string{core.CapProcessHost}
-	}
-	var caps []string
-	if boolArg(args, "network") {
-		caps = append(caps, core.CapNetOutbound)
-	}
-	if len(stringSliceArg(args, "writable_roots")) > 0 {
-		caps = append(caps, core.CapFsWritePath)
-	}
-	return caps
-}
-
-func boolArg(args map[string]any, key string) bool {
-	raw, ok := args[key]
-	if !ok {
-		return false
-	}
-	v, ok := raw.(bool)
-	return ok && v
-}
-
-func hasProcessHost(caps []string) bool {
-	for _, c := range caps {
-		if c == core.CapProcessHost {
-			return true
-		}
-	}
-	return false
 }

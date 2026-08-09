@@ -342,3 +342,35 @@ func TestEvaluateBashSingleCommandUsesPlainMatch(t *testing.T) {
 		t.Fatalf("deciding rule should be the allow rule, got %+v", d.Rule)
 	}
 }
+
+func TestEvaluateBashLiteralAllowIsExact(t *testing.T) {
+	literal := `bash -c "$(cat task.txt)"`
+	e := newBashEngine(Rule{Tool: "shell", Literal: literal, Effect: EffectAllow, Source: "remembered"})
+	if d := e.Evaluate("shell", bashCall(literal), EffectAsk); d.Effect != EffectAllow {
+		t.Fatalf("exact literal should allow, got %+v", d)
+	}
+	if d := e.Evaluate("shell", bashCall(literal+" extra"), EffectAsk); d.Effect != EffectAsk {
+		t.Fatalf("literal must not match a longer command, got %+v", d)
+	}
+}
+
+func TestEvaluateBashLiteralDoesNotBecomeBareCompoundAllow(t *testing.T) {
+	e := newBashEngine(Rule{Tool: "shell", Literal: "git status", Effect: EffectAllow, Source: "remembered"})
+	if d := e.Evaluate("shell", bashCall("git status && rm -rf build"), EffectAsk); d.Effect != EffectAsk {
+		t.Fatalf("literal rule must not cover a compound command, got %+v", d)
+	}
+}
+
+func TestEvaluateBashBroadAllowCannotBypassWrappedDynamicCalls(t *testing.T) {
+	e := newBashEngine(Rule{Tool: "shell", Specifier: "*", Effect: EffectAllow, Source: "project"})
+	for _, command := range []string{
+		`env -S "bash -c 'echo ok'"`,
+		`env -u HOME bash -c 'echo ok'`,
+		`timeout 5 bash -c 'echo ok'`,
+		`nice -n 5 bash -c 'echo ok'`,
+	} {
+		if decision := e.Evaluate("shell", bashCall(command), EffectAsk); decision.Effect != EffectAsk {
+			t.Errorf("wrapped dynamic command %q = %v, want ask", command, decision.Effect)
+		}
+	}
+}

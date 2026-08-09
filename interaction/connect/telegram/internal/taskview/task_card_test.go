@@ -166,9 +166,12 @@ func TestApprovalMessage(t *testing.T) {
 		Args: map[string]any{
 			"command": "go test ./...",
 		},
-		Kind: "permission",
+		Kind:     "permission",
+		Approval: &controlruntime.ApprovalContext{Capabilities: []string{"net.outbound"}, Scope: controlruntime.ApprovalScopeOnce},
 	})
-	if !strings.Contains(msg, "<b>需要审批</b>") || strings.Contains(msg, "/approve") || !strings.Contains(msg, "<pre>go test ./...</pre>") {
+	if !strings.Contains(msg, "<b>需要审批</b>") || strings.Contains(msg, "/approve") ||
+		!strings.Contains(msg, "<pre>go test ./...</pre>") || !strings.Contains(msg, "出站网络") ||
+		!strings.Contains(msg, "仅当前调用") {
 		t.Fatalf("approval message missing fields:\n%s", msg)
 	}
 }

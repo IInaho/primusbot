@@ -125,13 +125,12 @@ func Translate(ev controlruntime.Event) []Intent {
 // shared by inline keyboards, feishu cards, and slash-command help.
 func ApprovalActions(p controlruntime.ApprovalView) []Action {
 	actions := []Action{
-		{ID: ActionOnce, Label: "批准一次"},
-		{ID: ActionAlways, Label: "永久允许"},
-		{ID: ActionReject, Label: "拒绝"},
+		{ID: ActionOnce, Label: "仅本次允许"},
 	}
-	if p.CanEscalatePermission {
-		actions = append(actions, Action{ID: ActionEscalate, Label: "允许并授权"})
+	if p.Approval.CanRemember() {
+		actions = append(actions, Action{ID: ActionAlways, Label: "始终允许"})
 	}
+	actions = append(actions, Action{ID: ActionReject, Label: "拒绝"})
 	return actions
 }
 
@@ -168,8 +167,6 @@ func ApprovalDecisionFor(action string) (controlruntime.ApprovalDecision, error)
 		return controlruntime.ApprovalDecision{Allowed: true}, nil
 	case ActionAlways:
 		return controlruntime.ApprovalDecision{Allowed: true, Remember: true}, nil
-	case ActionEscalate:
-		return controlruntime.ApprovalDecision{Allowed: true, AllowWithPermission: true}, nil
 	case ActionReject:
 		return controlruntime.ApprovalDecision{}, nil
 	}
@@ -180,11 +177,9 @@ func ApprovalDecisionFor(action string) (controlruntime.ApprovalDecision, error)
 func VerdictForAction(action string) string {
 	switch action {
 	case ActionOnce:
-		return "已批准"
+		return "已允许本次"
 	case ActionAlways:
-		return "已永久允许"
-	case ActionEscalate:
-		return "已批准并授权"
+		return "已记住并允许"
 	case ActionReject:
 		return "已拒绝"
 	}

@@ -105,16 +105,57 @@ const (
 	ConfirmKindInstall    ConfirmKind = "install"
 )
 
+type ApprovalScope string
+
+const (
+	ApprovalScopeOnce    ApprovalScope = "once"
+	ApprovalScopeProject ApprovalScope = "project"
+)
+
+// ApprovalContext contains the security facts behind a confirmation. Keeping
+// these facts separate from tool Args gives policy enforcement and every UI a
+// single typed contract; Args remains the original tool invocation only.
+type ApprovalContext struct {
+	Risk         string        `json:"risk,omitempty"`
+	Reason       string        `json:"reason,omitempty"`
+	Structures   []string      `json:"structures,omitempty"`
+	Capabilities []string      `json:"capabilities,omitempty"`
+	Scope        ApprovalScope `json:"scope,omitempty"`
+	Workspace    string        `json:"workspace,omitempty"`
+	Sandbox      string        `json:"sandbox,omitempty"`
+	WritePaths   []string      `json:"write_paths,omitempty"`
+	Combined     bool          `json:"combined,omitempty"`
+}
+
+func (c *ApprovalContext) CanRemember() bool {
+	return c == nil || c.Scope != ApprovalScopeOnce
+}
+
+func (c *ApprovalContext) Clone() *ApprovalContext {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.Structures = append([]string(nil), c.Structures...)
+	clone.Capabilities = append([]string(nil), c.Capabilities...)
+	clone.WritePaths = append([]string(nil), c.WritePaths...)
+	return &clone
+}
+
 type ConfirmRequest struct {
-	ToolName              string
-	Args                  map[string]any
-	Kind                  ConfirmKind
+	ToolName string
+	Args     map[string]any
+	Kind     ConfirmKind
+	Approval *ApprovalContext
+	// Deprecated: capabilities live in Approval and are approved atomically.
 	CanEscalatePermission bool
 }
 
 type ConfirmReply struct {
-	Allowed             bool
-	Remember            bool
+	Allowed  bool
+	Remember bool
+	// Deprecated: an allowed unified request already covers displayed
+	// capabilities. This field is accepted for source compatibility and ignored.
 	AllowWithPermission bool
 }
 
@@ -128,6 +169,12 @@ func NewConfirmRequest(toolName string, args map[string]any, kind ConfirmKind) C
 		Args:     args,
 		Kind:     kind,
 	}
+}
+
+func NewApprovalRequest(toolName string, args map[string]any, kind ConfirmKind, approval *ApprovalContext) ConfirmRequest {
+	request := NewConfirmRequest(toolName, args, kind)
+	request.Approval = approval.Clone()
+	return request
 }
 
 type ConfirmFunc func(ConfirmRequest) ConfirmReply

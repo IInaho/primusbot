@@ -346,7 +346,7 @@ func (c *Connector) handleCallbackQuery(ctx context.Context, client *apiClient, 
 	action, id := parts[0], parts[1]
 
 	switch action {
-	case connect.ActionOnce, connect.ActionAlways, connect.ActionEscalate, connect.ActionReject:
+	case connect.ActionOnce, connect.ActionAlways, connect.ActionReject:
 		verdict := connect.VerdictForAction(action)
 		decision, err := connect.ApprovalDecisionFor(action)
 		if err == nil {

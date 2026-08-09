@@ -140,7 +140,19 @@ export interface ConfirmEvent {
   args: Record<string, unknown>
   preview?: string
   kind?: string
-  can_escalate?: boolean
+  approval?: ApprovalContext
+}
+
+export interface ApprovalContext {
+  risk?: string
+  reason?: string
+  structures?: string[]
+  capabilities?: string[]
+  scope?: 'once' | 'project' | string
+  workspace?: string
+  sandbox?: string
+  write_paths?: string[]
+  combined?: boolean
 }
 
 export interface QuestionOption {

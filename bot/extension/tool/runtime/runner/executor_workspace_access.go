@@ -55,12 +55,19 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn protoco
 	if err != nil {
 		return tc, err.Error(), false
 	}
-	req := protocol.NewConfirmRequest("workspace", map[string]any{
-		"path":              rootPath,
-		"access":            string(access),
-		"requested_path":    safePath,
-		"permission_reason": fmt.Sprintf("add %s workspace for %s", access, tc.Name),
-	}, protocol.ConfirmKindPermission)
+	approval := &protocol.ApprovalContext{
+		Reason:    fmt.Sprintf("add %s workspace for %s", access, tc.Name),
+		Scope:     protocol.ApprovalScopeProject,
+		Workspace: rootPath,
+	}
+	if access == workspace.AccessReadWrite {
+		approval.WritePaths = []string{rootPath}
+	}
+	req := protocol.NewApprovalRequest("workspace", map[string]any{
+		"path":           rootPath,
+		"access":         string(access),
+		"requested_path": safePath,
+	}, protocol.ConfirmKindPermission, approval)
 	reply := confirmFn(req)
 	if !reply.Allowed {
 		return tc, "cancelled", false

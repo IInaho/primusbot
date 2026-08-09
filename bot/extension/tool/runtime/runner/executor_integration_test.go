@@ -206,7 +206,7 @@ func TestExecutorShellRunAndProcessWait(t *testing.T) {
 		if prompts > 1 {
 			t.Fatalf("plain shell command should only need command approval, got prompt %d: %+v", prompts, req)
 		}
-		if req.CanEscalatePermission {
+		if req.Approval != nil && req.Approval.Combined {
 			t.Fatalf("plain shell command should not expose merged capability escalation: %+v", req)
 		}
 		return protocol.ConfirmReply{Allowed: true}

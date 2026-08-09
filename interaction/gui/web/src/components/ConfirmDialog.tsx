@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { safeReplyConfirm } from '../lib/wails'
 import { isUnifiedDiffContent } from '../lib/diffFormat'
 import { UnifiedDiff } from './run/UnifiedDiff'
+import type { ApprovalContext } from '../types/events'
 
 export interface ConfirmEntry {
   id: string
@@ -9,7 +10,7 @@ export interface ConfirmEntry {
   args: Record<string, unknown>
   preview?: string
   kind?: string
-  can_escalate?: boolean
+  approval?: ApprovalContext
 }
 
 function ConfirmDialog({
@@ -24,18 +25,11 @@ function ConfirmDialog({
   // remembered as an allow rule by the rule engine.
   const canRemember = permissionScope(entry) !== 'once'
 
-  const allowWithPermission = entry.can_escalate === true
-  const options: { label: string; ok: boolean; remember: boolean; allowWithPermission?: boolean }[] = [
+  const options: { label: string; ok: boolean; remember: boolean }[] = [
     { label: '仅本次允许', ok: true, remember: false },
   ]
   if (canRemember) {
     options.push({ label: '始终允许', ok: true, remember: true })
-  }
-  if (allowWithPermission) {
-    options.push({ label: '仅本次允许并授权', ok: true, remember: false, allowWithPermission: true })
-    if (canRemember) {
-      options.push({ label: '始终允许并授权', ok: true, remember: true, allowWithPermission: true })
-    }
   }
   options.push({ label: '拒绝', ok: false, remember: false })
 
@@ -52,7 +46,7 @@ function ConfirmDialog({
       } else if (e.key === 'Enter') {
         e.preventDefault()
         const opt = options[selected]
-        safeReplyConfirm(entry.id, opt.ok, opt.remember, opt.allowWithPermission === true)
+        safeReplyConfirm(entry.id, opt.ok, opt.remember)
         onDone()
       } else if (e.key === 'Escape') {
         e.preventDefault()
@@ -64,8 +58,8 @@ function ConfirmDialog({
     return () => window.removeEventListener('keydown', handler)
   }, [selected, options.length])
 
-  const handle = (ok: boolean, remember = false, withPermission = false) => {
-    safeReplyConfirm(entry.id, ok, remember, ok && withPermission)
+  const handle = (ok: boolean, remember = false) => {
+    safeReplyConfirm(entry.id, ok, remember)
     onDone()
   }
 
@@ -158,7 +152,7 @@ function ConfirmDialog({
               <button
                 key={opt.label}
                 type="button"
-                onClick={() => handle(opt.ok, opt.remember, opt.allowWithPermission === true)}
+                onClick={() => handle(opt.ok, opt.remember)}
                 className={`h-9 w-full justify-center text-[13px] ${i === selected ? 'ring-2 ring-primary/60' : ''} ${
                   !opt.ok
                     ? 'secondary-button'
@@ -181,18 +175,22 @@ function ConfirmDialog({
 }
 
 function PermissionDetails({ entry, canRemember }: { entry: ConfirmEntry; canRemember: boolean }) {
+  const approval = entry.approval
   const rows = [
-    ['原因', permissionText(entry, 'permission_reason')],
-    ['能力', permissionText(entry, 'permission_capabilities')],
-    ['范围', permissionText(entry, 'permission_scope')],
-    ['工作区', permissionText(entry, 'workspace')],
+    ['风险', approval?.risk ?? ''],
+    ['原因', approval?.reason !== approval?.risk ? approval?.reason ?? '' : ''],
+    ['动态结构', friendlyShellStructures(approval?.structures)],
+    ['能力', approval?.capabilities?.join('、') ?? ''],
+    ['范围', approval?.scope ?? ''],
+    ['工作区', approval?.workspace ?? ''],
+    ['可写目录', approval?.write_paths?.join('、') ?? ''],
     ['命令类别', permissionText(entry, 'commandClass')],
-    ['沙箱', permissionText(entry, 'sandbox')],
+    ['沙箱', approval?.sandbox ?? ''],
   ].filter(([, value]) => value)
 
   return (
     <section className="border-t border-border/35 px-4 py-3">
-      <div className="mb-2 text-[12px] font-medium text-text-2">权限升级</div>
+      <div className="mb-2 text-[12px] font-medium text-text-2">审批详情</div>
       <div className="grid gap-2 sm:grid-cols-2">
         {rows.map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-md bg-surface px-2.5 py-2">
@@ -202,7 +200,7 @@ function PermissionDetails({ entry, canRemember }: { entry: ConfirmEntry; canRem
         ))}
       </div>
       <p className="mt-2 text-[11px] text-text-3">
-        {canRemember ? '选择“本项目记住”后，相同工作区和命令类别的同类能力请求会自动通过。' : '此权限只支持本次允许，不会写入持久授权。'}
+        {canRemember ? '选择“始终允许”后，相同项目中的同类请求会自动通过。' : '此权限只支持本次允许，不会写入持久授权。'}
       </p>
     </section>
   )
@@ -240,8 +238,7 @@ function ReplaceAllNotice({ count }: { count: number | null }) {
 
 function showArg(entry: ConfirmEntry, key: string): boolean {
   if (key === '_preview') return false
-  if (key.startsWith('permission_')) return false
-  if (isPermissionConfirm(entry) && ['workspace', 'commandClass', 'sandbox'].includes(key)) return false
+  if (isPermissionConfirm(entry) && key === 'commandClass') return false
   if (entry.toolName === 'shell' && key === 'command') return false
   return true
 }
@@ -281,7 +278,16 @@ function subjectFor(entry: ConfirmEntry): string {
 }
 
 function footerCopy(entry: ConfirmEntry): string {
-  if (entry.can_escalate && isPermissionConfirm(entry)) return permissionScope(entry) === 'project' ? '允许后将同时授权本次需要的网络、缓存或主机执行能力，并可记住到当前项目。' : '允许后将同时授权本次需要的额外执行能力。'
+  if (entry.approval?.combined && (entry.approval.capabilities?.length ?? 0) > 0) {
+    return permissionScope(entry) === 'project'
+      ? '一次决定将同时覆盖命令和上方列出的能力，并可记住到当前项目。'
+      : '一次决定将同时覆盖命令和上方列出的临时能力。'
+  }
+  if ((entry.approval?.structures?.length ?? 0) > 0) {
+    return permissionScope(entry) === 'project'
+      ? '此决定可记住为该命令的精确授权。'
+      : '此动态命令只能允许本次执行。'
+  }
   if (isPermissionConfirm(entry)) return permissionScope(entry) === 'project' ? '可选择仅本次允许，或将同类权限记住到当前项目。' : '此权限请求不会持久化，只能本次允许。'
   if (entry.toolName === 'edit' && entry.args.revert === true) return '上方差异是本次 revert 将恢复的内容。'
   if (entry.toolName === 'edit' && entry.args.replaceAll === true) return 'replaceAll 会替换所有精确匹配，请确认替换范围。'
@@ -291,16 +297,34 @@ function footerCopy(entry: ConfirmEntry): string {
 }
 
 function isPermissionConfirm(entry: ConfirmEntry): boolean {
-  return typeof entry.args.permission_reason === 'string'
+  return entry.approval !== undefined
 }
 
 function permissionScope(entry: ConfirmEntry): string {
-  return permissionText(entry, 'permission_scope')
+  return entry.approval?.scope ?? ''
 }
 
 function permissionText(entry: ConfirmEntry, key: string): string {
   const value = entry.args[key]
   return typeof value === 'string' ? value : ''
+}
+
+function friendlyShellStructures(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  const labels: Record<string, string> = {
+    command_substitution: '命令替换',
+    process_substitution: '进程替换',
+    dynamic_command: '动态命令名',
+    eval: 'eval 间接执行',
+    source: '加载脚本',
+    shell_command_string: 'Shell -c 命令字符串',
+    shell_heredoc_code: 'Shell heredoc 代码',
+    unparseable: '无法可靠解析',
+  }
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => labels[item] ?? item)
+    .join('、')
 }
 
 function replacementCountFromPreview(preview?: string): number | null {

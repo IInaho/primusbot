@@ -233,7 +233,7 @@ export default function App() {
           args: ce.args ?? {},
           preview: ce.preview ?? '',
           kind: ce.kind ?? 'permission',
-          can_escalate: ce.can_escalate ?? false,
+          approval: ce.approval,
         })
       }
     })

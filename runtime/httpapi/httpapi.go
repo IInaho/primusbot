@@ -79,8 +79,9 @@ type submitResponse struct {
 }
 
 type approvalRequest struct {
-	Allowed             bool `json:"allowed"`
-	Remember            bool `json:"remember,omitempty"`
+	Allowed  bool `json:"allowed"`
+	Remember bool `json:"remember,omitempty"`
+	// Deprecated compatibility input; unified approvals ignore it.
 	AllowWithPermission bool `json:"allow_with_permission,omitempty"`
 }
 

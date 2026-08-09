@@ -19,6 +19,34 @@ type sandboxRequest struct {
 	WritableRoots []string
 }
 
+// PermissionPlan describes the capability escalation implied by the shell's
+// explicit sandbox arguments before execution. The executor uses this to fold
+// command and capability approval into one atomic decision.
+func (t *ShellTool) PermissionPlan(args map[string]any, workspace string) *core.PermissionRequest {
+	request := sandboxRequestFromArgs(args)
+	capabilities := request.permissionCapabilities()
+	if len(capabilities) == 0 {
+		return nil
+	}
+	scope := "project"
+	if hasCapability(capabilities, core.CapProcessHost) {
+		scope = "once"
+	}
+	permission := &core.PermissionRequest{
+		Reason:       fmt.Sprintf("shell command requests sandbox profile: %s", strings.Join(capabilities, ", ")),
+		Capabilities: capabilities,
+		Scope:        scope,
+		Details: map[string]any{
+			"workspace": workspace,
+			"sandbox":   "native",
+		},
+	}
+	if len(request.WritableRoots) > 0 {
+		permission.Details["writePaths"] = append([]string(nil), request.WritableRoots...)
+	}
+	return permission
+}
+
 func (r sandboxRequest) permissionCapabilities() []string {
 	switch r.Mode {
 	case "host":

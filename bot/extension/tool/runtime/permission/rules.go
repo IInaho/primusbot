@@ -45,6 +45,7 @@ func (e Effect) String() string {
 type Rule struct {
 	Tool      string    `json:"tool"`
 	Specifier string    `json:"specifier,omitempty"` // raw specifier text (e.g. "npm run *", "/src/**", "domain:github.com")
+	Literal   string    `json:"literal,omitempty"`   // exact call text; persisted with an equal Specifier for safe rollback
 	Effect    Effect    `json:"effect"`
 	Source    string    `json:"source,omitempty"`    // "builtin" | "user" | "project" | "remembered"
 	Workspace string    `json:"workspace,omitempty"` // project root scope; empty → global (legacy)
@@ -59,6 +60,13 @@ type SpecifierMatcher interface {
 	// Match reports whether the call (described by callInfo) matches the rule
 	// specifier. callInfo keys are tool-defined (e.g. {"command":"rm -rf /"}).
 	Match(specifier string, callInfo map[string]any) (bool, error)
+}
+
+// LiteralMatcher is implemented by matchers that can compare an exact,
+// non-pattern call identity. Remembered dynamic shell approvals use this path
+// so they can never be broadened into command-prefix wildcards.
+type LiteralMatcher interface {
+	MatchLiteral(literal string, callInfo map[string]any) bool
 }
 
 // EffectAwareMatcher is an optional SpecifierMatcher extension for matchers
@@ -84,6 +92,22 @@ type EffectAwareMatcher interface {
 type AllowCoverer interface {
 	SpecifierMatcher
 	CompoundAllowCoverage(hasBareAllow bool, specs []string, callInfo map[string]any) (deciding int, covered bool)
+}
+
+// CallAssessment is tool-specific risk metadata produced by a matcher before
+// the engine finalizes its decision. It lets the engine remain the sole
+// allow/ask/deny authority while still supporting structured command analysis.
+type CallAssessment struct {
+	Reason  string
+	Signals []string
+}
+
+func (a CallAssessment) RequiresApproval() bool { return len(a.Signals) > 0 }
+
+// CallAssessor is implemented by matchers that can identify risks not safely
+// expressible as a flat rule specifier, such as indirect shell execution.
+type CallAssessor interface {
+	Assess(callInfo map[string]any) CallAssessment
 }
 
 // Engine evaluates permission rules for tool calls.
@@ -140,8 +164,9 @@ func sandboxRuleSpecificity(r Rule) int {
 
 // Decision is the outcome of evaluating a call.
 type Decision struct {
-	Effect Effect
-	Rule   Rule // the rule that decided the outcome (zero value if no match)
+	Effect     Effect
+	Rule       Rule // the rule that decided the outcome (zero value if no match)
+	Assessment CallAssessment
 }
 
 // Evaluate decides what to do with a tool call. Precedence (highest first):
@@ -157,7 +182,10 @@ type Decision struct {
 //
 // Tool names are compared case-insensitively so users can write "Bash(...)"
 // (claude-code style) while the engine keys on the lowercase canonical name.
-func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffect Effect) Decision {
+func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffect Effect) (decision Decision) {
+	defer func() {
+		decision = e.applyAssessment(toolName, callInfo, decision)
+	}()
 	// 1. deny from any source
 	for _, r := range e.rules {
 		if r.Effect == EffectDeny && e.ruleApplies(r, toolName, callInfo) {
@@ -197,6 +225,23 @@ func (e *Engine) Evaluate(toolName string, callInfo map[string]any, defaultEffec
 	return Decision{Effect: defaultEffect}
 }
 
+func (e *Engine) applyAssessment(toolName string, callInfo map[string]any, decision Decision) Decision {
+	assessor, ok := e.matcherFor(toolName).(CallAssessor)
+	if !ok {
+		return decision
+	}
+	assessment := assessor.Assess(callInfo)
+	decision.Assessment = assessment
+	if !assessment.RequiresApproval() || decision.Effect == EffectDeny {
+		return decision
+	}
+	if decision.Effect == EffectAllow && e.hasRememberedLiteralAllow(toolName, callInfo) {
+		return decision
+	}
+	decision.Effect = EffectAsk
+	return decision
+}
+
 // evaluateAllowCoverage lets several allow rules jointly cover a compound
 // call (e.g. "npm build && npm test" covered by two narrow bash allows). It
 // applies only when the tool's matcher implements AllowCoverer; otherwise
@@ -218,6 +263,9 @@ func (e *Engine) evaluateAllowCoverage(toolName string, callInfo map[string]any,
 	var allowRules []Rule
 	for _, r := range e.rules {
 		if r.Effect != EffectAllow || !toolNameMatches(r.Tool, toolName) {
+			continue
+		}
+		if r.Literal != "" {
 			continue
 		}
 		if builtinOnly != r.isBuiltin() {
@@ -265,6 +313,10 @@ func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) b
 	if !toolNameMatches(r.Tool, toolName) {
 		return false
 	}
+	if r.Literal != "" {
+		matcher, ok := e.matcherFor(toolName).(LiteralMatcher)
+		return ok && matcher.MatchLiteral(r.Literal, callInfo)
+	}
 	if r.Specifier == "" {
 		return true
 	}
@@ -278,6 +330,19 @@ func (e *Engine) ruleApplies(r Rule, toolName string, callInfo map[string]any) b
 	}
 	match, err := m.Match(r.Specifier, callInfo)
 	return err == nil && match
+}
+
+// hasRememberedLiteralAllow reports whether the user previously approved this
+// exact call text. It deliberately ignores declared and wildcard allows: only
+// a human-created literal grant may suppress a future dynamic-shell prompt.
+func (e *Engine) hasRememberedLiteralAllow(toolName string, callInfo map[string]any) bool {
+	for _, rule := range e.rules {
+		if rule.Source == "remembered" && rule.Effect == EffectAllow && rule.Literal != "" &&
+			e.ruleApplies(rule, toolName, callInfo) {
+			return true
+		}
+	}
+	return false
 }
 
 // matcherFor resolves the matcher registered for a tool: the lowercased name

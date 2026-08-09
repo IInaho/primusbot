@@ -434,7 +434,7 @@ func TestServerRejectsUnavailableOptionalCapabilities(t *testing.T) {
 func TestServerControls(t *testing.T) {
 	rt := newFakeRuntime()
 	handler := New(rt).Handler()
-	req := httptest.NewRequest(http.MethodPost, "/approvals/apr_1", bytes.NewBufferString(`{"allowed":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/approvals/apr_1", bytes.NewBufferString(`{"allowed":true,"allow_with_permission":true}`))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

@@ -14,13 +14,15 @@ func TestPermissionConfirmDoesNotRepeatCommand(t *testing.T) {
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
-			"command":                 `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
-			"permission_reason":       "command requests unsandboxed host execution",
-			"permission_capabilities": "process.host",
-			"permission_scope":        "once",
-			"workspace":               "/repo",
+			"command": `echo "喵~ bash 命令测试成功！当前工作目录: $(pwd)" && date`,
 		},
 		Kind: controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Reason:       "command requests unsandboxed host execution",
+			Capabilities: []string{"process.host"},
+			Scope:        controlruntime.ApprovalScopeOnce,
+			Workspace:    "/repo",
+		},
 	}, nil)
 
 	view := cb.View(100, 40)
@@ -43,12 +45,16 @@ func TestWorkspacePermissionConfirmShowsPath(t *testing.T) {
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "workspace",
 		Args: map[string]any{
-			"path":              "/repo/other",
-			"access":            "read-only",
-			"requested_path":    "/repo/other/src/a.go",
-			"permission_reason": "add read-only workspace for read",
+			"path":           "/repo/other",
+			"access":         "read-only",
+			"requested_path": "/repo/other/src/a.go",
 		},
 		Kind: controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Reason:    "add read-only workspace for read",
+			Scope:     controlruntime.ApprovalScopeProject,
+			Workspace: "/repo/other",
+		},
 	}, nil)
 
 	view := cb.View(100, 40)
@@ -59,26 +65,22 @@ func TestWorkspacePermissionConfirmShowsPath(t *testing.T) {
 	}
 }
 
-func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
+func TestUnifiedPermissionConfirmAllowsOnce(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
 	ch := make(chan controlruntime.ConfirmReply, 1)
 	cb.SetRequest(&controlruntime.ConfirmRequest{
-		ToolName:              "shell",
-		Args:                  map[string]any{"command": "go get example.com/pkg", "permission_scope": "once"},
-		Kind:                  controlruntime.ConfirmKindPermission,
-		CanEscalatePermission: true,
+		ToolName: "shell",
+		Args:     map[string]any{"command": "go get example.com/pkg"},
+		Kind:     controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{Scope: controlruntime.ApprovalScopeOnce},
 	}, func(ok, remember bool) {
 		ch <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	})
 
 	view := cb.View(100, 40)
-	// Capability escalation MUST NOT be merged into the approval button. The
-	// first dialog only approves running the call as-is; the escalation flow
-	// (tryPermissionEscalation) issues a second dialog that names the actual
-	// capabilities. Verify no "并授权" surface leaks here.
 	if strings.Contains(view, "并授权") {
-		t.Fatalf("confirm view must not expose merged allow+escalate button:\n%s", view)
+		t.Fatalf("unified confirm must not expose a separate escalation action:\n%s", view)
 	}
 	if !strings.Contains(view, "仅本次允许") {
 		t.Fatalf("confirm view should expose plain one-time approval:\n%s", view)
@@ -89,23 +91,19 @@ func TestPermissionConfirmDefaultsToAllowWithoutPreApproval(t *testing.T) {
 	if !reply.Allowed || reply.Remember {
 		t.Fatalf("unexpected reply: %+v", reply)
 	}
-	if reply.AllowWithPermission {
-		t.Fatalf("first dialog must not pre-approve escalation, got AllowWithPermission=true")
-	}
 }
 
-func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
+func TestUnifiedPermissionConfirmCanRemember(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)
 	ch := make(chan controlruntime.ConfirmReply, 1)
 	cb.SetRequest(&controlruntime.ConfirmRequest{
 		ToolName: "shell",
 		Args: map[string]any{
-			"command":          "go get example.com/pkg",
-			"permission_scope": "project",
+			"command": "go get example.com/pkg",
 		},
-		Kind:                  controlruntime.ConfirmKindPermission,
-		CanEscalatePermission: true,
+		Kind:     controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{Scope: controlruntime.ApprovalScopeProject},
 	}, func(ok, remember bool) {
 		ch <- controlruntime.ConfirmReply{Allowed: ok, Remember: ok && remember}
 	})
@@ -125,7 +123,61 @@ func TestPermissionConfirmRemembersWithoutPreApproval(t *testing.T) {
 	if !reply.Allowed || !reply.Remember {
 		t.Fatalf("unexpected reply: %+v", reply)
 	}
-	if reply.AllowWithPermission {
-		t.Fatalf("remember must not pre-approve escalation, got AllowWithPermission=true")
+}
+
+func TestCombinedApprovalShowsCommandRiskAndCapabilities(t *testing.T) {
+	sty := styles.DefaultStyles()
+	cb := NewConfirmBar(&sty)
+	cb.SetRequest(&controlruntime.ConfirmRequest{
+		ToolName: "shell",
+		Args: map[string]any{
+			"command": `bash -c "$(cat task.txt)"`,
+		},
+		Kind: controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Risk:         "dynamic shell execution",
+			Reason:       "command requests sandbox profile: net.outbound",
+			Capabilities: []string{"net.outbound"},
+			Scope:        controlruntime.ApprovalScopeProject,
+			Structures:   []string{"command_substitution", "shell_command_string"},
+			WritePaths:   []string{"/tmp/cache"},
+			Combined:     true,
+		},
+	}, nil)
+
+	view := cb.View(100, 40)
+	for _, want := range []string{"执行确认", `bash -c`, "命令替换", "Shell -c", "出站网络", "/tmp/cache", "始终允许"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("combined approval missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "并授权") {
+		t.Fatalf("combined approval exposed a redundant action:\n%s", view)
+	}
+}
+
+func TestDynamicApprovalWithoutCapabilitiesShowsExecutionRisk(t *testing.T) {
+	sty := styles.DefaultStyles()
+	cb := NewConfirmBar(&sty)
+	cb.SetRequest(&controlruntime.ConfirmRequest{
+		ToolName: "shell",
+		Args:     map[string]any{"command": `env -S "bash -c echo"`},
+		Kind:     controlruntime.ConfirmKindPermission,
+		Approval: &controlruntime.ApprovalContext{
+			Risk:       "dynamic shell execution",
+			Reason:     "dynamic shell execution",
+			Scope:      controlruntime.ApprovalScopeProject,
+			Structures: []string{"dynamic_command"},
+		},
+	}, nil)
+
+	view := cb.View(100, 40)
+	for _, want := range []string{"执行确认", "动态执行结构", "动态命令名"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dynamic approval missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "开放所列权限") {
+		t.Fatalf("dynamic-only approval invented capabilities:\n%s", view)
 	}
 }

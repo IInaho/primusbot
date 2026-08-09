@@ -5,17 +5,34 @@ import (
 	"fmt"
 	"nekocode/protocol"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	tools "nekocode/bot/extension/tool"
+	builtinshell "nekocode/bot/extension/tool/builtin/shell"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/permission"
 	"nekocode/bot/extension/tool/runtime/workspace"
 )
 
 type fakeRegistry map[string]core.Tool
+
+func stringSliceArg(args map[string]any, key string) []string {
+	switch values := args[key].(type) {
+	case []string:
+		return values
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
 
 func newTestRegistry(items fakeRegistry) *tools.Registry {
 	r := tools.New()
@@ -25,6 +42,9 @@ func newTestRegistry(items fakeRegistry) *tools.Registry {
 			ExecuteWithPermission(context.Context, map[string]any, core.PermissionRequest) (string, error)
 		}); ok {
 			options.Privileged = privileged.ExecuteWithPermission
+			if item.Name() == "shell" {
+				options.PermissionPlan = (&builtinshell.ShellTool{}).PermissionPlan
+			}
 		}
 		r.RegisterWithOptions(item, options)
 	}
@@ -415,51 +435,16 @@ func TestExecutorPermissionAllowOnceDoesNotPersistGrant(t *testing.T) {
 	}
 }
 
-func TestExecutorSessionGrantScopesFsWriteToWritePaths(t *testing.T) {
-	dir := t.TempDir()
-	allowed := filepath.Join(dir, "cache")
-	other := filepath.Join(dir, "other")
-	e := newTestExecutor(fakeRegistry{})
-	req := core.PermissionRequest{
-		Capabilities: []string{core.CapFsWritePath},
-		Details:      map[string]any{"writePaths": []string{allowed}},
-	}
-	e.addSessionGrant("bash", req)
-
-	if !e.matchSessionGrant("shell", req) {
-		t.Fatal("expected legacy shell-family session grant to match shell")
-	}
-	childReq := core.PermissionRequest{
-		Capabilities: []string{core.CapFsWritePath},
-		Details:      map[string]any{"writePaths": []string{filepath.Join(allowed, "nested")}},
-	}
-	if !e.matchSessionGrant("shell", childReq) {
-		t.Fatal("expected session grant to cover descendants of the authorized write path")
-	}
-	otherReq := core.PermissionRequest{
-		Capabilities: []string{core.CapFsWritePath},
-		Details:      map[string]any{"writePaths": []string{other}},
-	}
-	if e.matchSessionGrant("shell", otherReq) {
-		t.Fatal("session fs.write.path grant must not match a different write path")
-	}
-}
-
 func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
-	// Regression guard for the one-time ("仅本次允许并授权") behavior. The
-	// UI flow uses `AllowWithPermission:true` WITH `Remember:false` for the
-	// one-time variant. The grant must be usable by a retry within the same
-	// session (via the in-memory sessionGrants layer) but MUST NOT be written
-	// to permissions.json — that file is for "remember" approvals only.
-	// Originally both branches persisted to disk; that filled the project
-	// file with one-time grants and silently granted capabilities forever.
+	// A one-time unified approval is bound to this tool call. It must not be
+	// written to disk or retained as a session-wide capability grant.
 	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "permissions.json"))
 	e := newTestExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
-		return protocol.ConfirmReply{Allowed: true, AllowWithPermission: true} // Remember: false
+		return protocol.ConfirmReply{Allowed: true} // Remember: false
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -477,33 +462,16 @@ func TestExecutorPreApprovedEscalationOnceDoesNotPersistGrant(t *testing.T) {
 	if _, ok := store.Match("bash", req); ok {
 		t.Fatal("one-time pre-approved escalation must NOT persist grant to disk")
 	}
-	// But the in-memory session grant must satisfy a retry: issuing the same
-	// shell call again should succeed without re-prompting.
-	got2 := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "2", Name: "shell"}})[0]
-	if got2.Error != "" || got2.Output != "privileged ok" {
-		t.Fatalf("retry must find the in-memory session grant; got: %+v", got2)
-	}
 }
 
-// TestIssue_RetryAfterOneTimeApproval is the end-to-end regression guard for
-// the user-reported flow: shell requests an explicit sandbox opening → user
-// approves ONCE ("仅本次允许并授权") → model retries the shell call with the
-// same sandbox opening. Prior to the fix the retry reproduced
-//
-//	permission required: command requests sandbox profile: net.outbound.
-//	no approval available in this runtime ...
-//
-// because the one-time approval vanished from the store and the retry fell
-// through to the no-confirmFn branch. The test pins the correct
-// behavior: retry must find the persisted grant.
-func TestIssue_RetryAfterOneTimeApproval(t *testing.T) {
+func TestUnifiedApprovalExecutesPrivilegedRetryInSameCall(t *testing.T) {
 	tool := &permissionTool{fakeTool: fakeTool{name: "shell", mode: core.ModeSequential}}
 	store := permission.NewStore(filepath.Join(t.TempDir(), "perm.json"))
 	e := newTestExecutor(fakeRegistry{"shell": tool})
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
-		return protocol.ConfirmReply{Allowed: true, AllowWithPermission: true}
+		return protocol.ConfirmReply{Allowed: true}
 	})
 
 	first := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -511,17 +479,6 @@ func TestIssue_RetryAfterOneTimeApproval(t *testing.T) {
 		t.Fatalf("first call: %+v", first)
 	}
 
-	second := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
-		ID:   "2",
-		Name: "shell",
-		Args: map[string]any{
-			"command": "npm run build",
-			"network": true,
-		},
-	}})[0]
-	if second.Error != "" {
-		t.Fatalf("retry must not reproduce the reported error; got: %s", second.Error)
-	}
 }
 
 func TestExecutorPreApprovedEscalationRememberPersistsGrant(t *testing.T) {
@@ -531,7 +488,7 @@ func TestExecutorPreApprovedEscalationRememberPersistsGrant(t *testing.T) {
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{Ask: []string{"shell"}}, "/repo", "/home/user")
 	e.SetConfirmFn(func(protocol.ConfirmRequest) protocol.ConfirmReply {
-		return protocol.ConfirmReply{Allowed: true, Remember: true, AllowWithPermission: true}
+		return protocol.ConfirmReply{Allowed: true, Remember: true}
 	})
 
 	got := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{ID: "1", Name: "shell"}})[0]
@@ -651,7 +608,7 @@ func TestExecutorPermissionErrorExplainsMissingApprovalForDeclaredCapabilities(t
 }
 
 // TestExecutor_StaleEscalationTokenNotShared regresses bug #1: a pre-approval
-// ("允许并授权") minted for one tool call leaked under the old key-by-tool-name
+// minted for one tool call leaked under the old key-by-tool-name
 // scheme and was silently spent by an unrelated later call to the same tool —
 // even a process.host escalation. Keying by ToolCallItem.ID plus a cleanup on
 // the success path closes that path.
@@ -664,13 +621,13 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 
 	confirmCount := 0
 	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
-		// basic prompt for call A: Allow + pre-approve escalation.
-		// basic prompt for call B: Allow (no escalation).
+		// unified prompt for call A includes its predicted capability.
+		// basic prompt for call B has no matching predicted capability.
 		// any escalation dialog for call B: deny (so we expect a fresh dialog).
 		confirmCount++
 		switch confirmCount {
 		case 1:
-			return protocol.ConfirmReply{Allowed: true, AllowWithPermission: true}
+			return protocol.ConfirmReply{Allowed: true}
 		case 2:
 			return protocol.ConfirmReply{Allowed: true} // no escalation
 		default:
@@ -679,9 +636,10 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 	})
 
 	// Call A: tool's Execute succeeds (no PermissionError), user clicked
-	// "Allow + permission", pre-approval token is minted but never spent
+	// The unified decision mints a pre-approval token that is never spent
 	// because there is no escalation.
 	tool.escalate = false
+	tool.capability = core.CapNetOutbound
 	callA := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID: "A", Name: "shell",
 		Args: map[string]any{"command": "ls", "network": true},
@@ -697,6 +655,7 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 	// call A's ID and cleared on A's success path, so call B falls through
 	// to a fresh escalation dialog — which our confirmFn denies.
 	tool.escalate = true
+	tool.capability = core.CapProcessHost
 	callB := e.ExecuteBatch(context.Background(), []core.ToolCallItem{{
 		ID: "B", Name: "shell",
 		Args: map[string]any{"command": "go get x", "network": true},
@@ -717,6 +676,7 @@ func TestExecutor_StaleEscalationTokenNotShared(t *testing.T) {
 type stickyEscalationTool struct {
 	fakeTool
 	escalate        bool
+	capability      string
 	privilegedCalls int
 }
 
@@ -724,9 +684,13 @@ func (t *stickyEscalationTool) Execute(context.Context, map[string]any) (string,
 	if !t.escalate {
 		return "ok", nil
 	}
+	capability := t.capability
+	if capability == "" {
+		capability = core.CapNetOutbound
+	}
 	return "", testPermissionError{req: core.PermissionRequest{
 		Reason:       "needs network",
-		Capabilities: []string{core.CapNetOutbound},
+		Capabilities: []string{capability},
 		Details:      map[string]any{"workspace": "/repo"},
 	}}
 }
@@ -865,9 +829,8 @@ func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 	promptIdx := 0
 	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
 		promptIdx++
-		// The basic prompt carries the original args (no permission_reason);
-		// the escalation prompt carries permission_reason.
-		if _, isPerm := req.Args["permission_reason"]; isPerm {
+		// The basic prompt has no approval context; the escalation prompt does.
+		if req.Approval != nil {
 			return protocol.Deny() // user dismissed the escalation dialog
 		}
 		return protocol.AllowOnce() // basic prompt: allow
@@ -878,7 +841,6 @@ func TestExecutor_PermissionDeniedByUserDoesNotLeakDialogToModel(t *testing.T) {
 		Name: "shell",
 		Args: map[string]any{
 			"command": "npm run dev",
-			"network": true,
 		},
 	}})[0]
 
@@ -925,7 +887,7 @@ func TestExecutorShellRunPromptsCommandThenNetwork(t *testing.T) {
 	if len(prompts) != 2 {
 		t.Fatalf("expected command prompt then network prompt, got %d: %+v", len(prompts), prompts)
 	}
-	if _, ok := prompts[0].Args["permission_reason"]; ok {
+	if prompts[0].Approval != nil {
 		t.Fatalf("first prompt must be command approval, got %+v", prompts[0])
 	}
 	if prompts[0].ToolName != "shell" {
@@ -934,14 +896,13 @@ func TestExecutorShellRunPromptsCommandThenNetwork(t *testing.T) {
 	if prompts[0].Args["command"] != "npm run dev" {
 		t.Fatalf("first prompt should show actual command, got %+v", prompts[0].Args)
 	}
-	if prompts[0].CanEscalatePermission {
-		t.Fatalf("first prompt must not offer merged escalation, got %+v", prompts[0])
+	if prompts[0].Approval != nil && prompts[0].Approval.Combined {
+		t.Fatalf("first prompt must not claim an unpredicted capability, got %+v", prompts[0])
 	}
 	if prompts[1].ToolName != "shell" {
 		t.Fatalf("second prompt should remain shell capability approval, got %+v", prompts[1])
 	}
-	reason, ok := prompts[1].Args["permission_reason"].(string)
-	if !ok || !strings.Contains(reason, "local network") {
+	if prompts[1].Approval == nil || !strings.Contains(prompts[1].Approval.Reason, "local network") {
 		t.Fatalf("second prompt must be network capability approval, got %+v", prompts[1])
 	}
 	if tool.privilegedCalls != 1 {
@@ -972,10 +933,10 @@ func TestExecutor_PermissionRetryErrorShowsRealRuntimeFailure(t *testing.T) {
 	e.SetPermissionStore(store)
 	e.SetPermissionPolicy(permission.PermissionsDecl{}, "/repo", "/home/user")
 
-	// Basic dialog: user allows (no need for "并授权" since we test the
-	// escalation dialog path directly).
+	// Basic dialog: user allows; this test exercises the fallback escalation
+	// dialog because the capability cannot be predicted in advance.
 	e.SetConfirmFn(func(req protocol.ConfirmRequest) protocol.ConfirmReply {
-		if _, isPerm := req.Args["permission_reason"]; isPerm {
+		if req.Approval != nil {
 			return protocol.AllowOnce() // escalation dialog → user clicks 允许
 		}
 		return protocol.AllowOnce() // basic dialog → allow
@@ -1084,43 +1045,6 @@ func TestApplyBuiltinSandboxProfileForPackageScaffold(t *testing.T) {
 
 	if shellCall.Args["network"] != true {
 		t.Fatalf("shell pnpm create vite should request network by default: %+v", shellCall.Args)
-	}
-}
-
-func TestPredictedPermissionRequestUsesSandboxArgs(t *testing.T) {
-	e := newTestExecutor(fakeRegistry{})
-	req := e.predictedPermissionRequest("shell", map[string]any{
-		"network":        true,
-		"writable_roots": []any{"/cache"},
-	})
-
-	if req == nil {
-		t.Fatal("expected predicted permission request")
-	}
-	if !slices.Equal(req.Capabilities, []string{core.CapNetOutbound, core.CapFsWritePath}) {
-		t.Fatalf("unexpected capabilities: %+v", req.Capabilities)
-	}
-	if !strings.Contains(req.Reason, "sandbox profile") {
-		t.Fatalf("unexpected reason: %q", req.Reason)
-	}
-}
-
-func TestPredictedPermissionRequestHostIgnoresSandboxOpenings(t *testing.T) {
-	e := newTestExecutor(fakeRegistry{})
-	req := e.predictedPermissionRequest("shell", map[string]any{
-		"sandbox_mode":   "host",
-		"network":        true,
-		"writable_roots": []any{"/cache"},
-	})
-
-	if req == nil {
-		t.Fatal("expected predicted permission request")
-	}
-	if !slices.Equal(req.Capabilities, []string{core.CapProcessHost}) {
-		t.Fatalf("host request should only require process.host, got %+v", req.Capabilities)
-	}
-	if req.Scope != "once" {
-		t.Fatalf("host request must be once-scoped, got %q", req.Scope)
 	}
 }
 

@@ -354,6 +354,7 @@ func copyApproval(input core.ApprovalView) core.ApprovalView {
 	output := input
 	output.Args = copyMap(input.Args)
 	output.Metadata = copyMap(input.Metadata)
+	output.Approval = input.Approval.Clone()
 	output.ResolvedAt = copyTime(input.ResolvedAt)
 	return output
 }

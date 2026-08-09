@@ -99,8 +99,17 @@ The response is `202 Accepted` with `{"run_id":"run_1"}`. A blank
 Approval:
 
 ```json
-{"allowed":true,"remember":false,"allow_with_permission":false}
+{"allowed":true,"remember":false}
 ```
+
+When a command has predictable sandbox capabilities, the approval event
+contains those details in the same request. One decision covers both; clients
+do not need a separate escalation action. Security facts are exposed through
+the typed `approval` object (`reason`, `structures`, `capabilities`, `scope`,
+`workspace`, `sandbox`, and `write_paths`); `args` contains only the original
+tool invocation.
+Legacy clients may still send `allow_with_permission`; it is accepted and
+ignored because `allowed` now covers the capabilities displayed in the event.
 
 Question:
 

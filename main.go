@@ -126,10 +126,6 @@ func (a *App) ReplyConfirmDecision(id string, ok bool, remember bool) {
 	a.impl.ReplyConfirmDecision(id, ok, remember)
 }
 
-func (a *App) ReplyConfirmWithPermission(id string, ok bool, remember bool, withPermission bool) {
-	a.impl.ReplyConfirmWithPermission(id, ok, remember, withPermission)
-}
-
 func (a *App) ReplyQuestion(id string, answersJSON string, rejected bool) {
 	a.impl.ReplyQuestion(id, answersJSON, rejected)
 }

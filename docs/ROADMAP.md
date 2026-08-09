@@ -40,12 +40,12 @@
 
 ## T4. 动态 Bash 结构分类（安全）
 
-**目标**：嵌套/间接执行必须人工审批，任何自动机制不可代批。
+**目标**：嵌套/间接执行不能被宽泛规则代批；首次须明确审批，只能精确记住完整命令。
 
-- [ ] shell 解析（引 `mvdan.cc/sh`，项目已有依赖）分类：命令替换 / 动态命令名 / `eval` / `source` / `bash -c` / heredoc 内联代码
-- [ ] 命中"嵌套执行" → 审批卡标注原因，remembered rule 只允许整条 literal，禁止 glob 化
-- [ ] "记住授权"落为整条命令 literal（而非 specifier 放宽）
-- [ ] **验收**:`bash -c "$(cat x)"` 必须人工批；`git status` 记住后不再问
+- [x] shell 解析（引 `mvdan.cc/sh`，项目已有依赖）分类：命令/进程替换、动态命令名、`eval`、`source`、`shell -c`、heredoc 内联代码和解析失败
+- [x] 命中间接执行 → 审批卡标注原因，remembered rule 只允许整条 literal，禁止 glob 化
+- [x] 命令审批与可预测的沙箱能力授权合并为一次决策；“仅本次”只绑定当前 tool call
+- [x] **验收**：动态命令首次必须人工批；精确记住后同一字面量不再问；`git status` 按命令范围记住
 
 涉及：`bot/extension/tool/runtime/permission/`、`bot/policy/`
 
