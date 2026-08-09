@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      force_all:
+        description: Run every validation workflow regardless of changed paths
+        type: boolean
+        default: false
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.classify.outputs.go }}
+      frontend: ${{ steps.classify.outputs.frontend }}
+      website: ${{ steps.classify.outputs.website }}
+      repository: ${{ steps.classify.outputs.repository }}
+      docs: ${{ steps.classify.outputs.docs }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        name: Classify changed paths
+        env:
+          FORCE_ALL: ${{ inputs.force_all }}
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          emit_all() {
+            printf '%s\n' 'go=true' 'frontend=true' 'website=true' 'repository=true' 'docs=true' >> "$GITHUB_OUTPUT"
+          }
+
+          if [[ "$FORCE_ALL" == "true" ]]; then
+            emit_all
+          else
+            base="$BEFORE_SHA"
+            classifier='scripts/classify-ci-paths.sh'
+            if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              base="$BASE_SHA"
+              classifier="$RUNNER_TEMP/classify-ci-paths.sh"
+              if git cat-file -e "$BASE_SHA:scripts/classify-ci-paths.sh"; then
+                git show "$BASE_SHA:scripts/classify-ci-paths.sh" > "$classifier"
+              else
+                classifier=''
+              fi
+            fi
+
+            if [[ -z "$classifier" || -z "$base" || "$base" =~ ^0+$ ]]; then
+              emit_all
+            else
+              git diff --name-only -z "$base" "$HEAD_SHA" |
+                bash "$classifier" false >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    uses: ./.github/workflows/go.yml
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/frontend.yml
+
+  website:
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
+    uses: ./.github/workflows/website.yml
+
+  repository:
+    needs: changes
+    if: needs.changes.outputs.repository == 'true'
+    uses: ./.github/workflows/repository-quality.yml
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    uses: ./.github/workflows/docs.yml
+
+  gate:
+    if: always()
+    needs: [changes, go, frontend, website, repository, docs]
+    runs-on: ubuntu-latest
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      GO_RESULT: ${{ needs.go.result }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+      WEBSITE_RESULT: ${{ needs.website.result }}
+      REPOSITORY_RESULT: ${{ needs.repository.result }}
+      DOCS_RESULT: ${{ needs.docs.result }}
+      GO_SELECTED: ${{ needs.changes.outputs.go }}
+      FRONTEND_SELECTED: ${{ needs.changes.outputs.frontend }}
+      WEBSITE_SELECTED: ${{ needs.changes.outputs.website }}
+      REPOSITORY_SELECTED: ${{ needs.changes.outputs.repository }}
+      DOCS_SELECTED: ${{ needs.changes.outputs.docs }}
+    steps:
+      - name: Require every selected validation to pass
+        run: |
+          set -euo pipefail
+
+          [[ "$CHANGES_RESULT" == 'success' ]] || {
+            echo "Path classification ended with: $CHANGES_RESULT" >&2
+            exit 1
+          }
+
+          require_selected() {
+            local name="$1"
+            local selected="$2"
+            local result="$3"
+            if [[ "$selected" == 'true' && "$result" != 'success' ]]; then
+              echo "$name was selected but ended with: $result" >&2
+              exit 1
+            fi
+            if [[ "$selected" != 'true' && "$result" != 'skipped' ]]; then
+              echo "$name was not selected but ended with: $result" >&2
+              exit 1
+            fi
+          }
+
+          require_selected go "$GO_SELECTED" "$GO_RESULT"
+          require_selected frontend "$FRONTEND_SELECTED" "$FRONTEND_RESULT"
+          require_selected website "$WEBSITE_SELECTED" "$WEBSITE_RESULT"
+          require_selected repository "$REPOSITORY_SELECTED" "$REPOSITORY_RESULT"
+          require_selected docs "$DOCS_SELECTED" "$DOCS_RESULT"

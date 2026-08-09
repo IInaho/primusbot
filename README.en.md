@@ -105,6 +105,7 @@ The developer documents cover tool design, prefix caching, context compaction, a
 ## For Developers
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md): overall architecture, agent loop, tool system, and technical details
+- [CI_CD.md](docs/CI_CD.md): CI, release gates, artifact verification, and failure handling (Chinese)
 - [RUNTIME_APP_GUIDE.md](docs/RUNTIME_APP_GUIDE.md): build your own AI application on top of the runtime
 - [RUNTIME_HTTP_API.md](docs/RUNTIME_HTTP_API.md): Runtime HTTP/SSE protocol
 

@@ -53,7 +53,9 @@ jobs:
 
   validation:
     needs: validate-tag
-    uses: ./.github/workflows/go.yml
+    uses: ./.github/workflows/ci.yml
+    with:
+      force_all: true
 
   build-linux:
     needs: validation

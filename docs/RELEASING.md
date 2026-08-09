@@ -1,6 +1,8 @@
 # Release Process
 
 Only the release manager creates official NekoCode releases.
+For the full pipeline, branch triggers, permissions, and failure handling, see
+[CI_CD.md](CI_CD.md).
 
 ## Prepare
 
