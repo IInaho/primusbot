@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `index` 新增 `callers:<symbol>` 和 `callees:<symbol>` 调用图查询。
+- Runtime 的工具与子 Agent 回调统一为 `RunHost.Step(protocol.StepEvent)`，删除重复的 `ToolEvent`、`SubAgentEvent` 和中间转换层；自定义 Runner 需要改用 `StepEvent` 上报对应动作。
+- Runtime 交互协调器由含义宽泛的 `runtime.Manager` 重命名为 `runtime.Runtime`。
+
 ## v0.4.3 - 2026-08-09
 
 ### Append-only 上下文与压缩

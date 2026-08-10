@@ -49,7 +49,7 @@ func (t *IndexTool) ExecutionMode(args map[string]any) core.ExecutionMode {
 }
 
 func (t *IndexTool) Description() string {
-	return "Query the project index for symbols (symbol:), files (file:), package dependencies (deps:), text (search:), or an architecture overview (skeleton). Use it when code structure is the question; confirm relevant source before editing because index results are navigation evidence, not current file contents."
+	return "Query the project index for symbols (symbol:), callers/callees, files (file:), package dependencies (deps:), text (search:), or an architecture overview (skeleton). Use it when code structure is the question; confirm relevant source before editing because index results are navigation evidence, not current file contents."
 }
 
 func (t *IndexTool) Parameters() []core.Parameter {
@@ -57,7 +57,7 @@ func (t *IndexTool) Parameters() []core.Parameter {
 		{
 			Name:        "query",
 			Type:        "string",
-			Description: "Format: symbol:<name>, deps:<pkg>, file:<name>, search:<term>, or skeleton",
+			Description: "Format: symbol:<name>, callers:<name>, callees:<name>, deps:<pkg>, file:<name>, search:<term>, or skeleton",
 			Required:    true,
 		},
 	}
@@ -92,12 +92,16 @@ func (t *IndexTool) Execute(ctx context.Context, args map[string]any) (string, e
 	switch prefix {
 	case "symbol":
 		return querySymbol(mgr, value), nil
+	case "callers":
+		return queryCalls(mgr, value, true), nil
+	case "callees":
+		return queryCalls(mgr, value, false), nil
 	case "deps":
 		return queryDeps(mgr, value), nil
 	case "file":
 		return queryFile(mgr, value), nil
 	default:
-		return fmt.Sprintf("Unknown query prefix '%s'. Available: symbol, deps, file, search, skeleton", prefix), nil
+		return fmt.Sprintf("Unknown query prefix '%s'. Available: symbol, callers, callees, deps, file, search, skeleton", prefix), nil
 	}
 }
 
@@ -112,6 +116,34 @@ func querySymbol(mgr *indexcore.Manager, name string) string {
 		fmt.Fprintf(&b, "  %s %s — %s:%d (%s)\n", s.Kind, s.Name, shortenPath(s.File), s.Line, s.PkgPath)
 	}
 	return b.String()
+}
+
+func queryCalls(mgr *indexcore.Manager, name string, callers bool) string {
+	direction := "callee"
+	relations := mgr.QueryCallees(name)
+	if callers {
+		direction = "caller"
+		relations = mgr.QueryCallers(name)
+	}
+	if len(relations) == 0 {
+		return fmt.Sprintf("No resolved %ss found for symbols matching '%s'.", direction, name)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d resolved %s relation(s) for symbols matching '%s':\n", len(relations), direction, name)
+	for _, relation := range relations {
+		if callers {
+			writeCallRelation(&b, relation.Related, relation.Symbol)
+		} else {
+			writeCallRelation(&b, relation.Symbol, relation.Related)
+		}
+	}
+	return b.String()
+}
+
+func writeCallRelation(b *strings.Builder, caller, callee indexcore.Symbol) {
+	fmt.Fprintf(b, "  %s %s — %s:%d -> %s %s — %s:%d\n",
+		caller.Kind, caller.Name, shortenPath(caller.File), caller.Line,
+		callee.Kind, callee.Name, shortenPath(callee.File), callee.Line)
 }
 
 func queryDeps(mgr *indexcore.Manager, pkgPath string) string {

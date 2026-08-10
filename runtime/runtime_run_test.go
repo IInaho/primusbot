@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"nekocode/protocol"
 	"nekocode/runtime/internal/core"
 )
 
@@ -147,11 +148,11 @@ func TestManagerDoesNotDuplicateStreamedFinalText(t *testing.T) {
 	}
 }
 
-func TestManagerIgnoresUnknownToolEvent(t *testing.T) {
+func TestManagerIgnoresUnknownStepEvent(t *testing.T) {
 	bot := &testBot{}
 	bot.run = func(_ string, host RunHost) (string, error) {
-		host.Tool(ToolEvent{Kind: ToolEventKind("unknown"), Name: "mystery", Output: "ignored"})
-		host.Tool(ToolEvent{Kind: ToolEventCompleted, Name: "read", Args: "path=a.go", Output: "ok"})
+		host.Step(protocol.StepEvent{Action: protocol.StepAction("unknown"), ToolName: "mystery", Output: "ignored"})
+		host.Step(protocol.StepEvent{Action: protocol.StepActionExecuteTool, ToolName: "read", ToolArgs: "path=a.go", Output: "ok"})
 		return "done", nil
 	}
 	rt := newTestRuntime(bot)
@@ -176,14 +177,14 @@ func TestManagerIgnoresUnknownToolEvent(t *testing.T) {
 func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
 	bot := &testBot{}
 	bot.run = func(_ string, host RunHost) (string, error) {
-		host.SubAgent(SubAgentEvent{
-			Kind: SubAgentEventStarted, ID: "sub_1", Type: "research", Color: 3,
+		host.Step(protocol.StepEvent{
+			Action: protocol.StepActionSubAgentStart, SubAgentID: "sub_1", SubAgentType: "research", SubAgentColor: 3,
 		})
-		host.Tool(ToolEvent{
-			Kind: ToolEventStarted, Name: "web_search",
+		host.Step(protocol.StepEvent{
+			Action: protocol.StepActionToolStart, ToolName: "web_search",
 			SubAgentID: "sub_1", SubAgentColor: 3,
 		})
-		host.SubAgent(SubAgentEvent{Kind: SubAgentEventEnded, ID: "sub_1"})
+		host.Step(protocol.StepEvent{Action: protocol.StepActionSubAgentEnd, SubAgentID: "sub_1"})
 		return "done", nil
 	}
 	rt := newTestRuntime(bot)
@@ -218,8 +219,8 @@ func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
 func TestManagerNormalizesToolOutput(t *testing.T) {
 	bot := &testBot{}
 	bot.run = func(_ string, host RunHost) (string, error) {
-		host.Tool(ToolEvent{
-			Kind: ToolEventCompleted, Name: "shell",
+		host.Step(protocol.StepEvent{
+			Action: protocol.StepActionExecuteTool, ToolName: "shell",
 			Output: "vite\n\rtransforming...",
 		})
 		return "done", nil
@@ -403,7 +404,7 @@ func TestRunHostRejectsEventsAfterRunFinishes(t *testing.T) {
 	waitForRun(t, rt, runID)
 
 	retained.Text("after")
-	retained.Tool(ToolEvent{Kind: ToolEventStarted, CallID: "late", Name: "read"})
+	retained.Step(protocol.StepEvent{Action: protocol.StepActionToolStart, CallID: "late", ToolName: "read"})
 	if reply := retained.Confirm(ConfirmRequest{ToolName: "late"}); reply.Allowed {
 		t.Fatalf("stale host confirmation = %+v", reply)
 	}

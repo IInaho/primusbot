@@ -95,7 +95,7 @@ func TestNewRejectsIncompleteServiceGroups(t *testing.T) {
 
 type reentrantModelMutator struct {
 	testBot
-	runtime *Manager
+	runtime *Runtime
 	called  chan struct{}
 }
 

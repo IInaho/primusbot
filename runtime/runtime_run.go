@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"nekocode/protocol"
 	textutil "nekocode/util/text"
 )
 
@@ -116,7 +117,7 @@ func (l *runLease) signalDrainedLocked() {
 }
 
 type runHost struct {
-	runtime *Manager
+	runtime *Runtime
 	runID   RunID
 	lease   *runLease
 }
@@ -139,12 +140,8 @@ func (h runHost) Reason(delta string) {
 	})
 }
 
-func (h runHost) Tool(event ToolEvent) {
-	h.lease.emit(func() { h.runtime.publishTool(h.runID, event) })
-}
-
-func (h runHost) SubAgent(event SubAgentEvent) {
-	h.lease.emit(func() { h.runtime.publishSubAgent(h.runID, event) })
+func (h runHost) Step(event protocol.StepEvent) {
+	h.lease.emit(func() { h.runtime.publishStep(h.runID, event) })
 }
 
 func (h runHost) Phase(phase string) {
@@ -221,7 +218,7 @@ func (h runHost) Ask(request QuestionRequest) QuestionReply {
 	return reply
 }
 
-func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runLease, execution *runExecution) {
+func (r *Runtime) run(ctx context.Context, runID RunID, input Input, lease *runLease, execution *runExecution) {
 	stopMetricsUpdates := func() {}
 	withMetrics := false
 	defer func() {
@@ -260,7 +257,7 @@ func (r *Manager) run(ctx context.Context, runID RunID, input Input, lease *runL
 // publishAcceptedInput records only inputs that continue to the agent. Runtime
 // and bot commands are control-plane operations: their system response is
 // visible, but the command text is not projected as a conversation message.
-func (r *Manager) publishAcceptedInput(runID RunID, input Input) {
+func (r *Runtime) publishAcceptedInput(runID RunID, input Input) {
 	r.events.Publish(Event{
 		RunID: runID, Type: EventInputAccepted, Source: input.Source,
 		Payload: MessagePayload{
@@ -270,7 +267,7 @@ func (r *Manager) publishAcceptedInput(runID RunID, input Input) {
 	})
 }
 
-func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input string, host runHost) (string, bool) {
+func (r *Runtime) handleBotCommand(ctx context.Context, runID RunID, input string, host runHost) (string, bool) {
 	if r.services.ExecuteCommand == nil {
 		return input, true
 	}
@@ -315,7 +312,7 @@ func (r *Manager) handleBotCommand(ctx context.Context, runID RunID, input strin
 	}
 }
 
-func (r *Manager) handleRuntimeCommand(ctx context.Context, runID RunID, input Input, host runHost) bool {
+func (r *Runtime) handleRuntimeCommand(ctx context.Context, runID RunID, input Input, host runHost) bool {
 	fields := strings.Fields(strings.TrimSpace(input.Text))
 	if len(fields) == 0 {
 		return false
@@ -339,7 +336,7 @@ func (r *Manager) handleRuntimeCommand(ctx context.Context, runID RunID, input I
 	return true
 }
 
-func (r *Manager) finishRun(runID RunID, output string, err error, withMetrics bool) {
+func (r *Runtime) finishRun(runID RunID, output string, err error, withMetrics bool) {
 	payload := RunResult{Output: output}
 	eventType := EventRunDone
 	status := RunDone
@@ -386,7 +383,7 @@ func (r *Manager) finishRun(runID RunID, output string, err error, withMetrics b
 
 }
 
-func (r *Manager) endRun(runID RunID) {
+func (r *Runtime) endRun(runID RunID) {
 	r.mu.Lock()
 	if r.currentRun != runID {
 		r.mu.Unlock()
@@ -417,44 +414,42 @@ func (r *Manager) endRun(runID RunID) {
 	}
 }
 
-func (r *Manager) publishTool(runID RunID, event ToolEvent) {
+func (r *Runtime) publishStep(runID RunID, step protocol.StepEvent) {
 	var eventType EventType
 	payload := ToolPayload{
-		ToolName: event.Name, CallID: event.CallID, Args: event.Args,
-		Output:     textutil.NormalizeTerminalOutput(event.Output),
-		Preview:    textutil.NormalizeTerminalOutput(event.Preview),
-		IsError:    event.IsError,
-		SubAgentID: event.SubAgentID, SubAgentColor: event.SubAgentColor,
+		ToolName: step.ToolName, CallID: step.CallID, Args: step.ToolArgs,
+		IsError: step.IsError, SubAgentID: step.SubAgentID, SubAgentColor: step.SubAgentColor,
 	}
-	switch event.Kind {
-	case ToolEventStarted:
+	switch step.Action {
+	case protocol.StepActionToolStart:
 		eventType = EventToolStarted
-	case ToolEventBlocked:
+		payload.Preview = textutil.NormalizeTerminalOutput(step.Output)
+	case protocol.StepActionToolBlocked:
 		eventType = EventToolBlocked
-	case ToolEventPreview:
+		payload.Output = textutil.NormalizeTerminalOutput(step.Output)
+	case protocol.StepActionToolPreview:
 		eventType = EventToolPreview
-	case ToolEventCompleted:
+		payload.Preview = textutil.NormalizeTerminalOutput(step.Output)
+	case protocol.StepActionExecuteTool:
 		eventType = EventToolCompleted
+		payload.Output = textutil.NormalizeTerminalOutput(step.Output)
+	case protocol.StepActionSubAgentStart:
+		r.events.Publish(Event{
+			RunID: runID, Type: EventSubAgentStarted, Source: SourceRef{Kind: "bot"},
+			Payload: SubAgentPayload{ID: step.SubAgentID, Type: step.SubAgentType, Color: step.SubAgentColor},
+		})
+		r.publishMetrics(runID)
+		return
+	case protocol.StepActionSubAgentEnd:
+		r.events.Publish(Event{
+			RunID: runID, Type: EventSubAgentEnded, Source: SourceRef{Kind: "bot"},
+			Payload: SubAgentPayload{ID: step.SubAgentID},
+		})
+		r.publishMetrics(runID)
+		return
 	default:
 		return
 	}
 	r.events.Publish(Event{RunID: runID, Type: eventType, Source: SourceRef{Kind: "bot"}, Payload: payload})
-	r.publishMetrics(runID)
-}
-
-func (r *Manager) publishSubAgent(runID RunID, event SubAgentEvent) {
-	var eventType EventType
-	switch event.Kind {
-	case SubAgentEventStarted:
-		eventType = EventSubAgentStarted
-	case SubAgentEventEnded:
-		eventType = EventSubAgentEnded
-	default:
-		return
-	}
-	r.events.Publish(Event{
-		RunID: runID, Type: eventType, Source: SourceRef{Kind: "bot"},
-		Payload: SubAgentPayload{ID: event.ID, Type: event.Type, Color: event.Color},
-	})
 	r.publishMetrics(runID)
 }

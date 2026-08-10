@@ -40,7 +40,7 @@ type RuntimeStatus struct {
 	Capabilities CapabilityManifest `json:"capabilities"`
 }
 
-func (r *Manager) Capabilities() CapabilityManifest {
+func (r *Runtime) Capabilities() CapabilityManifest {
 	r.mu.Lock()
 	hasCommands := r.services.ExecuteCommand != nil || len(r.runtimeCommands) > 0
 	r.mu.Unlock()
@@ -54,7 +54,7 @@ func (r *Manager) Capabilities() CapabilityManifest {
 	}
 }
 
-func (r *Manager) Status() RuntimeStatus {
+func (r *Runtime) Status() RuntimeStatus {
 	r.mu.Lock()
 	state := RuntimeReady
 	if r.closed {
@@ -74,10 +74,10 @@ func (r *Manager) Status() RuntimeStatus {
 	}
 }
 
-// Optional read models are queried directly through Manager. Call
+// Optional read models are queried directly through Runtime. Call
 // Capabilities to discover availability; unavailable or closed capabilities
 // return their zero value.
-func (r *Manager) CurrentModel() ModelSelection {
+func (r *Runtime) CurrentModel() ModelSelection {
 	r.mu.Lock()
 	service, closed := r.services.CurrentModel, r.closed
 	r.mu.Unlock()
@@ -89,7 +89,7 @@ func (r *Manager) CurrentModel() ModelSelection {
 
 // PermissionMode reports the permission mode ("manual"/"full"); "" when the
 // runtime provides no permission service or is closed.
-func (r *Manager) PermissionMode() string {
+func (r *Runtime) PermissionMode() string {
 	r.mu.Lock()
 	service, closed := r.services.PermissionMode, r.closed
 	r.mu.Unlock()
@@ -102,7 +102,7 @@ func (r *Manager) PermissionMode() string {
 // ExecuteLocalCommand runs a during-task-safe command without a run
 // lifecycle. Unlike StartRun it never checks the busy state: local commands
 // do not touch run state by definition.
-func (r *Manager) ExecuteLocalCommand(ctx context.Context, input string) (string, LocalCommandResult) {
+func (r *Runtime) ExecuteLocalCommand(ctx context.Context, input string) (string, LocalCommandResult) {
 	r.mu.Lock()
 	service, closed := r.services.ExecuteLocalCommand, r.closed
 	r.mu.Unlock()
@@ -112,7 +112,7 @@ func (r *Manager) ExecuteLocalCommand(ctx context.Context, input string) (string
 	return service(ctx, input)
 }
 
-func (r *Manager) ContextSnapshot() ContextSnapshot {
+func (r *Runtime) ContextSnapshot() ContextSnapshot {
 	r.mu.Lock()
 	service, closed := r.services.ContextSnapshot, r.closed
 	r.mu.Unlock()
@@ -122,7 +122,7 @@ func (r *Manager) ContextSnapshot() ContextSnapshot {
 	return service()
 }
 
-func (r *Manager) WorkspaceChanges() WorkspaceChanges {
+func (r *Runtime) WorkspaceChanges() WorkspaceChanges {
 	r.mu.Lock()
 	service, closed := r.services.WorkspaceChanges, r.closed
 	r.mu.Unlock()
@@ -132,7 +132,7 @@ func (r *Manager) WorkspaceChanges() WorkspaceChanges {
 	return service()
 }
 
-func (r *Manager) MemoryView(scope MemoryScope) MemoryView {
+func (r *Runtime) MemoryView(scope MemoryScope) MemoryView {
 	r.mu.Lock()
 	service, closed := r.services.MemoryView, r.closed
 	r.mu.Unlock()
@@ -142,7 +142,7 @@ func (r *Manager) MemoryView(scope MemoryScope) MemoryView {
 	return service(scope)
 }
 
-func (r *Manager) SkillManagementView() SkillManagementView {
+func (r *Runtime) SkillManagementView() SkillManagementView {
 	r.mu.Lock()
 	service, closed := r.services.SkillManagementView, r.closed
 	r.mu.Unlock()
@@ -152,7 +152,7 @@ func (r *Manager) SkillManagementView() SkillManagementView {
 	return service()
 }
 
-func (r *Manager) ConfigView() ConfigView {
+func (r *Runtime) ConfigView() ConfigView {
 	r.mu.Lock()
 	service, closed := r.services.ConfigView, r.closed
 	r.mu.Unlock()
@@ -162,7 +162,7 @@ func (r *Manager) ConfigView() ConfigView {
 	return service()
 }
 
-func (r *Manager) ResolveModelProfile(model ModelSpec) ModelProfile {
+func (r *Runtime) ResolveModelProfile(model ModelSpec) ModelProfile {
 	r.mu.Lock()
 	service, closed := r.services.ResolveModelProfile, r.closed
 	r.mu.Unlock()
@@ -172,7 +172,7 @@ func (r *Manager) ResolveModelProfile(model ModelSpec) ModelProfile {
 	return service(model)
 }
 
-func (r *Manager) CurrentSessionID() string {
+func (r *Runtime) CurrentSessionID() string {
 	r.mu.Lock()
 	service, closed := r.services.CurrentSessionID, r.closed
 	r.mu.Unlock()
@@ -182,7 +182,7 @@ func (r *Manager) CurrentSessionID() string {
 	return service()
 }
 
-func (r *Manager) ListSessions() []SessionMeta {
+func (r *Runtime) ListSessions() []SessionMeta {
 	r.mu.Lock()
 	service, closed := r.services.ListSessions, r.closed
 	r.mu.Unlock()
@@ -192,7 +192,7 @@ func (r *Manager) ListSessions() []SessionMeta {
 	return service()
 }
 
-func (r *Manager) SessionMessages() []DisplayMessage {
+func (r *Runtime) SessionMessages() []DisplayMessage {
 	r.mu.Lock()
 	service, closed := r.services.SessionMessages, r.closed
 	r.mu.Unlock()
@@ -202,7 +202,7 @@ func (r *Manager) SessionMessages() []DisplayMessage {
 	return service()
 }
 
-func (r *Manager) publishMetrics(runID RunID) {
+func (r *Runtime) publishMetrics(runID RunID) {
 	if r.services.Metrics == nil {
 		return
 	}
@@ -213,7 +213,7 @@ func (r *Manager) publishMetrics(runID RunID) {
 	})
 }
 
-func (r *Manager) startMetricsUpdates(runID RunID, lease *runLease) func() {
+func (r *Runtime) startMetricsUpdates(runID RunID, lease *runLease) func() {
 	if r.services.Metrics == nil {
 		return func() {}
 	}
@@ -240,7 +240,7 @@ func (r *Manager) startMetricsUpdates(runID RunID, lease *runLease) func() {
 	}
 }
 
-func (r *Manager) recordMetrics(event Event) {
+func (r *Runtime) recordMetrics(event Event) {
 	if event.Type != EventMetricsUpdated {
 		return
 	}
@@ -253,25 +253,25 @@ func (r *Manager) recordMetrics(event Event) {
 	r.mu.Unlock()
 }
 
-func (r *Manager) CurrentRun() (RunSnapshot, bool) {
+func (r *Runtime) CurrentRun() (RunSnapshot, bool) {
 	return r.runs.Current()
 }
 
-func (r *Manager) LookupRun(runID RunID) (RunSnapshot, bool) {
+func (r *Runtime) LookupRun(runID RunID) (RunSnapshot, bool) {
 	return r.runs.Lookup(runID)
 }
 
-func (r *Manager) Runs(limit int) []RunSnapshot {
+func (r *Runtime) Runs(limit int) []RunSnapshot {
 	return r.runs.List(limit)
 }
 
-func (r *Manager) Metrics() MetricsSnapshot {
+func (r *Runtime) Metrics() MetricsSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.latestMetrics
 }
 
-func (r *Manager) CommandCatalog() []string {
+func (r *Runtime) CommandCatalog() []string {
 	seen := make(map[string]bool)
 	var names []string
 	for _, prefix := range []string{"/", "$"} {
@@ -291,7 +291,7 @@ func (r *Manager) CommandCatalog() []string {
 	return names
 }
 
-func (r *Manager) CommandMenu(ctx context.Context, input string) (CommandMenu, bool) {
+func (r *Runtime) CommandMenu(ctx context.Context, input string) (CommandMenu, bool) {
 	if err := ctx.Err(); err != nil {
 		return CommandMenu{}, false
 	}
@@ -318,7 +318,7 @@ func (r *Manager) CommandMenu(ctx context.Context, input string) (CommandMenu, b
 	return r.runtimeCommandMenu(trimmed)
 }
 
-func (r *Manager) runtimeCommandMenu(input string) (CommandMenu, bool) {
+func (r *Runtime) runtimeCommandMenu(input string) (CommandMenu, bool) {
 	parts := strings.Fields(strings.TrimSpace(input))
 	if len(parts) != 1 {
 		return CommandMenu{}, false

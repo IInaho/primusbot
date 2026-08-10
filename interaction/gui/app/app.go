@@ -1,4 +1,4 @@
-// Package app adapts runtime.Manager to the Wails binding surface.
+// Package app adapts runtime.Runtime to the Wails binding surface.
 // Runtime events are projected to Wails events consumed by the frontend.
 //
 // 事件协议 (Run-form):

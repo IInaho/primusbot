@@ -14,7 +14,7 @@ import (
 )
 
 // New constructs the standard application runtime.
-func New() (*controlruntime.Manager, error) {
+func New() (*controlruntime.Runtime, error) {
 	standardBot, err := core.New()
 	if err != nil {
 		return nil, fmt.Errorf("standard runtime: %w", err)
@@ -37,7 +37,7 @@ func New() (*controlruntime.Manager, error) {
 
 // FromBot creates a runtime around an existing standard bot without enabling
 // event recording or registering bundled connectors.
-func FromBot(standardBot *core.Bot) *controlruntime.Manager {
+func FromBot(standardBot *core.Bot) *controlruntime.Runtime {
 	if standardBot == nil {
 		panic("runtime/standard: nil bot")
 	}

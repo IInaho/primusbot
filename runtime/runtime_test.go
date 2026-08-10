@@ -80,7 +80,7 @@ func (b *testBot) steerCount() int { b.mu.Lock(); defer b.mu.Unlock(); return b.
 
 func (b *testBot) abortCount() int { b.mu.Lock(); defer b.mu.Unlock(); return b.aborts }
 
-func newTestRuntime(b *testBot) *Manager {
+func newTestRuntime(b *testBot) *Runtime {
 	return New(b, testBotServices(b))
 }
 
@@ -226,19 +226,19 @@ func (c statusPublishingConnector) HandleCommand(context.Context, []string) (str
 	return "connected", nil
 }
 
-func waitForStatus(t *testing.T, rt *Manager, status RunStatus) {
+func waitForStatus(t *testing.T, rt *Runtime, status RunStatus) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if managerStatus(rt) == status {
+		if runtimeStatus(rt) == status {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for status %s, got %s", status, managerStatus(rt))
+	t.Fatalf("timed out waiting for status %s, got %s", status, runtimeStatus(rt))
 }
 
-func managerStatus(rt *Manager) RunStatus {
+func runtimeStatus(rt *Runtime) RunStatus {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.status
@@ -305,7 +305,7 @@ func hasString(values []string, target string) bool {
 	return false
 }
 
-func waitForRun(t *testing.T, rt *Manager, runID RunID) {
+func waitForRun(t *testing.T, rt *Runtime, runID RunID) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

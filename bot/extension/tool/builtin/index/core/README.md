@@ -231,6 +231,8 @@ registry.Register(tool)
 |------|------|------|
 | `skeleton` | `skeleton` | 项目概览（语言、模块、目录树、依赖图） |
 | `symbol:<name>` | `symbol:HandleRequest` | 按名称查找符号（部分匹配，大小写不敏感） |
+| `callers:<name>` | `callers:HandleRequest` | 查询调用匹配符号的函数或方法 |
+| `callees:<name>` | `callees:HandleRequest` | 查询匹配符号调用的函数或方法 |
 | `deps:<pkg>` | `deps:myproject/handler` | 查询包的内部依赖 |
 | `file:<name>` | `file:handler.go` | 按路径片段查找文件（大小写不敏感） |
 | `search:<term>` | `search:http` | 全文搜索（名称、签名、文档，需要 FTS5） |

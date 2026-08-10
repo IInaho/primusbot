@@ -5,7 +5,7 @@
 
 先记住三个边界：
 
-1. `runtime.Manager` 是上层交互的唯一实例入口。
+1. `runtime.Runtime` 是上层交互的唯一实例入口。
 2. AI 应用只必须实现 `runtime.Runner`，其他能力通过 `runtime.Services` 显式装配。
 3. UI 只依赖 `nekocode/runtime`，不依赖 `bot` 或 `runtime/internal`。
 
@@ -17,9 +17,9 @@
 | 使用完整 Bot，但不启用默认录制和 Connector | `standard.FromBot(bot)` | 启动代码 |
 | 自定义提示词和工具 | `runtime.New(runner, runner.Services())` | Agent 组装 |
 | 接入其他推理引擎 | `runtime.New(runner, services)` | `Runner.Run` 和 Services |
-| 新增进程内 UI | 接收同一个 `*runtime.Manager` | 事件投影 |
+| 新增进程内 UI | 接收同一个 `*runtime.Runtime` | 事件投影 |
 | 新增远程 UI | `httpapi.New(manager)` | HTTP/SSE 客户端 |
-| 新增消息渠道 | `Manager.RegisterConnector` | `Connector` |
+| 新增消息渠道 | `Runtime.RegisterConnector` | `Connector` |
 
 不需要完整 NekoCode 能力时，不要先创建 `bot.Bot` 再关闭功能。应从模型、提示词和
 工具白名单开始组装独立应用。
@@ -29,7 +29,7 @@
 ```text
 TUI / GUI / HTTP / Connector / 自定义 UI
                     |
-          runtime.Manager + Event
+          runtime.Runtime + Event
                     |
             Runner + 可选能力
                     |
@@ -196,8 +196,7 @@ assistant := agent.New(context.Background(), agent.Config{
 type RunHost interface {
     Text(delta string)
     Reason(delta string)
-    Tool(ToolEvent)
-    SubAgent(SubAgentEvent)
+    Step(protocol.StepEvent)
     Phase(string)
     Todos([]TodoItem)
     Confirm(ConfirmRequest) ConfirmReply
@@ -208,8 +207,8 @@ type RunHost interface {
 常用规则：
 
 - `Text` 和 `Reason` 接收增量，不是完整历史。
-- `ToolEvent` 使用稳定的 `CallID` 配对 started、preview、blocked、completed。
-- 子 Agent 工具使用 `SubAgentID` 关联，不把身份编码进字符串。
+- `StepEvent` 使用稳定的 `CallID` 配对工具的 start、preview、blocked、execute 动作。
+- 子 Agent 动作使用 `SubAgentID` 关联，不把身份编码进字符串。
 - `Confirm`、`Ask` 会阻塞 Runner，直到 UI 回复、run 取消或 Runtime 关闭。
 - `Run` 返回后不得保存或继续调用 `RunHost`。
 
@@ -243,8 +242,8 @@ services := runtime.Services{
 rt := runtime.New(assistant, services)
 ```
 
-Manager 根据非 nil 函数字段生成 `Capabilities()`。能力不会通过小接口和类型断言
-自动发现，因此组合关系在初始化代码中是完整、可检查的。UI 仍只通过 Manager 查询：
+Runtime 根据非 nil 函数字段生成 `Capabilities()`。能力不会通过小接口和类型断言
+自动发现，因此组合关系在初始化代码中是完整、可检查的。UI 仍只通过 Runtime 查询：
 
 ```go
 caps := rt.Capabilities()
@@ -259,7 +258,7 @@ if caps.Context {
 }
 ```
 
-Manager 的可选只读方法：
+Runtime 的可选只读方法：
 
 | 能力 | 查询方法 |
 | --- | --- |
@@ -271,7 +270,7 @@ Manager 的可选只读方法：
 | Metrics | `Metrics` |
 | Commands | `CommandMenu`（`/` 查询根命令，完整命令查询下一级候选） |
 
-先用 `Capabilities()` 决定页面和控件是否存在。能力不存在或 Manager 已关闭时，
+先用 `Capabilities()` 决定页面和控件是否存在。能力不存在或 Runtime 已关闭时，
 只读方法返回对应零值。
 
 写能力同样通过 `Services` 中的函数显式提供：
@@ -286,8 +285,8 @@ services := runtime.Services{
 }
 ```
 
-UI 仍调用 `Manager.SwitchModel`、`ApplyConfig`、`NewSession` 等方法。Manager 会统一
-检查 `closed`、`busy` 和能力是否存在；不要缓存 Runner 后绕过 Manager 修改状态。
+UI 仍调用 `Runtime.SwitchModel`、`ApplyConfig`、`NewSession` 等方法。Runtime 会统一
+检查 `closed`、`busy` 和能力是否存在；不要缓存 Runner 后绕过 Runtime 修改状态。
 
 命令能力的结果只有三种：
 
@@ -301,9 +300,9 @@ Runner 本身只需要保留核心协议的编译期断言：
 var _ runtime.Runner = (*assistant)(nil)
 ```
 
-## 7. Manager 对外能力
+## 7. Runtime 对外能力
 
-上层只保留一个 `*runtime.Manager`，按场景使用以下方法：
+上层只保留一个 `*runtime.Runtime`，按场景使用以下方法：
 
 | 场景 | 方法 |
 | --- | --- |
@@ -329,7 +328,7 @@ type Interaction interface {
 }
 ```
 
-它刻意不包含管理页面、读模型、Connector 和关闭方法。装配层持有 Manager 并负责
+它刻意不包含管理页面、读模型、Connector 和关闭方法。装配层持有 Runtime 并负责
 关闭；UI 根据自己的页面定义窄接口，不需要再包装一层 facade。
 
 ## 8. 接入一套新 UI
@@ -346,7 +345,7 @@ type Runtime interface {
 ```
 
 有 Session 或模型页面时，再把实际使用的方法加入该 UI 的接口。测试中使用 fake，
-生产环境传入同一个 `*runtime.Manager`。
+生产环境传入同一个 `*runtime.Runtime`。
 
 UI 的基本流程：
 
@@ -424,7 +423,7 @@ Runtime 状态只有三种：
 | `busy` | 正在运行、等待交互或修改可选能力 |
 | `closed` | 已关闭 |
 
-单个 Manager 同时只允许一个 active run。具体 run 状态为 `running`、
+单个 Runtime 同时只允许一个 active run。具体 run 状态为 `running`、
 `waiting_approval`、`waiting_question`、`done`、`failed`、`aborted`。
 生命周期读 `Status()`，业务指标读 `Metrics()`，二者不要混用。
 
@@ -458,7 +457,7 @@ case runtime.EventQuestionRequested:
 | Code | 含义 |
 | --- | --- |
 | `invalid_input` | 输入无效 |
-| `closed` | Manager 已关闭 |
+| `closed` | Runtime 已关闭 |
 | `busy` | 当前有 run 或状态修改 |
 | `not_found` | 没有 active run |
 | `conflict` | RunID 或当前状态不匹配 |
@@ -563,7 +562,7 @@ func (a *limitedAssistant) Run(
 
 生命周期约束：
 
-- 一个应用共享一个 Manager，不为每套 UI 或 Connector 重建实例。
+- 一个应用共享一个 Runtime，不为每套 UI 或 Connector 重建实例。
 - `StartRun` 的 context 控制 run；订阅 context 只控制订阅。
 - HTTP 请求结束后仍需继续运行时，显式使用 `context.WithoutCancel`。
 - Runner 应响应 context 取消并尽快停止。

@@ -13,41 +13,41 @@ import (
 type Connector = internalconnectors.Connector
 type ConnectorFactory = internalconnectors.ConnectorFactory
 
-func (r *Manager) Events(ctx context.Context, filter EventFilter) (<-chan Event, error) {
+func (r *Runtime) Events(ctx context.Context, filter EventFilter) (<-chan Event, error) {
 	return r.events.Subscribe(ctx, filter)
 }
 
-func (r *Manager) ReplayEvents(ctx context.Context, filter EventFilter) (<-chan Event, error) {
+func (r *Runtime) ReplayEvents(ctx context.Context, filter EventFilter) (<-chan Event, error) {
 	return r.events.SubscribeReplay(ctx, filter)
 }
 
-func (r *Manager) RegisterConnector(name string, factory ConnectorFactory) {
+func (r *Runtime) RegisterConnector(name string, factory ConnectorFactory) {
 	if len(r.connectors.View().Connectors) == 0 {
 		r.registerConnectorCommands()
 	}
 	r.connectors.Register(name, factory)
 }
 
-func (r *Manager) Connect(ctx context.Context, name string, args []string) (string, error) {
+func (r *Runtime) Connect(ctx context.Context, name string, args []string) (string, error) {
 	if err := r.ensureOpen(); err != nil {
 		return "", err
 	}
 	return r.connectors.Handle(ctx, append([]string{name}, args...))
 }
 
-func (r *Manager) Disconnect(name string) (string, error) {
+func (r *Runtime) Disconnect(name string) (string, error) {
 	if err := r.ensureOpen(); err != nil {
 		return "", err
 	}
 	return r.connectors.Disconnect(name)
 }
 
-func (r *Manager) ConnectView() ConnectView {
+func (r *Runtime) ConnectView() ConnectView {
 	return r.connectors.View()
 }
 
 // ReportConnectorStatus publishes the only event type connectors may inject.
-func (r *Manager) ReportConnectorStatus(payload ConnectorStatusPayload) {
+func (r *Runtime) ReportConnectorStatus(payload ConnectorStatusPayload) {
 	if payload.Name == "" {
 		return
 	}
@@ -60,13 +60,13 @@ func (r *Manager) ReportConnectorStatus(payload ConnectorStatusPayload) {
 
 // EnableDefaultEventRecording persists run events under the NekoCode data
 // directory and restores previously recorded run history.
-func (r *Manager) EnableDefaultEventRecording() error {
+func (r *Runtime) EnableDefaultEventRecording() error {
 	return r.EnableEventRecording(recording.DefaultBaseDir())
 }
 
 // EnableEventRecording persists run events under baseDir and restores
 // previously recorded run history.
-func (r *Manager) EnableEventRecording(baseDir string) error {
+func (r *Runtime) EnableEventRecording(baseDir string) error {
 	r.recordingMu.Lock()
 	defer r.recordingMu.Unlock()
 	r.mu.Lock()
@@ -109,7 +109,7 @@ func (r *Manager) EnableEventRecording(baseDir string) error {
 	return nil
 }
 
-func (r *Manager) advanceRunSequence(events []Event) {
+func (r *Runtime) advanceRunSequence(events []Event) {
 	var maxID uint64
 	for _, ev := range events {
 		n, ok := parseRunSequence(ev.RunID)

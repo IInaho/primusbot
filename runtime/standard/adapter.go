@@ -5,9 +5,7 @@ import (
 
 	"nekocode/bot/core"
 	"nekocode/bot/extension"
-	"nekocode/protocol"
 	controlruntime "nekocode/runtime"
-	"nekocode/runtime/agentrunner"
 	"nekocode/runtime/standard/internal/viewmodel"
 )
 
@@ -21,20 +19,12 @@ func adapt(standardBot *core.Bot) *adapter {
 	return &adapter{bot: standardBot}
 }
 
-type runHost struct {
-	controlruntime.RunHost
-}
-
-func (h runHost) Step(event protocol.StepEvent) {
-	agentrunner.PublishStep(h.RunHost, event)
-}
-
 func (a *adapter) Run(ctx context.Context, input string, host controlruntime.RunHost) (string, error) {
-	return a.bot.Run(ctx, input, runHost{RunHost: host})
+	return a.bot.Run(ctx, input, host)
 }
 
 func (a *adapter) ExecuteCommand(ctx context.Context, input string, host controlruntime.RunHost) (controlruntime.CommandResult, error) {
-	return a.bot.ExecuteCommand(ctx, input, runHost{RunHost: host})
+	return a.bot.ExecuteCommand(ctx, input, host)
 }
 
 func (a *adapter) ExecuteLocalCommand(ctx context.Context, input string) (string, controlruntime.LocalCommandResult) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	graphpkg "nekocode/bot/extension/tool/builtin/index/core/internal/graph"
@@ -29,6 +30,13 @@ type SearchResult struct {
 	Kind string
 	File string
 	Line int
+}
+
+// CallRelation describes one resolved caller/callee relationship. Symbol is
+// the symbol matched by the query; Related is its caller or callee.
+type CallRelation struct {
+	Symbol  Symbol
+	Related Symbol
 }
 
 // Manager owns one workspace code index.
@@ -135,6 +143,71 @@ func (m *Manager) QuerySymbol(name string) []Symbol {
 		})
 	}
 	return out
+}
+
+// QueryCallers returns the distinct symbols that call symbols matching name.
+func (m *Manager) QueryCallers(name string) []CallRelation {
+	return m.queryCalls(name, true)
+}
+
+// QueryCallees returns the distinct symbols called by symbols matching name.
+func (m *Manager) QueryCallees(name string) []CallRelation {
+	return m.queryCalls(name, false)
+}
+
+func (m *Manager) queryCalls(name string, callers bool) []CallRelation {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.graph == nil {
+		return nil
+	}
+
+	var out []CallRelation
+	seen := make(map[[2]int64]bool)
+	for _, node := range m.graph.FindNodesByName(name) {
+		related := m.graph.GetCallees(node.ID)
+		if callers {
+			related = m.graph.GetCallers(node.ID)
+		}
+		for _, other := range related {
+			key := [2]int64{node.ID, other.ID}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, CallRelation{
+				Symbol:  symbolFromNode(node),
+				Related: symbolFromNode(other),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left, right := out[i], out[j]
+		if left.Symbol.File != right.Symbol.File {
+			return left.Symbol.File < right.Symbol.File
+		}
+		if left.Symbol.Line != right.Symbol.Line {
+			return left.Symbol.Line < right.Symbol.Line
+		}
+		if left.Symbol.Name != right.Symbol.Name {
+			return left.Symbol.Name < right.Symbol.Name
+		}
+		if left.Related.File != right.Related.File {
+			return left.Related.File < right.Related.File
+		}
+		if left.Related.Line != right.Related.Line {
+			return left.Related.Line < right.Related.Line
+		}
+		return left.Related.Name < right.Related.Name
+	})
+	return out
+}
+
+func symbolFromNode(node *graphpkg.Node) Symbol {
+	return Symbol{
+		Name: node.Name, Kind: string(node.Kind), File: node.File,
+		Line: node.Line, PkgPath: node.PkgPath,
+	}
 }
 
 func (m *Manager) QueryDeps(pkgPath string) []string {

@@ -82,7 +82,7 @@ nekocode/
 ├── logger/                         # 项目诊断日志
 ├── util/                           # 通用工具包（duration / fs / http / registry / sse / text / url / yaml / version / tui_snapshot）
 ├── runtime/                        # 交互控制层（TUI/GUI/HTTP/connector 的统一入口）
-│   ├── runtime.go                  #   入口：Manager + New(Runner)
+│   ├── runtime.go                  #   入口：Runtime + New(Runner)
 │   ├── runner.go                   #   必需 Runner/RunHost 执行协议
 │   ├── runtime_services.go         #   可选能力接口
 │   ├── runtime_run.go              #   单次 run host 与事件转换
@@ -291,7 +291,7 @@ nekocode/
 
 `runtime.New(runner, services)` 只要求 Runner 实现 `Run(context.Context, input, RunHost)`；可选应用能力由组合根通过 `runtime.Services` 显式提供。流输出、工具/子 Agent 事件、phase、todo、approval 和 question 都经本次调用独占的 `RunHost` 传递；命令在一次同步生命周期中返回完整结果。
 
-`Manager` 是 UI/HTTP/connector 的唯一交互入口，核心方法为 `StartRun`、`SteerRun`、`CancelRun`、`Status`、`LookupRun`、`Events`、`DecideApproval` 和 `AnswerQuestion`。命令、Steering、Metrics、Model、Context、Extension、Configuration 和 Session 是 `runtime.Services` 中的显式函数字段；UI 先读 `Capabilities()`，再直接调用同一个 Manager 的只读方法。关闭统一使用 `Close() error`，connector、Runner 和 recorder 的错误不会被吞掉。
+`Runtime` 是 UI/HTTP/connector 的唯一交互入口，核心方法为 `StartRun`、`SteerRun`、`CancelRun`、`Status`、`LookupRun`、`Events`、`DecideApproval` 和 `AnswerQuestion`。命令、Steering、Metrics、Model、Context、Extension、Configuration 和 Session 是 `runtime.Services` 中的显式函数字段；UI 先读 `Capabilities()`，再直接调用同一个 Runtime 的只读方法。关闭统一使用 `Close() error`，connector、Runner 和 recorder 的错误不会被吞掉。
 
 事件协议版本为 `2.0`，每个事件携带单调 `sequence`；订阅可用 `EventFilter.After` 续传。协议错误使用稳定 `ErrorCode`。标准应用由 `runtime/standard.New()` 装配完整 Bot、事件录制和 connector；`examples/web-assistant` 则展示只组合 web 工具的独立应用。
 
@@ -428,7 +428,7 @@ context cache tracker、run meter 和 calllog 不直接消费 SSE 分片。TUI �
 ContextReport 与自动压缩门限使用同一 replay contract 估算实际输入，
 切换模型时清除旧 provider 的 prompt 校准基线并按新模型重新计算。
 
-### Manager 关键方法
+### Runtime 关键方法
 
 | 方法 | 说明 |
 |------|------|
@@ -685,7 +685,7 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 
 | 模块 | 位置 | 职责 |
 |------|------|------|
-| Runtime 控制层 | `runtime/` | 交互层统一入口：Manager + 核心 run 协议 + 可选能力 + HTTP API |
+| Runtime 控制层 | `runtime/` | 交互层统一入口：Runtime + 核心 run 协议 + 可选能力 + HTTP API |
 | 中立交互契约 | `protocol/` | Bot 与 runtime 适配器共享的步骤、待办、确认、提问和指标类型 |
 | Runtime DTO | `runtime/protocol.go` | runtime 对交互层公开的配置、上下文、会话和扩展数据 |
 | 展示格式 | `interaction/interaction.go` | TUI、Connector 等交互端共享的工具摘要 |

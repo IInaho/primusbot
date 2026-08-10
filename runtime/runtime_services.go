@@ -6,7 +6,7 @@ import (
 )
 
 // Services explicitly describes the optional application functions attached
-// to a Runner. The composition root supplies this value once; Manager and
+// to a Runner. The composition root supplies this value once; Runtime and
 // transports do not discover capabilities through type assertions.
 type Services struct {
 	ExecuteCommand         func(ctx context.Context, input string, host RunHost) (CommandResult, error)
@@ -37,7 +37,7 @@ type Services struct {
 	Close                  func() error
 }
 
-func (r *Manager) mutation(op string, supported bool, fn func() error) error {
+func (r *Runtime) mutation(op string, supported bool, fn func() error) error {
 	r.mutationMu.Lock()
 	defer r.mutationMu.Unlock()
 
@@ -64,7 +64,7 @@ func (r *Manager) mutation(op string, supported bool, fn func() error) error {
 	return fn()
 }
 
-func (r *Manager) SwitchModel(name string) (selection ModelSelection, err error) {
+func (r *Runtime) SwitchModel(name string) (selection ModelSelection, err error) {
 	err = r.mutation("switch_model", r.services.SwitchModel != nil, func() error {
 		selection, err = r.services.SwitchModel(name)
 		return err
@@ -72,20 +72,20 @@ func (r *Manager) SwitchModel(name string) (selection ModelSelection, err error)
 	return selection, err
 }
 
-func (r *Manager) SelectSkill(name string) error {
+func (r *Runtime) SelectSkill(name string) error {
 	return r.mutation("select_skill", r.services.SelectSkill != nil, func() error {
 		return r.services.SelectSkill(name)
 	})
 }
 
-func (r *Manager) ClearSelectedSkill() error {
+func (r *Runtime) ClearSelectedSkill() error {
 	return r.mutation("clear_selected_skill", r.services.ClearSelectedSkill != nil, func() error {
 		r.services.ClearSelectedSkill()
 		return nil
 	})
 }
 
-func (r *Manager) RefreshSkillManagement() (view SkillManagementView, err error) {
+func (r *Runtime) RefreshSkillManagement() (view SkillManagementView, err error) {
 	err = r.mutation("refresh_extensions", r.services.RefreshSkillManagement != nil, func() error {
 		view = r.services.RefreshSkillManagement()
 		return nil
@@ -93,7 +93,7 @@ func (r *Manager) RefreshSkillManagement() (view SkillManagementView, err error)
 	return view, err
 }
 
-func (r *Manager) SetPluginEnabled(name string, enabled bool) (view SkillManagementView, err error) {
+func (r *Runtime) SetPluginEnabled(name string, enabled bool) (view SkillManagementView, err error) {
 	err = r.mutation("set_plugin_enabled", r.services.SetPluginEnabled != nil, func() error {
 		view, err = r.services.SetPluginEnabled(name, enabled)
 		return err
@@ -101,7 +101,7 @@ func (r *Manager) SetPluginEnabled(name string, enabled bool) (view SkillManagem
 	return view, err
 }
 
-func (r *Manager) ApplyConfig(config ConfigView) (view ConfigView, err error) {
+func (r *Runtime) ApplyConfig(config ConfigView) (view ConfigView, err error) {
 	err = r.mutation("apply_config", r.services.ApplyConfig != nil, func() error {
 		view, err = r.services.ApplyConfig(config)
 		return err
@@ -109,7 +109,7 @@ func (r *Manager) ApplyConfig(config ConfigView) (view ConfigView, err error) {
 	return view, err
 }
 
-func (r *Manager) ResumeSession(id string) error {
+func (r *Runtime) ResumeSession(id string) error {
 	err := r.mutation("resume_session", r.services.ResumeSession != nil, func() error {
 		return r.services.ResumeSession(id)
 	})
@@ -119,7 +119,7 @@ func (r *Manager) ResumeSession(id string) error {
 	return err
 }
 
-func (r *Manager) NewSession() (session SessionMeta, err error) {
+func (r *Runtime) NewSession() (session SessionMeta, err error) {
 	err = r.mutation("new_session", r.services.NewSession != nil, func() error {
 		session, err = r.services.NewSession()
 		return err
@@ -130,7 +130,7 @@ func (r *Manager) NewSession() (session SessionMeta, err error) {
 	return session, err
 }
 
-func (r *Manager) DeleteSession(id string) error {
+func (r *Runtime) DeleteSession(id string) error {
 	err := r.mutation("delete_session", r.services.DeleteSession != nil, func() error {
 		return r.services.DeleteSession(id)
 	})
@@ -140,7 +140,7 @@ func (r *Manager) DeleteSession(id string) error {
 	return err
 }
 
-func (r *Manager) publishSessionChanged() {
+func (r *Runtime) publishSessionChanged() {
 	sessionID := ""
 	if r.services.CurrentSessionID != nil {
 		sessionID = r.services.CurrentSessionID()

@@ -52,7 +52,7 @@ func classifyBash(args map[string]any) Semantics {
 	scan := parseShell(cmd)
 	lower := strings.ToLower(cmd)
 	sem := Semantics{}
-	if bashLooksExploratory(cmd) {
+	if bashLooksExploratory(scan, lower) {
 		sem.Exploratory = true
 		sem.SourceProducing = true
 	}
@@ -69,18 +69,17 @@ func classifyBash(args map[string]any) Semantics {
 	return sem
 }
 
-func bashLooksExploratory(cmd string) bool {
-	scan := parseShell(cmd)
+func bashLooksExploratory(scan shellScan, fallback string) bool {
 	if scan.OK {
 		return slices.ContainsFunc(scan.Calls, callLooksExploratory)
 	}
-	cmd = strings.TrimSpace(strings.ToLower(cmd))
+	fallback = strings.TrimSpace(fallback)
 	return slices.ContainsFunc([]string{
 		"ls", "cat ", "head ", "tail ", "less ", "more ", "wc ",
 		"find ", "fd ", "rg ", "grep ", "du ", "df ", "file ", "stat ",
 		"pwd", "git status", "git log", "git diff", "git show", "git blame",
 	}, func(p string) bool {
-		return cmd == p || strings.HasPrefix(cmd, p)
+		return fallback == p || strings.HasPrefix(fallback, p)
 	})
 }
 

@@ -1,6 +1,6 @@
 // Package runtime provides the interaction control layer above a Runner.
 //
-// Manager is the single in-process entry point used by TUI, GUI, HTTP and IM
+// Runtime is the single in-process entry point used by TUI, GUI, HTTP and IM
 // connectors. It owns run state, events, approvals, questions, connectors and
 // read models; the runner only supplies bot execution and bot-owned views.
 package runtime
@@ -37,9 +37,9 @@ type Interaction interface {
 	Events(context.Context, EventFilter) (<-chan Event, error)
 }
 
-// Manager is the runtime interaction kernel. Applications should keep this
+// Runtime is the interaction kernel. Applications should keep this
 // single instance and route every interaction surface through it.
-type Manager struct {
+type Runtime struct {
 	runner          Runner
 	services        Services
 	events          *eventbus.EventBus
@@ -71,19 +71,19 @@ type Manager struct {
 }
 
 var (
-	_ Interaction      = (*Manager)(nil)
-	_ ConnectorRuntime = (*Manager)(nil)
+	_ Interaction      = (*Runtime)(nil)
+	_ ConnectorRuntime = (*Runtime)(nil)
 )
 
 // New constructs the interaction runtime with explicitly supplied optional
 // application services. Pass Services{} for a core-only runtime.
-func New(runner Runner, services Services) *Manager {
+func New(runner Runner, services Services) *Runtime {
 	if runner == nil {
 		panic("runtime: nil runner")
 	}
 	validateServices(services)
 	events := eventbus.NewEventBus()
-	rt := &Manager{
+	rt := &Runtime{
 		runner:    runner,
 		services:  services,
 		events:    events,
@@ -118,7 +118,7 @@ func requireCompleteService(name string, present ...bool) {
 	}
 }
 
-func (r *Manager) registerConnectorCommands() {
+func (r *Runtime) registerConnectorCommands() {
 	r.registerCommand("connect", "Configure or connect a messaging channel", func(ctx context.Context, args []string) (string, error) {
 		return r.connectors.Handle(ctx, args)
 	})
@@ -136,7 +136,7 @@ func (r *Manager) registerConnectorCommands() {
 }
 
 // registerCommand adds a runtime-owned slash command.
-func (r *Manager) registerCommand(name, description string, handler commandHandler) {
+func (r *Runtime) registerCommand(name, description string, handler commandHandler) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" || handler == nil {
 		return
@@ -149,13 +149,13 @@ func (r *Manager) registerCommand(name, description string, handler commandHandl
 	r.runtimeCommands[name] = runtimeCommand{description: strings.TrimSpace(description), handle: handler}
 }
 
-func (r *Manager) currentRunID() RunID {
+func (r *Runtime) currentRunID() RunID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.currentRun
 }
 
-func (r *Manager) ensureOpen() error {
+func (r *Runtime) ensureOpen() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
@@ -164,7 +164,7 @@ func (r *Manager) ensureOpen() error {
 	return nil
 }
 
-func (r *Manager) beginWaiting(runID RunID, status RunStatus) bool {
+func (r *Runtime) beginWaiting(runID RunID, status RunStatus) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.currentRun != runID || r.status != RunRunning {
@@ -185,7 +185,7 @@ type cancelControl struct {
 	published chan struct{}
 }
 
-func (r *Manager) beginCancel(runID RunID) (cancelControl, bool, error) {
+func (r *Runtime) beginCancel(runID RunID) (cancelControl, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
@@ -217,7 +217,7 @@ func (r *Manager) beginCancel(runID RunID) (cancelControl, bool, error) {
 	return control, true, nil
 }
 
-func (r *Manager) resumeRun(runID RunID, waitingStatus RunStatus) {
+func (r *Runtime) resumeRun(runID RunID, waitingStatus RunStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed || r.currentRun != runID || r.status != waitingStatus {

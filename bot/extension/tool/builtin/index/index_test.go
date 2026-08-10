@@ -71,6 +71,32 @@ func TestIndexToolSymbol(t *testing.T) {
 	}
 }
 
+func TestIndexToolCallers(t *testing.T) {
+	setupTestProject(t)
+	tool := NewIndexTool()
+
+	result, err := tool.Execute(context.Background(), map[string]any{"query": "callers:Hello"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(result, "main") || !strings.Contains(result, "Hello") {
+		t.Errorf("callers query should show main -> Hello, got: %s", result)
+	}
+}
+
+func TestIndexToolCallees(t *testing.T) {
+	setupTestProject(t)
+	tool := NewIndexTool()
+
+	result, err := tool.Execute(context.Background(), map[string]any{"query": "callees:main"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(result, "main") || !strings.Contains(result, "Hello") {
+		t.Errorf("callees query should show main -> Hello, got: %s", result)
+	}
+}
+
 func TestIndexToolFile(t *testing.T) {
 	setupTestProject(t)
 	tool := NewIndexTool()

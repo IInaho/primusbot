@@ -7,7 +7,6 @@ import (
 	"context"
 
 	agentcore "nekocode/bot/agent"
-	"nekocode/protocol"
 	controlruntime "nekocode/runtime"
 )
 
@@ -53,9 +52,7 @@ func (r *Runner) Run(ctx context.Context, input string, host controlruntime.RunH
 		<-watchDone
 	}()
 
-	result := r.agent.Run(input, func(event protocol.StepEvent) {
-		PublishStep(host, event)
-	})
+	result := r.agent.Run(input, host.Step)
 	return result.FinalOutput, result.Error
 }
 
@@ -71,53 +68,6 @@ func (r *Runner) Close() error {
 // Services returns the optional runtime functions implemented by Runner.
 func (r *Runner) Services() controlruntime.Services {
 	return controlruntime.Services{Metrics: r.Metrics, Close: r.Close}
-}
-
-// PublishStep converts one agent-core step into the public runtime protocol.
-// Product runners with additional lifecycle work can reuse this conversion.
-func PublishStep(host controlruntime.RunHost, event protocol.StepEvent) {
-	switch event.Action {
-	case protocol.StepActionToolStart:
-		host.Tool(toolEvent(controlruntime.ToolEventStarted, event))
-	case protocol.StepActionToolBlocked:
-		host.Tool(toolEvent(controlruntime.ToolEventBlocked, event))
-	case protocol.StepActionToolPreview:
-		host.Tool(toolEvent(controlruntime.ToolEventPreview, event))
-	case protocol.StepActionExecuteTool:
-		host.Tool(toolEvent(controlruntime.ToolEventCompleted, event))
-	case protocol.StepActionSubAgentStart:
-		host.SubAgent(controlruntime.SubAgentEvent{
-			Kind:  controlruntime.SubAgentEventStarted,
-			ID:    event.SubAgentID,
-			Type:  event.SubAgentType,
-			Color: event.SubAgentColor,
-		})
-	case protocol.StepActionSubAgentEnd:
-		host.SubAgent(controlruntime.SubAgentEvent{
-			Kind: controlruntime.SubAgentEventEnded,
-			ID:   event.SubAgentID,
-		})
-	}
-}
-
-func toolEvent(kind controlruntime.ToolEventKind, event protocol.StepEvent) controlruntime.ToolEvent {
-	preview := ""
-	output := event.Output
-	if kind == controlruntime.ToolEventStarted || kind == controlruntime.ToolEventPreview {
-		preview = event.Output
-		output = ""
-	}
-	return controlruntime.ToolEvent{
-		Kind:          kind,
-		CallID:        event.CallID,
-		Name:          event.ToolName,
-		Args:          event.ToolArgs,
-		Output:        output,
-		Preview:       preview,
-		IsError:       event.IsError,
-		SubAgentID:    event.SubAgentID,
-		SubAgentColor: event.SubAgentColor,
-	}
 }
 
 var _ controlruntime.Runner = (*Runner)(nil)

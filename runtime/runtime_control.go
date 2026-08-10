@@ -49,7 +49,7 @@ func RedactInputText(input string) string {
 	}
 }
 
-func (r *Manager) StartRun(ctx context.Context, input Input) (RunID, error) {
+func (r *Runtime) StartRun(ctx context.Context, input Input) (RunID, error) {
 	if strings.TrimSpace(input.Text) == "" {
 		return "", protocolError(ErrorInvalidInput, "start_run", "empty input")
 	}
@@ -88,7 +88,7 @@ func (r *Manager) StartRun(ctx context.Context, input Input) (RunID, error) {
 	return runID, nil
 }
 
-func (r *Manager) SteerRun(ctx context.Context, runID RunID, input Input) error {
+func (r *Runtime) SteerRun(ctx context.Context, runID RunID, input Input) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (r *Manager) SteerRun(ctx context.Context, runID RunID, input Input) error 
 	return nil
 }
 
-func (r *Manager) CancelRun(ctx context.Context, runID RunID) error {
+func (r *Runtime) CancelRun(ctx context.Context, runID RunID) error {
 	if err := r.ensureOpen(); err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (r *Manager) CancelRun(ctx context.Context, runID RunID) error {
 	return nil
 }
 
-func (r *Manager) publishCancellation(control cancelControl, message string) {
+func (r *Runtime) publishCancellation(control cancelControl, message string) {
 	_ = control.lease.wait(context.Background())
 	control.execution.wait()
 	r.approvals.RejectAll()
@@ -204,7 +204,7 @@ func (r *Manager) publishCancellation(control cancelControl, message string) {
 	close(control.published)
 }
 
-func (r *Manager) DecideApproval(ctx context.Context, approvalID string, decision ApprovalDecision) error {
+func (r *Runtime) DecideApproval(ctx context.Context, approvalID string, decision ApprovalDecision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (r *Manager) DecideApproval(ctx context.Context, approvalID string, decisio
 	return r.approvals.Decide(approvalID, decision)
 }
 
-func (r *Manager) AnswerQuestion(ctx context.Context, questionID string, reply QuestionReply) error {
+func (r *Runtime) AnswerQuestion(ctx context.Context, questionID string, reply QuestionReply) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func (r *Manager) AnswerQuestion(ctx context.Context, questionID string, reply Q
 // Close stops the active run and releases all runtime-owned resources. It must
 // be called by the application lifecycle, not synchronously from Runner or
 // command callbacks.
-func (r *Manager) Close() error {
+func (r *Runtime) Close() error {
 	r.closeOnce.Do(func() {
 		var errs []error
 		r.mu.Lock()
