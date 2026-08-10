@@ -3,31 +3,40 @@ package subagent
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestBuiltinPromptsDefineRoleSpecificEvidence(t *testing.T) {
-	tests := []struct {
-		name string
-		want []string
-	}{
-		{"executor", []string{"源文件与生成产物", "合法空状态", "修改前取得复现证据", "编译成功不能替代"}},
-		{"researcher", []string{"已确认缺陷", "具体风险", "可选改进", "事实与推断"}},
-		{"verify", []string{"可观察契约", "原复现路径", "真实退出状态", "VERDICT: PASS"}},
+func TestBuiltinProfilesShareRuntimePromptAndSeparateCapabilities(t *testing.T) {
+	coder, ok := GetProfile("coder")
+	if !ok {
+		t.Fatal("coder profile not found")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			agentType, ok := Get(tt.name)
-			if !ok {
-				t.Fatalf("builtin agent %q not found", tt.name)
-			}
-			for _, want := range tt.want {
-				if !strings.Contains(agentType.SystemPrompt, want) {
-					t.Errorf("prompt missing %q", want)
-				}
-			}
-		})
+	explore, ok := GetProfile("explore")
+	if !ok {
+		t.Fatal("explore profile not found")
+	}
+	if coder.SystemPrompt != explore.SystemPrompt {
+		t.Fatal("built-in profiles should share the generic sub-agent prompt")
+	}
+	for _, want := range []string{"通用子 Agent", "实际可见工具是权限边界", "最终消息"} {
+		if !strings.Contains(coder.SystemPrompt, want) {
+			t.Errorf("generic prompt missing %q", want)
+		}
+	}
+	if !slices.Contains(coder.Tools, "write") || !slices.Contains(coder.Tools, "shell") {
+		t.Fatalf("coder tools = %v, want write and shell", coder.Tools)
+	}
+	for _, forbidden := range []string{"write", "edit", "shell", "process"} {
+		if slices.Contains(explore.Tools, forbidden) {
+			t.Errorf("explore unexpectedly allows %q", forbidden)
+		}
+	}
+	for _, removed := range []string{"executor", "researcher", "verify"} {
+		if _, ok := GetProfile(removed); ok {
+			t.Errorf("legacy semantic role %q is still registered", removed)
+		}
 	}
 }
 
@@ -38,10 +47,10 @@ func TestRegisterPluginAgent(t *testing.T) {
 		Tools:        []string{"Read", "Grep"},
 	}
 
-	at := def.ToAgentType()
+	at := def.ToProfile()
 	RegisterPlugin(at)
 
-	got, ok := Get("plugin-agent")
+	got, ok := GetProfile("plugin-agent")
 	if !ok {
 		t.Fatal("plugin agent not found in registry")
 	}
@@ -50,7 +59,7 @@ func TestRegisterPluginAgent(t *testing.T) {
 	}
 
 	UnregisterPlugin("plugin-agent")
-	if _, ok := Get("plugin-agent"); ok {
+	if _, ok := GetProfile("plugin-agent"); ok {
 		t.Error("plugin agent should be gone after unregister")
 	}
 }
@@ -89,9 +98,9 @@ You are a test agent. Do your job.`
 		t.Errorf("systemPrompt = %q", def.SystemPrompt)
 	}
 
-	at := def.ToAgentType()
+	at := def.ToProfile()
 	if at.Name != "test-agent" {
-		t.Errorf("AgentType name = %q", at.Name)
+		t.Errorf("Profile name = %q", at.Name)
 	}
 }
 

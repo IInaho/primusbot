@@ -16,7 +16,7 @@ assert_paths() {
 
 assert_paths false false false false true 'docs/CI CD.md'
 assert_paths true false false false true bot/prompt/system_zh.md
-assert_paths true false false false true bot/agent/subagent/prompts/executor.md
+assert_paths true false false false true bot/agent/subagent/prompts/subagent.md
 assert_paths true false false false true bot/extension/skill/bundled/meta/SKILL.md
 assert_paths true false false false true bot/extension/tool/builtin/filesystem/edit/edit_description.md
 assert_paths true true false false false interaction/gui/web/dist/index.html

@@ -46,16 +46,19 @@ func ToolBrief(toolName, rawArgs string) string {
 	case "todo_write":
 		return todosBrief(args["todos"])
 	case "task":
-		typ := args["type"]
-		if typ == "" {
-			typ = "executor"
+		profile := args["profile"]
+		if profile == "" {
+			profile = "coder"
+		}
+		if skills := args["skills"]; skills != "" && skills != "[]" {
+			profile += " + " + skills
 		}
 		if d := args["description"]; d != "" {
-			return typ + " · " + d
+			return profile + " · " + d
 		}
 		p := strings.SplitN(args["prompt"], "\n", 2)[0]
 		p = strings.Trim(p, " \"")
-		return typ + " · " + text.TruncateByRune(p, 30)
+		return profile + " · " + text.TruncateByRune(p, 30)
 	default:
 		for _, v := range args {
 			return text.TruncateByRune(v, 50)

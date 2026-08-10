@@ -8,7 +8,7 @@ import (
 func TestSlotManagerAcquireUpToLimit(t *testing.T) {
 	m := newSlotManager()
 	for i := 0; i < maxSubSlots; i++ {
-		idx, ok := m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+		idx, ok := m.Acquire(fmt.Sprintf("id-%d", i), "coder")
 		if !ok {
 			t.Fatalf("expected slot %d to be acquired", i)
 		}
@@ -24,9 +24,9 @@ func TestSlotManagerAcquireUpToLimit(t *testing.T) {
 func TestSlotManagerFullReturnsImmediately(t *testing.T) {
 	m := newSlotManager()
 	for i := 0; i < maxSubSlots; i++ {
-		m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+		m.Acquire(fmt.Sprintf("id-%d", i), "coder")
 	}
-	if _, ok := m.Acquire("overflow", "executor"); ok {
+	if _, ok := m.Acquire("overflow", "coder"); ok {
 		t.Fatal("expected acquire to fail when all slots are full")
 	}
 }
@@ -35,10 +35,10 @@ func TestSlotManagerReleaseFreesSlot(t *testing.T) {
 	m := newSlotManager()
 	first := "id-0"
 	for i := 0; i < maxSubSlots; i++ {
-		m.Acquire(fmt.Sprintf("id-%d", i), "executor")
+		m.Acquire(fmt.Sprintf("id-%d", i), "coder")
 	}
 	m.Release(first)
-	idx, ok := m.Acquire("new", "executor")
+	idx, ok := m.Acquire("new", "coder")
 	if !ok {
 		t.Fatal("expected acquire after release to succeed")
 	}

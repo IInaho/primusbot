@@ -22,7 +22,7 @@ type Skill struct {
 	Files       []string
 
 	Context                string
-	AgentType              string
+	AgentProfile           string
 	AllowedTools           []string
 	MaxSteps               int
 	ContextWindow          int

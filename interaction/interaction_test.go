@@ -9,6 +9,9 @@ func TestToolBriefParsesJSONToolArgs(t *testing.T) {
 	if got := ToolBrief("shell", `{"command":"go test ./..."}`); got != "go test ./..." {
 		t.Fatalf("shell args = %q, want command", got)
 	}
+	if got := ToolBrief("task", `{"profile":"explore","skills":["check"],"prompt":"review policy"}`); got != "explore + [check] · review policy" {
+		t.Fatalf("task args = %q, want profile and prompt", got)
+	}
 }
 
 func TestToolBriefReadLineRange(t *testing.T) {

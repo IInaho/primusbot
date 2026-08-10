@@ -479,7 +479,11 @@ func (m *Model) handleRuntimeEvent(ev controlruntime.Event) tea.Cmd {
 		m.applyRuntimeToolEvent(ev)
 	case controlruntime.EventSubAgentStarted:
 		if p, ok := ev.Payload.(controlruntime.SubAgentPayload); ok {
-			m.Messages.AddSubAgent(p.ID, p.Type, p.Color)
+			profile := p.Profile
+			if profile == "" {
+				profile = p.Type
+			}
+			m.Messages.AddSubAgent(p.ID, profile, p.Color)
 		}
 	case controlruntime.EventSubAgentEnded:
 		if p, ok := ev.Payload.(controlruntime.SubAgentPayload); ok {

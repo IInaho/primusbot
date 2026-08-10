@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -178,7 +179,8 @@ func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
 	bot := &testBot{}
 	bot.run = func(_ string, host RunHost) (string, error) {
 		host.Step(protocol.StepEvent{
-			Action: protocol.StepActionSubAgentStart, SubAgentID: "sub_1", SubAgentType: "research", SubAgentColor: 3,
+			Action: protocol.StepActionSubAgentStart, SubAgentID: "sub_1", SubAgentType: "explore",
+			SubAgentProfile: "explore", SubAgentSkills: []string{"check"}, SubAgentColor: 3,
 		})
 		host.Step(protocol.StepEvent{
 			Action: protocol.StepActionToolStart, ToolName: "web_search",
@@ -208,7 +210,8 @@ func TestManagerPublishesStructuredSubAgentEvents(t *testing.T) {
 			tool, _ = event.Payload.(ToolPayload)
 		}
 	}
-	if sub.ID != "sub_1" || sub.Type != "research" || sub.Color != 3 {
+	if sub.ID != "sub_1" || sub.Type != "explore" || sub.Profile != "explore" ||
+		!reflect.DeepEqual(sub.Skills, []string{"check"}) || sub.Color != 3 {
 		t.Fatalf("subagent payload = %#v", sub)
 	}
 	if tool.SubAgentID != "sub_1" || tool.SubAgentColor != 3 {

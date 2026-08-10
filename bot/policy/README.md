@@ -14,7 +14,7 @@
 
 3. **证据必须有明确来源和有效期**
    - `ledger` 只记录专用工具已经确认的结果。
-   - 读取证据只在当前 run 内有效；新 run 或恢复会话后必须重新读取。
+   - 读取证据只在当前执行上下文有效；新 run 或恢复会话后必须重新读取，兄弟 Agent 的读取不能作为本上下文授权。
    - 历史记录可以用于审计，但不能自动成为授权依据。
 
 4. **门禁必须可解释、可复现**
@@ -42,10 +42,13 @@
 
 ## 当前内置边界
 
-- `read_before_write`：主 Agent 修改已存在文件前，必须在当前 run 通过专用 `read` 工具读取该文件。
+- `read_before_write`：主 Agent 或可写子 Agent 修改已存在文件前，必须在自己的执行上下文通过专用 `read` 工具读取当前内容。
 - `garbled_circuit_breaker`：连续产生明确标记为乱码的响应时终止循环。
 
-`PreToolUse` 当前只在主 Agent 工具路径执行。executor 子 Agent 会把执行结果写入共享 ledger，但不会经过该前置门禁；修改这一边界时必须同时补充集成测试和文档。
+`PreToolUse` 在主 Agent 和可写子 Agent 的工具路径执行。每个执行者使用独立授权 ledger，避免主 Agent、子 Agent 或兄弟 Agent 的读取跨上下文授权；子 Agent 工具结果以不生成授权的方式汇入主 run 共享审计 ledger。
+主 run 的共享 policy 在子 Agent 路径只接收审计结果，不执行其 hooks，也不能替代或满足子 Agent 的本地写前读门禁；子 Agent 只执行每次 run 新建的本地确定性 policy。
+子 Agent 当前只参与 `PreToolUse`；执行结果写入 ledger，但不触发主 Agent 的 `PostToolUse/PostToolBatch` 控制流。
+`read_before_write` 是结构化调用顺序门禁，不提供文件系统事务或对外部并发修改的原子版本保证。
 
 ## 新增 hook 前的检查
 

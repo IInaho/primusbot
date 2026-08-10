@@ -436,7 +436,10 @@ func (r *Runtime) publishStep(runID RunID, step protocol.StepEvent) {
 	case protocol.StepActionSubAgentStart:
 		r.events.Publish(Event{
 			RunID: runID, Type: EventSubAgentStarted, Source: SourceRef{Kind: "bot"},
-			Payload: SubAgentPayload{ID: step.SubAgentID, Type: step.SubAgentType, Color: step.SubAgentColor},
+			Payload: SubAgentPayload{
+				ID: step.SubAgentID, Type: step.SubAgentType, Profile: step.SubAgentProfile,
+				Skills: append([]string(nil), step.SubAgentSkills...), Color: step.SubAgentColor,
+			},
 		})
 		r.publishMetrics(runID)
 		return

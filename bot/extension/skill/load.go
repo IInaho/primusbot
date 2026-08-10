@@ -117,7 +117,7 @@ func parseSkillContent(content string) (*Skill, error) {
 		Description:            fm.Description,
 		Content:                strings.TrimSpace(body),
 		Context:                fm.Context,
-		AgentType:              fm.Agent,
+		AgentProfile:           fm.Agent,
 		AllowedTools:           fm.AllowedTools,
 		MaxSteps:               fm.MaxSteps,
 		ContextWindow:          fm.ContextWindow,

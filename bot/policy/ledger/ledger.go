@@ -32,14 +32,6 @@ func (s pathSet) addAll(paths []string) {
 	}
 }
 
-func (s pathSet) has(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, ok := s[filepath.Clean(path)]
-	return ok
-}
-
 func (s pathSet) sorted() []string {
 	return slices.Sorted(maps.Keys(s))
 }
@@ -90,6 +82,16 @@ func (l *Ledger) ResetRun() {
 // tool identity and result. Shell command text is never interpreted as proof
 // that a file was read, modified, or verified.
 func (l *Ledger) RecordTool(ev ToolEvent) {
+	l.recordTool(ev, true)
+}
+
+// RecordAuditTool records run-level audit facts without creating read
+// authorization. It is used when aggregating outcomes from another actor.
+func (l *Ledger) RecordAuditTool(ev ToolEvent) {
+	l.recordTool(ev, false)
+}
+
+func (l *Ledger) recordTool(ev ToolEvent, authorizeRead bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.toolEventCount++
@@ -104,11 +106,13 @@ func (l *Ledger) RecordTool(ev ToolEvent) {
 
 	switch ev.Name {
 	case "read":
-		l.readFiles.addAll(extractPaths(ev.Args))
+		if authorizeRead {
+			l.readFiles.addAll(extractPaths(ev.Args))
+		}
 	case "write", "edit":
 		modified := extractPaths(ev.Args)
 		l.modifiedFiles.addAll(modified)
-		if ev.Name == "write" {
+		if authorizeRead && ev.Name == "write" {
 			// A successful full write establishes the exact current content.
 			l.readFiles.addAll(modified)
 		}
@@ -155,7 +159,11 @@ type Snapshot struct {
 func (l *Ledger) WasRead(path string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.readFiles.has(path)
+	if path == "" {
+		return false
+	}
+	_, ok := l.readFiles[filepath.Clean(path)]
+	return ok
 }
 
 // HasModifications reports whether the snapshot contains any modified files.

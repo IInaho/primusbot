@@ -38,7 +38,7 @@ name: <kebab-case>
 description: <one-line summary plus trigger guidance; this is what the model uses to decide when to invoke the skill>
 allowed-tools: [bash, read, write]  # if fork mode
 context: inline|fork
-agent: executor                      # if fork mode
+agent: coder                         # if fork mode
 max_steps: N                         # if fork mode, default 4
 context_window: N                      # if fork mode, default 16000
 ---

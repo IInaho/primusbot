@@ -267,8 +267,13 @@ func (a *App) dispatchRuntimeEvent(ev controlruntime.Event) {
 		}
 	case controlruntime.EventSubAgentStarted:
 		if p, ok := ev.Payload.(controlruntime.SubAgentPayload); ok {
+			profile := p.Profile
+			if profile == "" {
+				profile = p.Type
+			}
 			wailsruntime.EventsEmit(a.ctx, "agent:subagent_start", map[string]any{
-				"id": p.ID, "subType": p.Type, "colorIdx": p.Color,
+				"id": p.ID, "subType": profile, "profile": profile,
+				"skills": p.Skills, "colorIdx": p.Color,
 			})
 		}
 	case controlruntime.EventSubAgentEnded:

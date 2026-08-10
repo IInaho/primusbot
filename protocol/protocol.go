@@ -26,15 +26,17 @@ const (
 )
 
 type StepEvent struct {
-	Action        StepAction
-	CallID        string
-	ToolName      string
-	ToolArgs      string
-	Output        string
-	IsError       bool
-	SubAgentID    string
-	SubAgentType  string
-	SubAgentColor int
+	Action          StepAction
+	CallID          string
+	ToolName        string
+	ToolArgs        string
+	Output          string
+	IsError         bool
+	SubAgentID      string
+	SubAgentType    string
+	SubAgentProfile string
+	SubAgentSkills  []string
+	SubAgentColor   int
 }
 
 type CommandAction string

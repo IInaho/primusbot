@@ -16,16 +16,12 @@ import (
 	"nekocode/util/yaml"
 )
 
-//go:embed prompts/executor.md
-var executorPrompt string
+//go:embed prompts/subagent.md
+var builtinPrompt string
 
-//go:embed prompts/verify.md
-var verifyPrompt string
-
-//go:embed prompts/researcher.md
-var researcherPrompt string
-
-type AgentType struct {
+// Profile defines a sub-agent's prompt and deterministic tool ceiling. Work
+// methods such as investigation, planning, or review are supplied by skills.
+type Profile struct {
 	Name         string
 	SystemPrompt string
 	Tools        []string
@@ -43,8 +39,8 @@ type ToolCallEvent struct {
 
 type RunConfig struct {
 	Prompt             string
-	AgentType          AgentType
-	Thoroughness       string
+	Profile            Profile
+	SkillContents      []string
 	ContextWindow      int
 	AutoCompactPercent int
 	OnPhase            func(phase string)
@@ -61,41 +57,40 @@ type RunConfig struct {
 	// Environment, when non-nil, is evaluated for every model call so roots
 	// approved while the parent run is active become visible immediately.
 	Environment prompt.EnvironmentProvider
-	// Policy, when non-nil, is the main agent's shared governance handle:
-	// sub-agent tool calls are recorded into the same ledger.
+	// Policy, when non-nil, receives audit-only outcomes for the main run. Its
+	// hooks and authorization state are not evaluated inside this actor.
 	Policy *policy.Policy
+	// guard is created by Engine.Run for every invocation. Callers cannot omit
+	// or share actor-local write authorization state.
+	guard *policy.Policy
 }
 
 var (
-	builtins = registry.New[AgentType](func(a AgentType) string { return a.Name })
-	plugins  = registry.New[AgentType](func(a AgentType) string { return a.Name })
+	builtins = registry.New[Profile](func(a Profile) string { return a.Name })
+	plugins  = registry.New[Profile](func(a Profile) string { return a.Name })
 )
 
-func register(a AgentType) { builtins.Register(a) }
+func register(a Profile) { builtins.Register(a) }
 
 func init() {
-	register(AgentType{
-		Name: "executor", SystemPrompt: executorPrompt,
-		Tools: []string{"read", "write", "edit", "shell", "process", "grep", "glob", "list"},
+	register(Profile{
+		Name: "coder", SystemPrompt: builtinPrompt,
+		Tools: []string{"read", "write", "edit", "shell", "process", "grep", "glob", "list", "web_search", "web_fetch"},
 	})
-	register(AgentType{
-		Name: "verify", SystemPrompt: verifyPrompt,
-		Tools: []string{"read", "grep", "glob", "list", "shell", "process", "web_search", "web_fetch"},
-	})
-	register(AgentType{
-		Name: "researcher", SystemPrompt: researcherPrompt,
+	register(Profile{
+		Name: "explore", SystemPrompt: builtinPrompt,
 		Tools: []string{"read", "grep", "glob", "list", "web_search", "web_fetch"},
 	})
 }
 
-// RegisterPlugin registers a plugin-provided agent type.
-func RegisterPlugin(a AgentType) { plugins.Register(a) }
+// RegisterPlugin registers a plugin-provided profile.
+func RegisterPlugin(a Profile) { plugins.Register(a) }
 
 // UnregisterPlugin removes a plugin-provided agent type by name.
 func UnregisterPlugin(name string) { plugins.Unregister(name) }
 
-// Get looks up an agent type by name, checking builtins first, then plugins.
-func Get(name string) (AgentType, bool) {
+// GetProfile looks up a profile by name, checking builtins first, then plugins.
+func GetProfile(name string) (Profile, bool) {
 	if a, ok := builtins.Get(name); ok {
 		return a, ok
 	}
@@ -130,9 +125,9 @@ func ParseAgentMD(path string) (*AgentDef, error) {
 	return &def, nil
 }
 
-// ToAgentType converts an AgentDef to AgentType for the subagent engine.
-func (d *AgentDef) ToAgentType() AgentType {
-	return AgentType{
+// ToProfile converts an AgentDef to a Profile for the subagent engine.
+func (d *AgentDef) ToProfile() Profile {
+	return Profile{
 		Name:         d.Name,
 		SystemPrompt: d.SystemPrompt,
 		Tools:        d.Tools,

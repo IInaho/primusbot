@@ -39,6 +39,18 @@ func (p *Policy) RecordTool(result ToolResult) {
 	})
 }
 
+// RecordAuditTool records an outcome from another execution context without
+// letting that actor's read/write satisfy this policy's authorization ledger.
+func (p *Policy) RecordAuditTool(result ToolResult) {
+	if p == nil {
+		return
+	}
+	p.ledger.RecordAuditTool(ledger.ToolEvent{
+		Name: result.Name, Args: result.Args, Output: result.Output, Error: result.Error,
+		Blocked: result.Blocked, BlockText: result.BlockReason,
+	})
+}
+
 // RecordTools records one executed batch and evaluates post-tool hooks.
 func (p *Policy) RecordTools(results []ToolResult) []Result {
 	if p == nil {

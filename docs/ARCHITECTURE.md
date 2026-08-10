@@ -127,9 +127,7 @@ nekocode/
 │   │   │   ├── registry.go         #       内置/插件 Agent 与 AgentMD
 │   │   │   ├── safety.go           #       结果安全审核
 │   │   │   └── prompts/            #       子 Agent prompt 模板
-│   │   │       ├── executor.md     #         executor prompt
-│   │   │       ├── researcher.md   #         researcher prompt
-│   │   │       └── verify.md       #         verify prompt
+│   │   │       └── subagent.md     #         通用子 Agent prompt
 │   ├── checkpoint/                 #   回合级文件快照与 rewind
 │   │   ├── checkpoint.go           #     锚点、写前快照、恢复与索引
 │   │   └── checkpoint_test.go      #     新增/修改/删除恢复验收
@@ -606,26 +604,28 @@ Policy 只生成工具调用结果、目标文件是否存在/已读、乱码计
 | `check` | diff/PR/issue 审查、非平凡实现后的交付检查 | 范围核对 → 风险审查 → 独立复核 → 验证 |
 | `skill-creator` | 创建、审查或更新技能 | 收集需求 → 编写 SKILL.md → 校验 |
 
-Skill frontmatter 中的 `context`、`agent`、`allowed-tools`、`max_steps` 和 `context_window` 当前会被解析并保存在 `Skill`，但执行仍采用主 Agent 按需加载正文的 inline 路径。内置工作流不依赖尚未接线的 fork 元数据；需要隔离复核时由 `check` 使用现有 `task(type=verify)`。
+Skill frontmatter 中的 `context`、`agent`、`allowed-tools`、`max_steps` 和 `context_window` 会被解析并保存在 `Skill`；主 Agent 仍可按需 inline 加载正文。委托任务通过 `task(profile, skills, prompt)` 显式选择 profile 和 task-scoped skills，skill 只提供工作流，不能扩展 profile 的工具权限。
 
 ## 子 Agent 系统
 
-### 内置类型（3 种）
+### 内置 Profile（2 种）
 
-| Agent | 用途 | 工具 | 特殊配置 |
-|-------|------|------|---------|
-| executor | 执行代码修改 | read/write/edit/bash/grep/glob/list/question | — |
-| verify | 验证修改 | read/grep/glob/list/bash | — |
-| researcher | 代码探索/调研 | read/grep/glob/list/web_search/web_fetch/question | OmitProjectContext: true |
+| Profile | 权限边界 | 工具 |
+|---------|----------|------|
+| coder | 工作区读写与命令执行 | read/write/edit/shell/process/grep/glob/list/web_search/web_fetch |
+| explore | 严格只读，无任意命令执行 | read/grep/glob/list/web_search/web_fetch |
+
+验证、调研、诊断和设计不是 Agent 类型，由 `check`、`learn`、`hunt`、`think` 等 skill 与具体 task prompt 组合表达。插件 AgentMD 继续作为自定义 profile 注册。
 
 ### Engine 特性
 
 - 独立 ctxmgr（`New(Config)`），配置 merge model 时自动接入 Compactor
 - FileCache 从主 Agent 种子预热（Seed/Merge）
 - 上下文窗口、Thinking 开关等参数从主 Agent 配置继承
+- profile 工具白名单同时用于模型工具过滤与执行前复核；代理工具需要同时列出代理名与允许的 effective target，不能借代理扩大权限
+- 选定 skill 内容在每次模型请求时以 user 级 task-scoped workflow 重投影，不进入可压缩历史，也不授予额外工具
 - 安全审核（关键词匹配 + 敏感路径检测）
-- DisableThinking 默认关闭，researcher 支持 Thoroughness 深度控制
-- Handoff 上下文注入（`<handoff>` 块追加到 system prompt）
+- Handoff 作为未验证证据留在 user task；选定的 skill workflow 保持 user 权限层级，并在自动压缩后继续逐轮重投影
 - ConfirmFn 覆盖（edit 操作需用户确认）
 - Partial result 恢复（中断/错误时返回部分结果）
 - Metadata 追踪（totalTokens、toolUseCount、durationMs、cacheHitTokens、cacheMissTokens）
@@ -641,17 +641,20 @@ Skill frontmatter 中的 `context`、`agent`、`allowed-tools`、`max_steps` 和
 ### Ledger（工具执行账本）
 
 `bot/policy/ledger/ledger.go` 是账本入口，追踪所有工具执行事件，记录：
-- `readFiles`：当前 run 内专用 `read` 工具成功读取，或 `write` 成功写入的文件集合
+- `readFiles`：当前执行上下文内专用 `read` 成功读取，或 `write` 成功写入的文件集合
 - `modifiedFiles`：专用 `write/edit` 工具成功修改的文件集合
 - `blockedTools`：被阻止的工具调用
 - `toolErrors`：工具执行错误
 
 Ledger 不解析 shell 命令来推断读取、修改或验证；命令文本只能证明命令被执行，
-不能证明其语义或充分性。读取证据不跨 run 恢复，避免旧 session 或外部文件变化
-把陈旧记录变成修改授权。
+不能证明其语义或充分性。读取证据不跨 run 恢复；并发 Agent 之间也不共享授权证据。
+这条门禁证明“当前执行上下文调用过专用 read”，不声称对外部并发修改提供原子版本保证。
 
-当前 `PreToolUse` 生命周期由主 Agent 执行；executor 子 Agent 共享 ledger 记录，
-但尚未接入该前置 hook，因此不能把 `read_before_write` 描述为所有执行器的全局保证。
+`PreToolUse` 生命周期由主 Agent 与可写子 Agent 执行。每个执行者使用独立授权 ledger，
+任何 Agent 的 read 都不能授权另一个 Agent 修改；子 Agent 执行结果另行写入主 run 的共享审计 ledger，
+但共享记录不会生成主 Agent 的读取授权。主 policy 的 hooks 不在子 Agent 上复用，避免主 actor
+授权状态与子 actor 本地门禁相互污染；子 Agent 只执行每次 run 新建的本地确定性 policy。
+失败或被阻断调用不会生成授权证据。
 
 ### ResponseGate（响应门控）
 
@@ -690,7 +693,7 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 | 工具账本 | `bot/policy/ledger/` | 专用工具事实追踪（读/写/阻止/错误） |
 | 推理格式 | `bot/agent/model.go` | LLM 响应分类 + GarbledToolCall 检测 |
 | 工具策略 | `bot/policy/` | 确定性工具前后决策、事件收集、hook 注入 |
-| 子 Agent | `bot/agent/subagent/` | 独立循环，3 种内置类型 + 插件扩展 |
+| 子 Agent | `bot/agent/subagent/` | 通用独立循环，coder/explore profile + task-scoped skills + 插件扩展 |
 | 子槽位 | `bot/agent/slots.go` | 并发控制（8 槽位 + 颜色） |
 | LLM 网关 | `bot/provider/` | OpenAI/Anthropic 双协议，统一接口 |
 | 工具系统 | `bot/extension/tool/` | Registry + builtin 实现 + runtime 执行编排 |

@@ -22,13 +22,16 @@ func (t *TaskTool) Wire(run taskbridge.TaskRunner) {
 
 func (t *TaskTool) Name() string { return "task" }
 func (t *TaskTool) Description() string {
-	return "Delegate independent, multi-step work to an isolated sub-agent. Only the main agent can use this tool; sub-agents cannot spawn nested agents or see this conversation. Include the exact goal, scope, relevant paths, constraints, and expected evidence. Types: researcher (read-only analysis), executor (implementation), verify (read-only validation). Use direct tools for simple or tightly coupled work, and verify returned claims before relying on them."
+	return "Delegate independent, multi-step work to an isolated general-purpose sub-agent. Choose a capability profile, then compose task-scoped skills: coder may modify the workspace; explore is strictly read-only. Custom plugin profiles are also accepted. Skills define workflow only and cannot expand the profile's tools. Include the exact goal, scope, relevant paths, constraints, and expected evidence. Use direct tools for simple or tightly coupled work, and verify returned claims before relying on them."
 }
 
 func (t *TaskTool) Parameters() []core.Parameter {
 	return []core.Parameter{
-		{Name: "type", Type: "string", Required: true,
-			Enum: []string{"researcher", "executor", "verify"}, Description: "Sub-agent role."},
+		{Name: "profile", Type: "string", Required: true,
+			Description: "Capability profile. Built-ins: coder (workspace write) and explore (strict read-only)."},
+		{Name: "skills", Type: "array", Required: false,
+			Description: "Task-scoped skill names. Skills cannot grant tools outside the selected profile.",
+			Items:       &core.Schema{Type: "string"}},
 		{Name: "prompt", Type: "string", Required: true,
 			Description: "Self-contained task description with exact file paths and expected output."},
 	}
@@ -44,16 +47,13 @@ func (t *TaskTool) Execute(ctx context.Context, args map[string]any) (string, er
 		return "", err
 	}
 
-	typeName, err := toolutil.RequireStringArg(args, "type")
+	profile, err := toolutil.RequireStringArg(args, "profile")
 	if err != nil {
-		return "", fmt.Errorf("missing type parameter — must specify: researcher, executor, verify")
+		return "", fmt.Errorf("missing profile parameter — built-ins: coder, explore")
 	}
-
-	thoroughness := ""
-	if len(prompt) < 300 {
-		thoroughness = "quick"
-	} else if len(prompt) > 1000 {
-		thoroughness = "very thorough"
+	skills, err := stringSliceArg(args, "skills")
+	if err != nil {
+		return "", err
 	}
 
 	// Read sub-callback from args (injected by agent for TUI forwarding).
@@ -62,7 +62,9 @@ func (t *TaskTool) Execute(ctx context.Context, args map[string]any) (string, er
 		subCtx = taskbridge.WithTaskCallback(ctx, cb)
 		delete(args, "_sub_callback") // clean up
 	}
-	result, err := t.run(subCtx, prompt, typeName, thoroughness)
+	result, err := t.run(subCtx, taskbridge.TaskSpec{
+		Prompt: prompt, Profile: profile, Skills: skills,
+	})
 	if err != nil && result == nil {
 		return "", err
 	}
@@ -73,6 +75,29 @@ func (t *TaskTool) Execute(ctx context.Context, args map[string]any) (string, er
 	out := result.Content
 	if err != nil && result.Status == taskbridge.TaskStatusPartial {
 		out += fmt.Sprintf("\n\nNote: subagent was interrupted before completion: %v", err)
+	}
+	return out, nil
+}
+
+func stringSliceArg(args map[string]any, name string) ([]string, error) {
+	raw, ok := args[name]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		if typed, ok := raw.([]string); ok {
+			return append([]string(nil), typed...), nil
+		}
+		return nil, fmt.Errorf("%s must be an array of strings", name)
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		value, ok := item.(string)
+		if !ok || value == "" {
+			return nil, fmt.Errorf("%s must contain non-empty strings", name)
+		}
+		out = append(out, value)
 	}
 	return out, nil
 }

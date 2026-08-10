@@ -261,7 +261,7 @@ func (m *Manager) activateLocked(ctx context.Context, p *plugin.Plugin) error {
 			logger.Log("plugin: agent %s: %v", path, err)
 			continue
 		}
-		subagent.RegisterPlugin(def.ToAgentType())
+		subagent.RegisterPlugin(def.ToProfile())
 		state.agentNames = append(state.agentNames, def.Name)
 		m.active[p.Name] = state
 	}

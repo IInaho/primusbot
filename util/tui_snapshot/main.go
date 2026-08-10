@@ -273,13 +273,13 @@ func renderProcessingIdle() string {
 func renderProcessingSubAgent() string {
 	p := processing.NewProcessingItem(&sty)
 	p.SetSpinnerView("⠋")
-	p.SetStatusText("Running task(researcher) + task(executor) (12.5s)")
+	p.SetStatusText("Running task(explore) + task(coder) (12.5s)")
 	p.SetTokens(32400, 2890)
 	p.SetSkill("refactor")
 
 	// Register two active sub-agents in header
-	p.AddSubAgent("a1b2", "researcher", 0) // red: #e57373
-	p.AddSubAgent("c3d4", "executor", 3)   // orange: #ffb74d
+	p.AddSubAgent("a1b2", "explore", 0) // red: #e57373
+	p.AddSubAgent("c3d4", "coder", 3)   // orange: #ffb74d
 
 	// Task list
 	p.SetTodos("Tasks 2/3\n· 分析代码结构\n▸ 修改edit工具\n✓ 重构run_exec.go")
@@ -290,11 +290,11 @@ func renderProcessingSubAgent() string {
 		Content: "[run_exec.go#A1B2]\n1:package agent\n...", Done: true,
 	})
 	p.AddToolBlock(block.ContentBlock{
-		Type: block.BlockTool, ToolName: "task", ToolArgs: "researcher, edit logic audit",
-		Content: "Sub-agent researcher completed: found 3 issues in run_exec.go", Done: true,
+		Type: block.BlockTool, ToolName: "task", ToolArgs: "explore + check, edit logic audit",
+		Content: "Sub-agent explore completed: found 3 issues in run_exec.go", Done: true,
 	})
 
-	// Sub-agent researcher tools (೬ red #e57373)
+	// Sub-agent explore tools (೬ red #e57373)
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "run_exec.go 50-120",
 		Content: "[run_exec.go#C3D4]\n50:func (a *Agent)...", Done: true,
@@ -306,7 +306,7 @@ func renderProcessingSubAgent() string {
 		SubID: "a1b2", SubColor: 0,
 	})
 
-	// Sub-agent executor tools (೬ orange #ffb74d)
+	// Sub-agent coder tools (೬ orange #ffb74d)
 	p.AddToolBlock(block.ContentBlock{
 		Type: block.BlockTool, ToolName: "read", ToolArgs: "subslot.go 1-60",
 		Content: "[subslot.go#E5F6]\n1:package agent\n...", Done: true,
@@ -324,7 +324,7 @@ func renderProcessingSubAgent() string {
 		Content: "ok      nekocode/bot/agent      0.456s", Done: true,
 	})
 
-	p.AppendThinkingText("Sub-agent researcher found 3 issues, executor applied the fix. Reviewing the diff...")
+	p.AppendThinkingText("Sub-agent explore found 3 issues, coder applied the fix. Reviewing the diff...")
 	p.AppendStreamText("All sub-agents completed. run_exec.go now has proper sub-agent lifecycle management.")
 
 	return p.Render(width)

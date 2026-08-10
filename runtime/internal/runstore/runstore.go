@@ -270,12 +270,18 @@ func (r *runRecord) findOpenTool(callID, name string) int {
 }
 
 func (r *runRecord) applySubAgent(p core.SubAgentPayload, started bool, at time.Time) {
+	profile := p.Profile
+	if profile == "" {
+		profile = p.Type
+	}
 	for i := range r.snapshot.SubAgents {
 		if r.snapshot.SubAgents[i].ID != p.ID {
 			continue
 		}
 		if started {
-			r.snapshot.SubAgents[i].Type = p.Type
+			r.snapshot.SubAgents[i].Type = profile
+			r.snapshot.SubAgents[i].Profile = profile
+			r.snapshot.SubAgents[i].Skills = append([]string(nil), p.Skills...)
 			r.snapshot.SubAgents[i].Color = p.Color
 		}
 		r.snapshot.SubAgents[i].Active = started
@@ -284,7 +290,10 @@ func (r *runRecord) applySubAgent(p core.SubAgentPayload, started bool, at time.
 		}
 		return
 	}
-	view := core.SubAgentView{ID: p.ID, Type: p.Type, Color: p.Color, Active: started, StartedAt: at}
+	view := core.SubAgentView{
+		ID: p.ID, Type: profile, Profile: profile, Skills: append([]string(nil), p.Skills...),
+		Color: p.Color, Active: started, StartedAt: at,
+	}
 	if !started {
 		view.FinishedAt = &at
 	}
@@ -338,6 +347,7 @@ func copyRunSnapshot(in core.RunSnapshot) core.RunSnapshot {
 	out.SubAgents = append([]core.SubAgentView(nil), in.SubAgents...)
 	for i := range out.SubAgents {
 		out.SubAgents[i].FinishedAt = copyTime(in.SubAgents[i].FinishedAt)
+		out.SubAgents[i].Skills = append([]string(nil), in.SubAgents[i].Skills...)
 	}
 	out.Approvals = make([]core.ApprovalView, len(in.Approvals))
 	for i, approval := range in.Approvals {

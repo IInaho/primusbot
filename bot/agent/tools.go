@@ -3,15 +3,14 @@ package agent
 import (
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 
 	"github.com/google/uuid"
 
+	"nekocode/bot/agent/internal/toolpolicy"
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/taskbridge"
-	"nekocode/bot/extension/tool/runtime/toolutil"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
 	"nekocode/logger"
@@ -71,8 +70,6 @@ type filteredCalls struct {
 	PreToolHints []*policy.Hint
 }
 
-const policyBlockedDefault = "blocked by policy"
-
 func (r *toolRunner) filterToolCalls(calls []core.ToolCallItem) filteredCalls {
 	out := filteredCalls{
 		Allowed: make([]core.ToolCallItem, 0, len(calls)),
@@ -97,50 +94,14 @@ func effectiveToolCall(call core.ToolCallItem) core.ToolCallItem {
 }
 
 func (r *toolRunner) applyPreToolPolicy(c core.ToolCallItem, blocked map[int]string, idx int, hints *[]*policy.Hint) bool {
-	gov := r.agent.deps.gov
-	if gov == nil {
-		return false
+	decision := toolpolicy.Check(r.agent.deps.gov, c)
+	for i := range decision.Hints {
+		hint := decision.Hints[i]
+		*hints = append(*hints, &hint)
 	}
-	shouldBlock := false
-	request := policy.ToolRequest{
-		Name:         c.Name,
-		Args:         c.Args,
-		TargetExists: toolTargetExists(c),
-	}
-	for _, result := range gov.BeforeTool(request) {
-		if result.Hint != nil {
-			*hints = append(*hints, result.Hint)
-		}
-		if result.BlockTool != nil && (result.BlockTool.Tool == "" || result.BlockTool.Tool == c.Name) {
-			blocked[idx] = result.BlockTool.Reason
-			if blocked[idx] == "" {
-				blocked[idx] = policyBlockedDefault
-			}
-			shouldBlock = true
-		}
-		if result.Stop != nil {
-			blocked[idx] = policyBlockedStop(result.Stop.String())
-			shouldBlock = true
-		}
-	}
-	return shouldBlock
-}
-
-func policyBlockedStop(stop string) string {
-	return "blocked by stop policy: " + stop
-}
-
-func toolTargetExists(call core.ToolCallItem) bool {
-	if call.Name != "write" && call.Name != "edit" {
-		return false
-	}
-	targetPath, _ := call.Args["path"].(string)
-	if targetPath != "" {
-		if resolved, err := toolutil.ValidatePath(targetPath); err == nil {
-			if _, err := os.Stat(resolved); err == nil {
-				return true
-			}
-		}
+	if decision.BlockReason != "" {
+		blocked[idx] = decision.BlockReason
+		return true
 	}
 	return false
 }
@@ -268,21 +229,23 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, allow
 			kept = append(kept, c)
 			continue
 		}
-		subType, _ := c.Args["type"].(string)
-		if subType == "" {
-			subType = "executor"
+		subProfile, _ := c.Args["profile"].(string)
+		if subProfile == "" {
+			subProfile = "coder"
 		}
 		subID := uuid.New().String()
-		colorIdx, ok := r.agent.deps.subSlotMgr.Acquire(subID, subType)
+		colorIdx, ok := r.agent.deps.subSlotMgr.Acquire(subID, subProfile)
 		if !ok {
-			logger.Log("subSlotMgr: Acquire failed for %s (all slots full)", subType)
+			logger.Log("subSlotMgr: Acquire failed for %s (all slots full)", subProfile)
 			denied[allowedIdx[i]] = subSlotFullReason
 			continue
 		}
 		if callback != nil {
+			skills := stringSliceValue(c.Args["skills"])
 			callback(protocol.StepEvent{
-				Action:     protocol.StepActionSubAgentStart,
-				SubAgentID: subID, SubAgentType: subType, SubAgentColor: colorIdx,
+				Action: protocol.StepActionSubAgentStart, SubAgentID: subID,
+				SubAgentType: subProfile, SubAgentProfile: subProfile,
+				SubAgentSkills: skills, SubAgentColor: colorIdx,
 			})
 		}
 		sid := subID
@@ -310,4 +273,21 @@ func (r *toolRunner) prepareSubagentCallbacks(allowed []core.ToolCallItem, allow
 			}
 		}
 	}, denied, kept
+}
+
+func stringSliceValue(value any) []string {
+	switch items := value.(type) {
+	case []string:
+		return append([]string(nil), items...)
+	case []any:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if text, ok := item.(string); ok {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }

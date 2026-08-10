@@ -1,27 +1,111 @@
 package subagent
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"nekocode/bot/agent/internal/toolpolicy"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/tool"
+	"nekocode/bot/extension/tool/runtime/core"
+	"nekocode/bot/extension/tool/runtime/runner"
+	"nekocode/bot/policy"
+	"nekocode/bot/policy/builtin"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider/types"
+	"nekocode/protocol"
 )
+
+type scriptedLLM struct {
+	scripts  [][]types.StreamToken
+	calls    int
+	messages [][]types.Message
+	tools    [][]types.ToolDef
+}
+
+func (f *scriptedLLM) Chat(context.Context, []types.Message, []types.ToolDef) (*types.Response, error) {
+	panic("Chat should not be called by subagent")
+}
+
+func (f *scriptedLLM) ChatStream(_ context.Context, messages []types.Message, toolDefs []types.ToolDef) (<-chan types.StreamToken, <-chan error) {
+	index := f.calls
+	f.calls++
+	f.messages = append(f.messages, append([]types.Message(nil), messages...))
+	f.tools = append(f.tools, append([]types.ToolDef(nil), toolDefs...))
+	tokens := make(chan types.StreamToken, len(f.scripts[index]))
+	errs := make(chan error, 1)
+	for _, token := range f.scripts[index] {
+		tokens <- token
+	}
+	close(tokens)
+	errs <- nil
+	close(errs)
+	return tokens, errs
+}
+
+func (f *scriptedLLM) SetMaxTokens(int)         {}
+func (f *scriptedLLM) GetMaxTokens() int        { return 0 }
+func (f *scriptedLLM) SetDisableThinking(bool)  {}
+func (f *scriptedLLM) GetDisableThinking() bool { return false }
+
+type testProxyTool struct{ name string }
+
+func (t testProxyTool) Name() string        { return t.name }
+func (t testProxyTool) Description() string { return "test proxy" }
+func (t testProxyTool) Parameters() []core.Parameter {
+	return nil
+}
+func (t testProxyTool) ExecutionMode(map[string]any) core.ExecutionMode {
+	return core.ModeParallel
+}
+func (t testProxyTool) Execute(context.Context, map[string]any) (string, error) {
+	return "ok", nil
+}
+
+type countingTool struct {
+	name  string
+	calls int
+}
+
+func (t *countingTool) Name() string        { return t.name }
+func (t *countingTool) Description() string { return "counting test tool" }
+func (t *countingTool) Parameters() []core.Parameter {
+	return nil
+}
+func (t *countingTool) ExecutionMode(map[string]any) core.ExecutionMode {
+	return core.ModeParallel
+}
+func (t *countingTool) Execute(context.Context, map[string]any) (string, error) {
+	t.calls++
+	return "ok", nil
+}
 
 func TestBuildTaskPromptKeepsHandoffOutOfSystemRole(t *testing.T) {
 	cfg := RunConfig{
-		AgentType: AgentType{
-			Name:         "executor",
+		Profile: Profile{
+			Name:         "coder",
 			SystemPrompt: "base prompt",
 		},
-		Prompt:  "current task",
-		Handoff: "prior findings",
+		Prompt:        "current task",
+		Handoff:       "prior findings",
+		SkillContents: []string{"<skill_content name=\"check\">review workflow</skill_content>"},
 	}
 
 	system := buildSystemPrompt(cfg)
 	if strings.Contains(system, "prior findings") || strings.Contains(system, "current task") {
 		t.Fatalf("task evidence leaked into system prompt: %q", system)
+	}
+	if strings.Contains(system, "review workflow") {
+		t.Fatalf("task skill was promoted to system authority: %q", system)
+	}
+	workflow := buildSkillWorkflow(cfg)
+	for _, want := range []string{"Task-scoped skills", "review workflow"} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("workflow = %q, want %q", workflow, want)
+		}
 	}
 	got := buildTaskPrompt(cfg)
 	for _, want := range []string{"unverified evidence", "prior findings", "[Current delegated task]", "current task"} {
@@ -34,11 +118,164 @@ func TestBuildTaskPromptKeepsHandoffOutOfSystemRole(t *testing.T) {
 	}
 }
 
+func TestRunRequiresStructuredResultSubmission(t *testing.T) {
+	llm := &scriptedLLM{scripts: [][]types.StreamToken{
+		{{Content: "I have enough to answer."}},
+		{{ToolCallDelta: &types.ToolCallDelta{
+			Index: 0, ID: "result-1", Name: submitResultToolName,
+			Arguments: `{"summary":"完整结论","evidence":["关键证据"],"files":["main.go"],"verification":"go test passed","unfinished":[],"risks":[]}`,
+		}}},
+	}}
+	engine := New(Config{LLM: llm, Tools: tools.New()})
+
+	result, err := engine.Run(context.Background(), RunConfig{
+		Prompt:  "inspect the package",
+		Profile: Profile{Name: "explore", SystemPrompt: "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llm.calls != 2 {
+		t.Fatalf("LLM calls = %d, want 2", llm.calls)
+	}
+	if result.Status != StatusCompleted || result.Handoff == nil || result.Handoff.Summary != "完整结论" {
+		t.Fatalf("result = %+v", result)
+	}
+	for _, want := range []string{"完整结论", "关键证据", "go test passed"} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("formatted handoff = %q, missing %q", result.Content, want)
+		}
+	}
+	if !toolDefsContain(llm.tools[0], submitResultToolName) {
+		t.Fatalf("completion tool missing from tool defs: %+v", llm.tools[0])
+	}
+	if !messagesContainText(llm.messages[1], "I have enough to answer.") ||
+		!messagesContainText(llm.messages[1], submitResultToolName) {
+		t.Fatalf("protocol feedback missing from retry context: %+v", llm.messages[1])
+	}
+}
+
+func TestRunReportsPartialAfterCompletionProtocolRetries(t *testing.T) {
+	llm := &scriptedLLM{scripts: [][]types.StreamToken{
+		{{Content: "first progress message"}},
+		{{Content: "second progress message"}},
+		{{Content: "third progress message"}},
+	}}
+	engine := New(Config{LLM: llm, Tools: tools.New()})
+
+	result, err := engine.Run(context.Background(), RunConfig{
+		Prompt:  "inspect the package",
+		Profile: Profile{Name: "explore", SystemPrompt: "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llm.calls != maxCompletionProtocolRetries+1 {
+		t.Fatalf("LLM calls = %d, want %d", llm.calls, maxCompletionProtocolRetries+1)
+	}
+	if result.Status != StatusPartial {
+		t.Fatalf("status = %v, want partial", result.Status)
+	}
+	for _, want := range []string{"did not submit a structured result", "third progress message"} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("partial result = %q, missing %q", result.Content, want)
+		}
+	}
+}
+
+func TestRunRejectsMixedSubmitBatchWithoutExecutingTools(t *testing.T) {
+	llm := &scriptedLLM{scripts: [][]types.StreamToken{
+		{
+			{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "result-1", Name: submitResultToolName, Arguments: `{"summary":"premature","evidence":[],"files":[],"verification":"not run","unfinished":[],"risks":[]}`}},
+			{ToolCallDelta: &types.ToolCallDelta{Index: 1, ID: "inspect-1", Name: "inspect", Arguments: `{}`}},
+		},
+		{{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "result-2", Name: submitResultToolName, Arguments: `{"summary":"complete","evidence":[],"files":[],"verification":"not run","unfinished":[],"risks":[]}`}}},
+	}}
+	inspect := &countingTool{name: "inspect"}
+	engine := New(Config{LLM: llm, Tools: tools.New(inspect)})
+
+	result, err := engine.Run(context.Background(), RunConfig{
+		Prompt:  "inspect the package",
+		Profile: Profile{Name: "explore", SystemPrompt: "test", Tools: []string{"inspect"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusCompleted || result.Handoff == nil || result.Handoff.Summary != "complete" {
+		t.Fatalf("result = %+v", result)
+	}
+	if inspect.calls != 0 {
+		t.Fatalf("mixed completion batch executed %d ordinary tools", inspect.calls)
+	}
+	for _, callID := range []string{"result-1", "inspect-1"} {
+		if !messagesContainToolResult(llm.messages[1], callID) {
+			t.Fatalf("protocol rejection missing tool result for %s: %+v", callID, llm.messages[1])
+		}
+	}
+}
+
+func TestRunRejectsIncompleteStructuredHandoff(t *testing.T) {
+	llm := &scriptedLLM{scripts: [][]types.StreamToken{
+		{{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "result-1", Name: submitResultToolName, Arguments: `{"summary":"only a summary"}`}}},
+		{{ToolCallDelta: &types.ToolCallDelta{Index: 0, ID: "result-2", Name: submitResultToolName, Arguments: `{"summary":"complete","evidence":[],"files":[],"verification":"not run","unfinished":[],"risks":[]}`}}},
+	}}
+	engine := New(Config{LLM: llm, Tools: tools.New()})
+
+	result, err := engine.Run(context.Background(), RunConfig{
+		Prompt:  "inspect the package",
+		Profile: Profile{Name: "explore", SystemPrompt: "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StatusCompleted || result.Handoff == nil || result.Handoff.Summary != "complete" {
+		t.Fatalf("result = %+v", result)
+	}
+	if !messagesContainToolResult(llm.messages[1], "result-1") ||
+		!messagesContainText(llm.messages[1], "requires field evidence to be an array") {
+		t.Fatalf("missing structured-handoff rejection in retry context: %+v", llm.messages[1])
+	}
+}
+
+func TestRunRejectsReservedCompletionToolCollision(t *testing.T) {
+	collision := &countingTool{name: submitResultToolName}
+	engine := New(Config{LLM: &scriptedLLM{}, Tools: tools.New(collision)})
+
+	result, err := engine.Run(context.Background(), RunConfig{
+		Prompt:  "inspect the package",
+		Profile: Profile{Name: "explore", SystemPrompt: "test"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "reserved lifecycle tool name") {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if collision.calls != 0 {
+		t.Fatalf("reserved-name collision tool executed %d times", collision.calls)
+	}
+}
+
+func toolDefsContain(defs []types.ToolDef, name string) bool {
+	for _, def := range defs {
+		if def.Function.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func messagesContainToolResult(messages []types.Message, callID string) bool {
+	for _, message := range messages {
+		if message.ToolCallID == callID && message.IsError {
+			return true
+		}
+	}
+	return false
+}
+
 func TestContextManagerRefreshesSandboxAtBuildTime(t *testing.T) {
 	root := "/repo"
 	cfg := RunConfig{
-		AgentType: AgentType{
-			Name:         "executor",
+		Profile: Profile{
+			Name:         "coder",
 			SystemPrompt: "base prompt",
 		},
 		Environment: func() prompt.Environment {
@@ -71,7 +308,7 @@ func TestContextManagerRefreshesSandboxAtBuildTime(t *testing.T) {
 
 func TestBuildSystemPromptNilWorkspace(t *testing.T) {
 	cfg := RunConfig{
-		AgentType: AgentType{Name: "executor", SystemPrompt: "base prompt"},
+		Profile: Profile{Name: "coder", SystemPrompt: "base prompt"},
 	}
 	got := buildSystemPrompt(cfg)
 	if strings.Contains(got, "<environment_context>") {
@@ -88,17 +325,139 @@ func messagesContainText(msgs []types.Message, text string) bool {
 	return false
 }
 
-func TestBuildSystemPromptExpandsDeepResearcher(t *testing.T) {
+func TestExecuteToolBatchRejectsToolOutsideProfile(t *testing.T) {
+	registry := tools.New()
+	engine := &Engine{toolRegistry: registry}
+	mgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "test"})
+	executor := runner.NewExecutor(registry)
+	var events []ToolCallEvent
 	cfg := RunConfig{
-		AgentType: AgentType{
-			Name:         "researcher",
-			SystemPrompt: "research prompt",
+		Profile: Profile{Name: "explore", Tools: []string{"read"}},
+		OnToolCall: func(ev ToolCallEvent) {
+			events = append(events, ev)
 		},
-		Thoroughness: thoroughDeep,
+	}
+	state := newRunState()
+	engine.executeToolBatch(context.Background(), cfg, mgr, executor, []core.ToolCallItem{{
+		ID: "1", Name: "write", Args: map[string]any{"path": "blocked.txt"},
+	}}, state, func(string) {}, func(string, ...any) {})
+
+	if len(events) != 1 || events[0].Action != protocol.StepActionToolBlocked {
+		t.Fatalf("events = %+v, want one blocked event", events)
+	}
+	if !strings.Contains(events[0].Output, `profile "explore"`) {
+		t.Fatalf("blocked reason = %q", events[0].Output)
+	}
+}
+
+func TestExecuteToolBatchRequiresAndReportsEffectiveTarget(t *testing.T) {
+	registry := tools.New()
+	registry.RegisterWithOptions(testProxyTool{name: "capability"}, tools.RegistrationOptions{
+		ResolveTarget: func(args map[string]any) (tools.CallTarget, bool) {
+			return tools.CallTarget{Name: "mcp__demo__lookup", Args: args}, true
+		},
+	})
+	engine := &Engine{toolRegistry: registry}
+	call := core.ToolCallItem{ID: "1", Name: "capability", Args: map[string]any{"query": "x"}}
+
+	var denied []ToolCallEvent
+	deniedCfg := RunConfig{
+		Profile:    Profile{Name: "limited", Tools: []string{"capability"}},
+		OnToolCall: func(ev ToolCallEvent) { denied = append(denied, ev) },
+	}
+	engine.executeToolBatch(context.Background(), deniedCfg,
+		ctxmgr.New(ctxmgr.Config{SystemPrompt: "test"}), runner.NewExecutor(registry),
+		[]core.ToolCallItem{call}, newRunState(), func(string) {}, func(string, ...any) {})
+	if len(denied) != 1 || denied[0].Action != protocol.StepActionToolBlocked || denied[0].ToolName != "mcp__demo__lookup" {
+		t.Fatalf("denied events = %+v", denied)
 	}
 
-	got := buildSystemPrompt(cfg)
-	if !strings.Contains(got, "<research_scope>") || !strings.Contains(got, "broad search") {
-		t.Fatalf("system prompt = %q, want deep researcher instruction", got)
+	var allowed []ToolCallEvent
+	allowedCfg := RunConfig{
+		Profile:    Profile{Name: "limited", Tools: []string{"capability", "mcp__demo__lookup"}},
+		OnToolCall: func(ev ToolCallEvent) { allowed = append(allowed, ev) },
+	}
+	engine.executeToolBatch(context.Background(), allowedCfg,
+		ctxmgr.New(ctxmgr.Config{SystemPrompt: "test"}), runner.NewExecutor(registry),
+		[]core.ToolCallItem{call}, newRunState(), func(string) {}, func(string, ...any) {})
+	if len(allowed) != 2 || allowed[0].ToolName != "mcp__demo__lookup" || allowed[1].ToolName != "mcp__demo__lookup" {
+		t.Fatalf("allowed events = %+v", allowed)
+	}
+}
+
+func TestExecuteToolBatchDoesNotTrustAnotherContextsRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.go")
+	if err := os.WriteFile(path, []byte("package existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shared := policy.New()
+	builtin.Register(shared)
+	shared.RecordTool(policy.ToolResult{Name: "read", Args: map[string]any{"path": path}, Output: "ok"})
+	guard := policy.New()
+	builtin.Register(guard)
+
+	registry := tools.New()
+	engine := &Engine{toolRegistry: registry}
+	var events []ToolCallEvent
+	cfg := RunConfig{
+		Profile: Profile{Name: "coder", Tools: []string{"edit"}},
+		Policy:  shared, guard: guard,
+		OnToolCall: func(ev ToolCallEvent) { events = append(events, ev) },
+	}
+	engine.executeToolBatch(context.Background(), cfg,
+		ctxmgr.New(ctxmgr.Config{SystemPrompt: "test"}), runner.NewExecutor(registry),
+		[]core.ToolCallItem{{ID: "1", Name: "edit", Args: map[string]any{"path": path}}},
+		newRunState(), func(string) {}, func(string, ...any) {})
+	if len(events) != 1 || events[0].Action != protocol.StepActionToolBlocked || !strings.Contains(events[0].Output, "请先 Read") {
+		t.Fatalf("events = %+v, want actor-local read-before-write block", events)
+	}
+}
+
+func TestExecuteToolBatchAllowsOwnReadWithSharedAuditPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.go")
+	if err := os.WriteFile(path, []byte("package existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shared := policy.New()
+	builtin.Register(shared)
+	guard := newRunGuard()
+	guard.RecordTool(policy.ToolResult{Name: "read", Args: map[string]any{"path": path}, Output: "ok"})
+
+	registry := tools.New()
+	registry.Register(testProxyTool{name: "edit"})
+	engine := &Engine{toolRegistry: registry}
+	var events []ToolCallEvent
+	cfg := RunConfig{
+		Profile: Profile{Name: "coder", Tools: []string{"edit"}},
+		Policy:  shared, guard: guard,
+		OnToolCall: func(ev ToolCallEvent) { events = append(events, ev) },
+	}
+	engine.executeToolBatch(context.Background(), cfg,
+		ctxmgr.New(ctxmgr.Config{SystemPrompt: "test"}), runner.NewExecutor(registry),
+		[]core.ToolCallItem{{ID: "1", Name: "edit", Args: map[string]any{"path": path}}},
+		newRunState(), func(string) {}, func(string, ...any) {})
+	if len(events) != 2 || events[0].Action != protocol.StepActionToolStart || events[1].Action != protocol.StepActionExecuteTool {
+		t.Fatalf("events = %+v, want own read to allow edit despite shared audit policy", events)
+	}
+	snapshot := shared.Snapshot()
+	if len(snapshot.ReadFiles) != 0 || snapshot.ToolEventCount != 1 {
+		t.Fatalf("shared audit snapshot = %+v", snapshot)
+	}
+}
+
+func TestSubagentPolicyBlockRequiresReadBeforeEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.go")
+	if err := os.WriteFile(path, []byte("package existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gov := policy.New()
+	builtin.Register(gov)
+	call := core.ToolCallItem{Name: "edit", Args: map[string]any{"path": path}}
+	if reason := toolpolicy.Check(gov, call).BlockReason; !strings.Contains(reason, "请先 Read") {
+		t.Fatalf("reason = %q, want read-before-write block", reason)
+	}
+	gov.RecordTool(policy.ToolResult{Name: "read", Args: map[string]any{"path": path}, Output: "ok"})
+	if reason := toolpolicy.Check(gov, call).BlockReason; reason != "" {
+		t.Fatalf("reason after dedicated read = %q, want allow", reason)
 	}
 }

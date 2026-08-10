@@ -158,7 +158,7 @@ func TestRunStoreProjectsRecoverableRunState(t *testing.T) {
 	store.Record(core.Event{RunID: "run_1", Type: core.EventTodosUpdated, Time: now, Payload: todos})
 	store.Record(core.Event{
 		RunID: "run_1", Type: core.EventSubAgentStarted, Time: now,
-		Payload: core.SubAgentPayload{ID: "sub_1", Type: "research", Color: 2},
+		Payload: core.SubAgentPayload{ID: "sub_1", Type: "explore", Profile: "explore", Skills: []string{"check"}, Color: 2},
 	})
 
 	view, _ := store.Lookup("run_1")
@@ -167,6 +167,9 @@ func TestRunStoreProjectsRecoverableRunState(t *testing.T) {
 	}
 	if len(view.SubAgents) != 1 || !view.SubAgents[0].Active {
 		t.Fatalf("subagent state not projected: %#v", view.SubAgents)
+	}
+	if view.SubAgents[0].Profile != "explore" || len(view.SubAgents[0].Skills) != 1 || view.SubAgents[0].Skills[0] != "check" {
+		t.Fatalf("subagent composition not projected: %#v", view.SubAgents[0])
 	}
 
 	store.Record(core.Event{

@@ -118,9 +118,11 @@ type ToolPayload struct {
 }
 
 type SubAgentPayload struct {
-	ID    string `json:"id"`
-	Type  string `json:"type,omitempty"`
-	Color int    `json:"color,omitempty"`
+	ID      string   `json:"id"`
+	Type    string   `json:"type,omitempty"` // compatibility alias for Profile
+	Profile string   `json:"profile,omitempty"`
+	Skills  []string `json:"skills,omitempty"`
+	Color   int      `json:"color,omitempty"`
 }
 
 type SessionPayload struct {

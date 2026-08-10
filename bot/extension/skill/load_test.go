@@ -19,7 +19,7 @@ allowed-tools:
   - bash
   - read
 context: fork
-agent: executor
+agent: coder
 max_steps: 4
 context_window: 8000
 ---
@@ -46,7 +46,7 @@ This is the test skill body.
 	if sk.Description != "A test skill" {
 		t.Errorf("description = %q", sk.Description)
 	}
-	if sk.Context != "fork" || sk.AgentType != "executor" {
+	if sk.Context != "fork" || sk.AgentProfile != "coder" {
 		t.Errorf("context/agent mismatch")
 	}
 	if len(sk.AllowedTools) != 2 || sk.MaxSteps != 4 || sk.ContextWindow != 8000 {

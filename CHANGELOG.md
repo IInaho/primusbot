@@ -2,9 +2,14 @@
 
 ## Unreleased
 
+- 子 Agent 改为 `profile + skills + prompt` 组合：内置仅保留可写 `coder` 与严格只读 `explore`，验证、调研和诊断由 task-scoped skill 表达；profile 白名单在工具暴露和执行前双重检查，子 Agent 的写前读授权按执行上下文隔离。
 - `index` 新增 `callers:<symbol>` 和 `callees:<symbol>` 调用图查询。
 - Runtime 的工具与子 Agent 回调统一为 `RunHost.Step(protocol.StepEvent)`，删除重复的 `ToolEvent`、`SubAgentEvent` 和中间转换层；自定义 Runner 需要改用 `StepEvent` 上报对应动作。
 - Runtime 交互协调器由含义宽泛的 `runtime.Manager` 重命名为 `runtime.Runtime`。
+
+### 兼容性说明
+
+- 子 Agent Go API 为有意的不兼容升级：`AgentType` 改为 `Profile`，`RunConfig` 使用 `Profile/SkillContents`，`TaskRunner` 改为接收 `TaskSpec`，`Skill.AgentType` 改为 `Skill.AgentProfile`；task JSON 参数由 `type/thoroughness/prompt` 改为 `profile/skills/prompt`。自定义集成需同步迁移，不保留旧角色 shim。
 
 ## v0.4.3 - 2026-08-09
 

@@ -2,6 +2,8 @@ package subagent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"nekocode/bot/agent/internal/kernel"
@@ -9,15 +11,18 @@ import (
 	"nekocode/bot/extension/tool"
 	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/extension/tool/runtime/runner"
+	"nekocode/bot/policy"
+	"nekocode/bot/policy/builtin"
 	"nekocode/bot/provider"
 	providertypes "nekocode/bot/provider/types"
 	"nekocode/logger"
 )
 
 const (
-	thoroughDeep     = "very thorough"
-	taskToolName     = "task"
-	maxSubAgentSteps = 50
+	taskToolName                 = "task"
+	submitResultToolName         = "nekocode_submit_result"
+	maxSubAgentSteps             = 50
+	maxCompletionProtocolRetries = 2
 )
 
 type Engine struct {
@@ -34,11 +39,11 @@ type Config struct {
 }
 
 type runState struct {
-	startTime    time.Time
-	toolUseCount int
-	totalTokens  int
-	sensitiveOps int
-	lastText     string
+	startTime         time.Time
+	toolUseCount      int
+	totalTokens       int
+	completionRetries int
+	lastText          string
 }
 
 // New creates a reusable subagent engine.
@@ -50,6 +55,12 @@ func New(config Config) *Engine {
 
 func newRunState() *runState {
 	return &runState{startTime: time.Now()}
+}
+
+func newRunGuard() *policy.Policy {
+	guard := policy.New()
+	builtin.Register(guard)
+	return guard
 }
 
 func (s *runState) addTokens(cfg RunConfig) func(int, int) {
@@ -69,21 +80,20 @@ func (s *runState) meta(ctxMgr *ctxmgr.Manager) runMeta {
 		durationMs:      time.Since(s.startTime).Milliseconds(),
 		cacheHitTokens:  status.CacheHit,
 		cacheMissTokens: status.CacheMiss,
-		sensitiveOps:    s.sensitiveOps,
 	}
 }
 
 func (s *runState) recordCalls(calls []core.ToolCallItem) {
 	s.toolUseCount += len(calls)
-	for _, c := range calls {
-		if isSensitiveCall(c) {
-			s.sensitiveOps++
-		}
-	}
 }
 
 func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
-	subLog := logger.Sub(cfg.AgentType.Name)
+	if e.toolRegistry.Has(submitResultToolName) {
+		return nil, fmt.Errorf("sub-agent tool registry contains reserved lifecycle tool name %q", submitResultToolName)
+	}
+	cfg.guard = newRunGuard()
+	profile := cfg.Profile
+	subLog := logger.Sub(profile.Name)
 	subLog("start: prompt=%q", cfg.Prompt[:min(len(cfg.Prompt), 120)])
 	defer func(start time.Time) {
 		subLog("done: duration=%v", time.Since(start).Round(time.Millisecond))
@@ -144,7 +154,7 @@ func (r *engineRun) stepLimitReached() bool {
 		return false
 	}
 	r.log("max steps reached: step=%d", r.step)
-	r.result = buildPartialResult(r.state.lastText, r.state.meta(r.ctxMgr))
+	r.result = buildProtocolPartialResult(r.state.lastText, "sub-agent step limit reached before submit_result", r.state.meta(r.ctxMgr))
 	return true
 }
 
@@ -166,7 +176,8 @@ func (r *engineRun) stepOnce() bool {
 		r.err = err
 		return true
 	}
-	calls, text, err := r.engine.reason(r.ctx, r.ctxMgr, r.cfg.AgentType.Tools, r.state.addTokens(r.cfg), r.cfg.RecordLLMUsage, r.phase)
+	profile := r.cfg.Profile
+	calls, text, err := r.engine.reason(r.ctx, r.ctxMgr, profile.Tools, buildSkillWorkflow(r.cfg), r.state.addTokens(r.cfg), r.cfg.RecordLLMUsage, r.phase)
 	r.ctxMgr.SetHints("")
 	if err != nil {
 		r.log("error: %v", err)
@@ -183,11 +194,19 @@ func (r *engineRun) stepOnce() bool {
 	if text != "" {
 		r.state.lastText = text
 	}
+	if handoff, submitted, protocolErr := submittedResult(calls); submitted {
+		if protocolErr == nil {
+			r.complete(handoff)
+			return true
+		}
+		r.rejectToolBatch(calls, protocolErr.Error())
+		return r.retryCompletionProtocol(protocolErr.Error())
+	}
 	if len(calls) == 0 {
-		r.complete(text)
-		return true
+		return r.retryCompletionProtocol("response ended without submit_result")
 	}
 
+	r.state.completionRetries = 0
 	r.state.recordCalls(calls)
 	r.engine.executeToolBatch(r.ctx, r.cfg, r.ctxMgr, r.executor, calls, r.state, r.phase, r.log)
 	r.phase("Waiting")
@@ -195,12 +214,100 @@ func (r *engineRun) stepOnce() bool {
 	return false
 }
 
-func (r *engineRun) complete(text string) {
+func submittedResult(calls []core.ToolCallItem) (handoff Handoff, submitted bool, err error) {
+	for _, call := range calls {
+		if call.Name != submitResultToolName {
+			continue
+		}
+		if len(calls) != 1 {
+			return Handoff{}, true, fmt.Errorf("%s must be the only tool call in its batch", submitResultToolName)
+		}
+		var parseErr error
+		handoff.Summary, parseErr = requiredResultString(call.Args, "summary")
+		if parseErr == nil {
+			handoff.Evidence, parseErr = requiredResultStrings(call.Args, "evidence")
+		}
+		if parseErr == nil {
+			handoff.Files, parseErr = requiredResultStrings(call.Args, "files")
+		}
+		if parseErr == nil {
+			handoff.Verification, parseErr = requiredResultString(call.Args, "verification")
+		}
+		if parseErr == nil {
+			handoff.Unfinished, parseErr = requiredResultStrings(call.Args, "unfinished")
+		}
+		if parseErr == nil {
+			handoff.Risks, parseErr = requiredResultStrings(call.Args, "risks")
+		}
+		if parseErr != nil {
+			return Handoff{}, true, fmt.Errorf("%s: %w", submitResultToolName, parseErr)
+		}
+		return handoff, true, nil
+	}
+	return Handoff{}, false, nil
+}
+
+func requiredResultString(args map[string]any, name string) (string, error) {
+	value, ok := args[name].(string)
+	value = strings.TrimSpace(value)
+	if !ok || value == "" {
+		return "", fmt.Errorf("requires a non-empty %s field", name)
+	}
+	return value, nil
+}
+
+func requiredResultStrings(args map[string]any, name string) ([]string, error) {
+	raw, ok := args[name].([]any)
+	if !ok {
+		return nil, fmt.Errorf("requires field %s to be an array", name)
+	}
+	values := make([]string, 0, len(raw))
+	for _, item := range raw {
+		value, ok := item.(string)
+		value = strings.TrimSpace(value)
+		if !ok || value == "" {
+			return nil, fmt.Errorf("requires %s to contain only non-empty strings", name)
+		}
+		values = append(values, value)
+	}
+	return values, nil
+}
+
+func (r *engineRun) rejectToolBatch(calls []core.ToolCallItem, reason string) {
+	results := make([]ctxmgr.ToolResultMsg, len(calls))
+	for i, call := range calls {
+		results[i] = ctxmgr.ToolResultMsg{
+			Message: providertypes.Message{
+				Content: reason, ToolCallID: call.ID, IsError: true,
+			},
+			ToolName: call.Name,
+		}
+	}
+	r.ctxMgr.AddToolResultsBatch(results)
+}
+
+func (r *engineRun) retryCompletionProtocol(reason string) bool {
+	if r.state.completionRetries >= maxCompletionProtocolRetries {
+		r.result = buildProtocolPartialResult(r.state.lastText, reason, r.state.meta(r.ctxMgr))
+		r.phase("done")
+		return true
+	}
+	r.state.completionRetries++
+	r.ctxMgr.Add("user",
+		"[Sub-agent completion protocol]\nYour response was not submitted. Continue the delegated task, then call "+submitResultToolName+" as the only tool call with every required handoff field. Plain assistant text does not complete the task.",
+		providertypes.MessageSourceRuntimeEvent,
+	)
+	r.phase("Waiting")
+	r.step++
+	return false
+}
+
+func (r *engineRun) complete(handoff Handoff) {
 	r.phase("done")
-	r.result = buildResult(text, r.state.meta(r.ctxMgr))
+	r.result = buildHandoffResult(handoff, r.state.meta(r.ctxMgr))
 	r.log("result: tokens=%d tools=%d duration=%dms output=%q",
 		r.result.TotalTokens, r.result.ToolUseCount, r.result.DurationMs,
-		text[:min(len(text), 300)])
+		r.result.Content[:min(len(r.result.Content), 300)])
 }
 
 func (r *engineRun) finish() (*Result, error) {
@@ -218,14 +325,6 @@ const (
 	StatusPartial
 )
 
-type classification int
-
-const (
-	classPass classification = iota
-	classWarn
-	classUnavailable
-)
-
 type Result struct {
 	Status          Status
 	Content         string
@@ -234,7 +333,16 @@ type Result struct {
 	DurationMs      int64
 	CacheHitTokens  int
 	CacheMissTokens int
-	classification  classification
+	Handoff         *Handoff
+}
+
+type Handoff struct {
+	Summary      string
+	Evidence     []string
+	Files        []string
+	Verification string
+	Unfinished   []string
+	Risks        []string
 }
 
 type runMeta struct {
@@ -243,33 +351,13 @@ type runMeta struct {
 	durationMs      int64
 	cacheHitTokens  int
 	cacheMissTokens int
-	sensitiveOps    int
 }
 
 func FormatResult(r *Result) string {
-	if r.classification == classWarn {
-		return "SECURITY WARNING: This sub-agent performed actions that may violate security policy.\n\n" + r.Content
-	}
 	return r.Content
 }
 
-// classifyHandoff inspects both the subagent's text output and its actual tool
-// operations (via meta.sensitiveOps) for dangerous patterns. This catches cases
-// where a subagent performed sensitive operations (reading .env, running rm,
-// etc.) but the text output doesn't mention the filenames or commands explicitly.
-func classifyHandoff(rawOutput string, meta runMeta) classification {
-
-	if meta.sensitiveOps > 0 {
-		return classWarn
-	}
-
-	if isDangerousCommand(rawOutput) || isSensitivePath(rawOutput) {
-		return classWarn
-	}
-	return classPass
-}
-
-func newResult(status Status, content string, meta runMeta, cls classification) *Result {
+func newResult(status Status, content string, meta runMeta) *Result {
 	return &Result{
 		Status:          status,
 		Content:         content,
@@ -278,18 +366,62 @@ func newResult(status Status, content string, meta runMeta, cls classification) 
 		DurationMs:      meta.durationMs,
 		CacheHitTokens:  meta.cacheHitTokens,
 		CacheMissTokens: meta.cacheMissTokens,
-		classification:  cls,
 	}
 }
 
 func buildResult(rawOutput string, meta runMeta) *Result {
-	return newResult(StatusCompleted, rawOutput, meta, classifyHandoff(rawOutput, meta))
+	return newResult(StatusCompleted, rawOutput, meta)
+}
+
+func buildHandoffResult(handoff Handoff, meta runMeta) *Result {
+	result := newResult(StatusCompleted, formatHandoff(handoff), meta)
+	copy := handoff
+	copy.Evidence = append([]string(nil), handoff.Evidence...)
+	copy.Files = append([]string(nil), handoff.Files...)
+	copy.Unfinished = append([]string(nil), handoff.Unfinished...)
+	copy.Risks = append([]string(nil), handoff.Risks...)
+	result.Handoff = &copy
+	return result
+}
+
+func formatHandoff(handoff Handoff) string {
+	var out strings.Builder
+	out.WriteString(handoff.Summary)
+	writeHandoffList(&out, "Evidence", handoff.Evidence)
+	writeHandoffList(&out, "Files", handoff.Files)
+	out.WriteString("\n\nVerification:\n")
+	out.WriteString(handoff.Verification)
+	writeHandoffList(&out, "Unfinished", handoff.Unfinished)
+	writeHandoffList(&out, "Risks", handoff.Risks)
+	return out.String()
+}
+
+func writeHandoffList(out *strings.Builder, heading string, items []string) {
+	out.WriteString("\n\n")
+	out.WriteString(heading)
+	out.WriteString(":")
+	if len(items) == 0 {
+		out.WriteString("\n- None")
+		return
+	}
+	for _, item := range items {
+		out.WriteString("\n- ")
+		out.WriteString(item)
+	}
 }
 
 func buildPartialResult(lastText string, meta runMeta) *Result {
-	return newResult(StatusPartial, lastText, meta, classUnavailable)
+	return newResult(StatusPartial, lastText, meta)
 }
 
 func buildFailedResult(errMsg string, meta runMeta) *Result {
-	return newResult(StatusFailed, errMsg, meta, classUnavailable)
+	return newResult(StatusFailed, errMsg, meta)
+}
+
+func buildProtocolPartialResult(lastText, reason string, meta runMeta) *Result {
+	content := "Sub-agent did not submit a structured result: " + reason
+	if text := strings.TrimSpace(lastText); text != "" {
+		content += "\n\nLast unsubmitted response:\n" + text
+	}
+	return buildPartialResult(content, meta)
 }

@@ -21,9 +21,18 @@ type TaskResult struct {
 	Content string
 }
 
+// TaskSpec describes one delegated task without coupling the task tool to a
+// concrete sub-agent implementation. Profile defines the capability ceiling;
+// Skills supply task-scoped workflows and cannot grant additional tools.
+type TaskSpec struct {
+	Prompt  string
+	Profile string
+	Skills  []string
+}
+
 // TaskRunner executes a delegated task without exposing the concrete sub-agent
 // implementation to builtin tools.
-type TaskRunner func(ctx context.Context, prompt, taskType, thoroughness string) (*TaskResult, error)
+type TaskRunner func(ctx context.Context, spec TaskSpec) (*TaskResult, error)
 
 // TaskCallbackFn forwards delegated task tool events to the caller.
 type TaskCallbackFn func(ev protocol.StepEvent)
