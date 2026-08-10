@@ -1,14 +1,51 @@
-// Package ledger collects tool events and exposes run and turn snapshots.
+// Package ledger records concrete tool outcomes used by deterministic policy.
 package ledger
 
 import (
 	"fmt"
+	"maps"
+	"path/filepath"
+	"slices"
 	"sync"
-
-	"nekocode/bot/policy/semantics"
 )
 
-// ToolEvent is one classified tool outcome.
+type pathSet map[string]struct{}
+
+func extractPaths(args map[string]any) []string {
+	if p, _ := args["path"].(string); p != "" {
+		return []string{filepath.Clean(p)}
+	}
+	return nil
+}
+
+func newPathSetFrom(paths []string) pathSet {
+	s := make(pathSet, len(paths))
+	s.addAll(paths)
+	return s
+}
+
+func (s pathSet) addAll(paths []string) {
+	for _, path := range paths {
+		if path != "" {
+			s[filepath.Clean(path)] = struct{}{}
+		}
+	}
+}
+
+func (s pathSet) has(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, ok := s[filepath.Clean(path)]
+	return ok
+}
+
+func (s pathSet) sorted() []string {
+	return slices.Sorted(maps.Keys(s))
+}
+
+// ToolEvent is one observed tool outcome. It intentionally carries no inferred
+// task semantics such as "verification" or "exploration".
 type ToolEvent struct {
 	Name      string
 	Args      map[string]any
@@ -16,18 +53,9 @@ type ToolEvent struct {
 	Error     string
 	Blocked   bool
 	BlockText string
-	Semantics semantics.Semantics
 }
 
-type Verification struct {
-	Command     string
-	Passed      bool
-	Trusted     bool
-	ProjectRule bool
-	Output      string
-}
-
-// Ledger owns session read history, run audit evidence and current-turn facts.
+// Ledger owns current-run read evidence and run-level audit evidence.
 type Ledger struct {
 	mu sync.RWMutex
 
@@ -35,14 +63,7 @@ type Ledger struct {
 	modifiedFiles  pathSet
 	blockedTools   []ToolEvent
 	toolErrors     []ToolEvent
-	verifications  []Verification
 	toolEventCount int
-	exploreCalls   int
-
-	turnToolCalls       int
-	turnResearcherCalls int
-	turnHasEdits        bool
-	turnHasProgress     bool
 }
 
 // New creates an empty ledger.
@@ -53,83 +74,44 @@ func New() *Ledger {
 	}
 }
 
-// ResetRun clears run evidence while preserving session read history.
+// ResetRun clears all run evidence, including prior reads. A read from an
+// earlier run is not proof that the file still has the same contents.
 func (l *Ledger) ResetRun() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// readFiles is intentionally preserved across runs: once the LLM has read a
-	// file in this session, we trust it to edit that file without re-reading.
-	// All run and turn evidence is cleared below.
+	l.readFiles = make(pathSet)
 	l.modifiedFiles = make(pathSet)
 	l.blockedTools = nil
 	l.toolErrors = nil
-	l.verifications = nil
 	l.toolEventCount = 0
-	l.exploreCalls = 0
-	l.resetTurn()
 }
 
-// BeginTurn clears only facts scoped to one model turn. Session reads and
-// run-level audit evidence remain available.
-func (l *Ledger) BeginTurn() {
-	l.mu.Lock()
-	l.resetTurn()
-	l.mu.Unlock()
-}
-
-func (l *Ledger) resetTurn() {
-	l.turnToolCalls = 0
-	l.turnResearcherCalls = 0
-	l.turnHasEdits = false
-	l.turnHasProgress = false
-}
-
+// RecordTool records only outcomes that can be established directly from the
+// tool identity and result. Shell command text is never interpreted as proof
+// that a file was read, modified, or verified.
 func (l *Ledger) RecordTool(ev ToolEvent) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.toolEventCount++
-	l.turnToolCalls++
-	if ev.Semantics.Exploratory {
-		l.exploreCalls++
-	}
-	if ev.Name == "task" {
-		if kind, _ := ev.Args["type"].(string); kind == "researcher" {
-			l.turnResearcherCalls++
-		}
-	}
 	if ev.Blocked {
 		l.blockedTools = append(l.blockedTools, ev)
-		l.turnHasProgress = true
 		return
 	}
 	if ev.Error != "" {
 		l.toolErrors = append(l.toolErrors, ev)
-		l.turnHasProgress = true
+		return
 	}
-	if ev.Error == "" && ev.Semantics.SourceProducing {
-		l.readFiles.addAll(extractReadPaths(ev.Name, ev.Args))
-		l.turnHasProgress = true
-	}
-	if ev.Semantics.Mutating {
-		modified := extractModifiedPaths(ev)
+
+	switch ev.Name {
+	case "read":
+		l.readFiles.addAll(extractPaths(ev.Args))
+	case "write", "edit":
+		modified := extractPaths(ev.Args)
 		l.modifiedFiles.addAll(modified)
-		if len(modified) > 0 {
-			l.turnHasEdits = true
-			l.turnHasProgress = true
-		}
 		if ev.Name == "write" {
+			// A successful full write establishes the exact current content.
 			l.readFiles.addAll(modified)
 		}
-	}
-	if ev.Semantics.Verifying {
-		l.verifications = append(l.verifications, Verification{
-			Command:     commandArg(ev.Args),
-			Passed:      ev.Error == "",
-			Trusted:     ev.Semantics.VerificationTrusted,
-			ProjectRule: ev.Semantics.VerificationProjectRule,
-			Output:      ev.Output,
-		})
-		l.turnHasProgress = true
 	}
 }
 
@@ -137,26 +119,26 @@ func (l *Ledger) Snapshot() Snapshot {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	s := Snapshot{
-		ReadFiles:     l.readFiles.sorted(),
-		ModifiedFiles: l.modifiedFiles.sorted(),
+		ReadFiles:      l.readFiles.sorted(),
+		ModifiedFiles:  l.modifiedFiles.sorted(),
+		ToolEventCount: l.toolEventCount,
 	}
 	s.BlockedTools = append(s.BlockedTools, l.blockedTools...)
 	s.ToolErrors = append(s.ToolErrors, l.toolErrors...)
-	s.Verifications = append(s.Verifications, l.verifications...)
-	s.ToolEventCount = l.toolEventCount
 	return s
 }
 
 func (l *Ledger) Restore(s Snapshot) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.readFiles = newPathSetFrom(s.ReadFiles)
+	// Persisted ReadFiles may come from an older version that inferred reads
+	// from shell text. Keep historical snapshots loadable, but never restore
+	// them as authorization evidence for a new run.
+	l.readFiles = make(pathSet)
 	l.modifiedFiles = newPathSetFrom(s.ModifiedFiles)
 	l.blockedTools = append([]ToolEvent(nil), s.BlockedTools...)
 	l.toolErrors = append([]ToolEvent(nil), s.ToolErrors...)
-	l.verifications = append([]Verification(nil), s.Verifications...)
 	l.toolEventCount = s.ToolEventCount
-	l.resetTurn()
 }
 
 // Snapshot is the persisted ledger state.
@@ -165,53 +147,24 @@ type Snapshot struct {
 	ModifiedFiles  []string
 	BlockedTools   []ToolEvent
 	ToolErrors     []ToolEvent
-	Verifications  []Verification
 	ToolEventCount int
 }
 
-// TurnSnapshot contains only facts used to decide the current turn.
-type TurnSnapshot struct {
-	ToolCalls       int
-	ExploreCalls    int
-	ResearcherCalls int
-	HasEdits        bool
-	HasProgress     bool
-}
-
-func (l *Ledger) TurnSnapshot() TurnSnapshot {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return TurnSnapshot{
-		ToolCalls:       l.turnToolCalls,
-		ExploreCalls:    l.exploreCalls,
-		ResearcherCalls: l.turnResearcherCalls,
-		HasEdits:        l.turnHasEdits,
-		HasProgress:     l.turnHasProgress,
-	}
-}
-
-// WasRead checks whether a specific file path has been read (tracked in ledger).
-// The path is cleaned before comparison to match ledger storage format.
+// WasRead reports whether, in the current run, the dedicated read tool
+// successfully read path or a successful full write established its contents.
 func (l *Ledger) WasRead(path string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.readFiles.has(path)
 }
 
+// HasModifications reports whether the snapshot contains any modified files.
+// Deprecated: inspect ModifiedFiles directly when consuming a snapshot.
 func (s Snapshot) HasModifications() bool {
 	return len(s.ModifiedFiles) > 0
 }
 
-func (s Snapshot) HasPassingVerification() bool {
-	for _, v := range s.Verifications {
-		if v.Passed {
-			return true
-		}
-	}
-	return false
-}
-
 func (s Snapshot) Summary() string {
-	return fmt.Sprintf("%d modified, %d verifications, %d tool errors, %d blocked tools",
-		len(s.ModifiedFiles), len(s.Verifications), len(s.ToolErrors), len(s.BlockedTools))
+	return fmt.Sprintf("%d modified, %d tool errors, %d blocked tools",
+		len(s.ModifiedFiles), len(s.ToolErrors), len(s.BlockedTools))
 }

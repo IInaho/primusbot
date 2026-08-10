@@ -2,14 +2,12 @@ package agent
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
 	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
 	"nekocode/bot/policy/builtin"
-	"nekocode/bot/provider/types"
 )
 
 func newTestAgent() *Agent {
@@ -22,7 +20,6 @@ func newTestAgent() *Agent {
 		Tools:   reg,
 		Policy:  gov,
 	})
-	gov.BeginTurn(policy.Turn{}, 0, 128000)
 	return agent
 }
 
@@ -124,36 +121,6 @@ func TestHandleText_IsError_ConsecutiveFailuresIncrement(t *testing.T) {
 	}
 	if a.run.consecutiveFailures != 6 {
 		t.Errorf("expected consecutiveFailures=6, got %d", a.run.consecutiveFailures)
-	}
-}
-
-func TestHandleText_IsError_WithPendingTasks_HintInjected(t *testing.T) {
-	a := newTestAgent()
-	a.Reset()
-	a.deps.gov.BeginTurn(policy.Turn{HasTasks: true}, 0, 128000)
-
-	rr := &reasoningResult{
-		Thought:     "LLM call failed",
-		Action:      actionChat,
-		ActionInput: "LLM call failed: connection refused",
-		IsError:     true,
-	}
-
-	msgCountBefore := a.deps.ctxMgr.Len()
-	finished := a.turnRunner.handleText(rr, nil)
-
-	if finished {
-		t.Error("expected finished=false when Stop hook injects hint")
-	}
-	added := a.deps.ctxMgr.Len() - msgCountBefore
-	if added != 0 {
-		t.Errorf("expected hint to stay out of history, got %d messages added", added)
-	}
-
-	a.applyTurnHints(nil)
-	msgs := a.deps.ctxMgr.BuildRequest(ctxmgr.ModelRequest{})
-	if len(msgs) == 0 || msgs[len(msgs)-1].Role != "user" || msgs[len(msgs)-1].Source != types.MessageSourceHint || !strings.Contains(msgs[len(msgs)-1].Content, `type="policy_block"`) {
-		t.Fatalf("expected pending hook hint in tagged user context, got %+v", msgs)
 	}
 }
 

@@ -185,7 +185,7 @@ assistant := agent.New(context.Background(), agent.Config{
 })
 ```
 
-工具权限在 Registry 构造阶段限制；Policy 负责运行期预算、审计、Hook 和阻断。
+工具权限在 Registry 构造阶段限制；Policy 负责运行期审计、Hook 和确定性阻断。
 不要用 Policy 模拟工具白名单。
 
 ## 5. Runner 如何输出

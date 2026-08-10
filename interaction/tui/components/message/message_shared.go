@@ -8,6 +8,7 @@ import (
 	"nekocode/interaction/tui/styles"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -28,10 +29,41 @@ func fullMessageWidth(available int) int {
 
 func stripLeadingSpaces(s string) string {
 	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimLeft(line, " ")
+	for i := 0; i < len(lines); {
+		if !isTableRenderLine(lines[i]) {
+			lines[i] = strings.TrimLeft(lines[i], " ")
+			i++
+			continue
+		}
+
+		start := i
+		common := -1
+		table := false
+		for i < len(lines) && isTableRenderLine(lines[i]) {
+			if strings.ContainsRune(ansi.Strip(lines[i]), '┼') {
+				table = true
+			}
+			leading := len(lines[i]) - len(strings.TrimLeft(lines[i], " "))
+			if common < 0 || leading < common {
+				common = leading
+			}
+			i++
+		}
+		for j := start; j < i; j++ {
+			if !table {
+				lines[j] = strings.TrimLeft(lines[j], " ")
+				continue
+			}
+			leading := len(lines[j]) - len(strings.TrimLeft(lines[j], " "))
+			lines[j] = lines[j][min(leading, common):]
+		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func isTableRenderLine(line string) bool {
+	line = ansi.Strip(line)
+	return strings.ContainsRune(line, '│') || strings.ContainsRune(line, '┼')
 }
 
 func thickLeftBar(content string, barColor color.Color, width int) string {

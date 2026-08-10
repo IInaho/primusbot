@@ -81,3 +81,35 @@ func TestDefaultDirs(t *testing.T) {
 		t.Errorf("expected 2 default dirs, got %d", len(dirs))
 	}
 }
+
+func TestBundledSkills(t *testing.T) {
+	got := bundledSkills()
+	want := map[string][]string{
+		"skill-creator": {"Create", "skill"},
+		"hunt":          {"Diagnose", "root cause", "debug"},
+		"think":         {"architecture", "plan", "before coding"},
+		"check":         {"Review", "diff", "after implementation"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("bundled skills = %d, want %d", len(got), len(want))
+	}
+	for _, sk := range got {
+		triggers, ok := want[sk.Name]
+		if !ok {
+			t.Errorf("unexpected bundled skill %q", sk.Name)
+			continue
+		}
+		if sk.Description == "" || sk.Content == "" {
+			t.Errorf("bundled skill %q is incomplete", sk.Name)
+		}
+		for _, trigger := range triggers {
+			if !strings.Contains(sk.Description, trigger) {
+				t.Errorf("bundled skill %q description missing trigger %q", sk.Name, trigger)
+			}
+		}
+		delete(want, sk.Name)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing bundled skills: %v", want)
+	}
+}

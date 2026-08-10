@@ -125,38 +125,6 @@ func (e *Engine) executeToolBatch(ctx context.Context, cfg RunConfig, ctxMgr *ct
 			})
 		}
 	}
-	applyReadOnlySpiralGuard(ctxMgr, calls, state)
-}
-
-func applyReadOnlySpiralGuard(ctxMgr *ctxmgr.Manager, calls []core.ToolCallItem, state *runState) {
-	if isAllExploratory(calls) {
-		state.readOnlyStreak++
-		if hint := policy.ReadOnlySpiralHint(state.readOnlyStreak); hint != nil && !state.readOnlyWarned {
-			ctxMgr.SetHints(policy.FormatHints([]policy.Hint{*hint}))
-			state.readOnlyWarned = true
-		}
-		return
-	}
-	state.readOnlyStreak = 0
-	state.readOnlyWarned = false
-}
-
-// isAllExploratory reports whether every call in the batch is a read-only
-// exploration tool. This is an agent-layer policy (the whitelist encodes
-// subagent behavior), not a tool runtime concern.
-func isAllExploratory(calls []core.ToolCallItem) bool {
-	if len(calls) == 0 {
-		return false
-	}
-	for _, c := range calls {
-		switch c.Name {
-		case "read", "grep", "glob", "list", "web_search", "web_fetch":
-			continue
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 func (e *Engine) reason(ctx context.Context, mgr *ctxmgr.Manager, allowed []string, addTokens func(int, int), recordCall func(types.StreamUsage), phase func(string)) ([]core.ToolCallItem, string, error) {

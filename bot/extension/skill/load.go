@@ -142,10 +142,28 @@ func parseFrontmatter(content string) (*frontmatter, string, error) {
 //go:embed bundled/meta/SKILL.md
 var bundledMetaContent string
 
+//go:embed bundled/hunt/SKILL.md
+var bundledHuntContent string
+
+//go:embed bundled/think/SKILL.md
+var bundledThinkContent string
+
+//go:embed bundled/check/SKILL.md
+var bundledCheckContent string
+
 func bundledSkills() []*Skill {
-	sk, err := parseSkillContent(bundledMetaContent)
-	if err != nil {
-		return nil
+	contents := []string{
+		bundledMetaContent,
+		bundledHuntContent,
+		bundledThinkContent,
+		bundledCheckContent,
 	}
-	return []*Skill{sk}
+	sk := make([]*Skill, 0, len(contents))
+	for _, content := range contents {
+		parsed, err := parseSkillContent(content)
+		if err == nil {
+			sk = append(sk, parsed)
+		}
+	}
+	return sk
 }

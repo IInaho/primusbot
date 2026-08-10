@@ -49,7 +49,7 @@ func (r *modelRunner) reason(input string) *reasoningResult {
 func (r *modelRunner) callLLMForTool() (*llmstream.LLMCallResult, error) {
 	a := r.agent
 	toolDefs := core.ToToolDefs(a.deps.toolRegistry.Descriptors())
-	policyHints := r.preModelHints(a.deps.ctxMgr.Build())
+	policyHints := r.preModelHints()
 	messages := a.deps.ctxMgr.BuildRequest(contextmgr.ModelRequest{Tools: toolDefs, PolicyHints: policyHints})
 
 	result, err := llmstream.CallLLMWithRetry(a.getCtx(), a.deps.llmClient, func() llmstream.LLMCallOptions {
@@ -114,26 +114,16 @@ func (r *modelRunner) streamSynthesize(ctx context.Context) (string, error) {
 	return result.Text, nil
 }
 
-func (r *modelRunner) preModelHints(messages []types.Message) string {
+func (r *modelRunner) preModelHints() string {
 	gov := r.agent.deps.gov
 	if gov == nil {
 		return ""
 	}
-	hints := collectHints(gov.BeforeModel(countToolResults(messages)))
+	hints := collectHints(gov.BeforeModel())
 	if len(hints) == 0 {
 		return ""
 	}
 	return policy.FormatHints(hints)
-}
-
-func countToolResults(messages []types.Message) int {
-	var count int
-	for _, m := range messages {
-		if m.Role == "tool" {
-			count++
-		}
-	}
-	return count
 }
 
 func (r *modelRunner) streamCallbacks() llmstream.StreamCallbacks {

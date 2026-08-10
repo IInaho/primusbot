@@ -39,7 +39,6 @@ func TestHookStatePersistsAndIsPrivate(t *testing.T) {
 func TestHookReceivesImmutableFactsValue(t *testing.T) {
 	engine := newHookEngine()
 	facts := Facts{
-		Turn: TurnFacts{Input: "task"},
 		Tool: ToolFacts{Args: map[string]any{"path": "main.go"}},
 	}
 	engine.register(Hook{
@@ -47,16 +46,12 @@ func TestHookReceivesImmutableFactsValue(t *testing.T) {
 		Point: PreModel,
 		On: func(state State) *Result {
 			got := state.Facts()
-			got.Turn.Input = "changed"
 			got.Tool.Args["path"] = "changed.go"
 			return nil
 		},
 	})
 
 	engine.evaluate(PreModel, facts)
-	if facts.Turn.Input != "task" {
-		t.Fatalf("source facts mutated: %+v", facts)
-	}
 	if facts.Tool.Args["path"] != "main.go" {
 		t.Fatalf("source args mutated: %+v", facts.Tool.Args)
 	}

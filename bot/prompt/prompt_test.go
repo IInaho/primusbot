@@ -37,7 +37,7 @@ func TestStaticPromptBytesAreStable(t *testing.T) {
 	if one != two || runtimeCalls != 0 {
 		t.Fatalf("BuildStatic depends on runtime state: equal=%v runtimeCalls=%d", one == two, runtimeCalls)
 	}
-	const wantSHA256 = "2fe7363bea4de266f49607e2dff60de40da27dc395f918f58b95aaba3fe7165e"
+	const wantSHA256 = "86d4d511f57e8b25e9837dbcc0b9ad3ab0b1d2d8d80b9ff0a3f4bba11be33207"
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(one))); got != wantSHA256 {
 		t.Fatalf("static prompt bytes changed: sha256=%s, want %s", got, wantSHA256)
 	}
@@ -144,21 +144,29 @@ func TestStaticPromptKeepsRuntimeImplementationOut(t *testing.T) {
 	}
 }
 
-func TestStaticPromptDefinesEngineeringContract(t *testing.T) {
+func TestStaticPromptDefinesLeanCoreContract(t *testing.T) {
 	got := New("/repo").BuildStatic()
 	for _, want := range []string{
-		"已确认缺陷", "具体风险", "改进建议",
-		"源文件、生成文件和构建产物",
-		"加载失败", "合法空状态",
-		"Bug 修复应先得到可复现证据",
-		"编译成功只证明代码可编译",
-		"退出状态必须代表被验证对象",
-		"用户要求的可观察行为端到端成立",
-		"子 Agent 的结论与修改不是自动可信",
+		"已验证事实", "具体推断", "建议",
+		"源文件、生成文件与构建产物",
+		"未知状态保存为合法空值",
+		"`hunt`、`think`、`check`",
+		"编译通过不能替代",
+		"真实退出状态",
+		"实际 diff",
+		"子 Agent 的结论和修改不是自动可信",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("static prompt missing engineering contract %q", want)
+			t.Errorf("static prompt missing core contract %q", want)
 		}
+	}
+	for _, delegated := range []string{"连续三个假设", "最脆弱的前提", "超过 5 个文件"} {
+		if strings.Contains(got, delegated) {
+			t.Errorf("static prompt should delegate workflow detail %q to skills", delegated)
+		}
+	}
+	if len([]byte(got)) > 7000 {
+		t.Errorf("static prompt grew beyond lean budget: %d bytes", len([]byte(got)))
 	}
 }
 

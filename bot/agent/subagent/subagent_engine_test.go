@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	ctxmgr "nekocode/bot/contextmgr"
-	"nekocode/bot/extension/tool/runtime/core"
 	"nekocode/bot/prompt"
 	"nekocode/bot/provider/types"
 )
@@ -101,42 +100,5 @@ func TestBuildSystemPromptExpandsDeepResearcher(t *testing.T) {
 	got := buildSystemPrompt(cfg)
 	if !strings.Contains(got, "<research_scope>") || !strings.Contains(got, "broad search") {
 		t.Fatalf("system prompt = %q, want deep researcher instruction", got)
-	}
-}
-
-func TestApplyReadOnlySpiralGuardInjectsReminderAfterThreeExploratoryBatches(t *testing.T) {
-	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "system", ContextWindow: 128000})
-	state := newRunState()
-	calls := []core.ToolCallItem{{Name: "read", Args: map[string]any{"path": "a.go"}}}
-
-	applyReadOnlySpiralGuard(ctxMgr, calls, state)
-	applyReadOnlySpiralGuard(ctxMgr, calls, state)
-	if ctxMgr.Snapshot().Hints != "" {
-		t.Fatal("reminder injected too early")
-	}
-
-	applyReadOnlySpiralGuard(ctxMgr, calls, state)
-	if hints := ctxMgr.Snapshot().Hints; !strings.Contains(hints, "read_only_spiral") {
-		t.Fatalf("missing transient reminder after third read-only batch: %q", hints)
-	}
-	if ctxMgr.Len() != 0 {
-		t.Fatal("transient reminder should not be persisted in subagent history")
-	}
-	if state.readOnlyStreak != 3 || !state.readOnlyWarned {
-		t.Fatalf("read-only reminder state = streak %d warned %t", state.readOnlyStreak, state.readOnlyWarned)
-	}
-	ctxMgr.SetHints("")
-	applyReadOnlySpiralGuard(ctxMgr, calls, state)
-	if ctxMgr.Snapshot().Hints != "" {
-		t.Fatal("same uninterrupted streak injected a second reminder")
-	}
-}
-
-func TestApplyReadOnlySpiralGuardResetsOnMutation(t *testing.T) {
-	ctxMgr := ctxmgr.New(ctxmgr.Config{SystemPrompt: "system", ContextWindow: 128000})
-	state := &runState{readOnlyStreak: 2}
-	applyReadOnlySpiralGuard(ctxMgr, []core.ToolCallItem{{Name: "write", Args: map[string]any{"path": "a.go"}}}, state)
-	if state.readOnlyStreak != 0 || state.readOnlyWarned {
-		t.Fatalf("read-only state was not reset: streak %d warned %t", state.readOnlyStreak, state.readOnlyWarned)
 	}
 }

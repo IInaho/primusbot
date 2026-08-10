@@ -145,7 +145,7 @@ func TestFilterToolCallsAllowsWriteAfterRead(t *testing.T) {
 	}
 }
 
-func TestFilterToolCallsAllowsEditWithSufficientAnchor(t *testing.T) {
+func TestFilterToolCallsBlocksUnreadEditEvenWithLongAnchor(t *testing.T) {
 	a := newTestAgent()
 	path := filepath.Join(t.TempDir(), "main.go")
 	if err := os.WriteFile(path, []byte("package main\n\nfunc main() {\n\tmessage := \"hello\"\n\tprintln(message)\n}\n"), 0o644); err != nil {
@@ -167,8 +167,11 @@ func TestFilterToolCallsAllowsEditWithSufficientAnchor(t *testing.T) {
 		}},
 	})
 
-	if len(filtered.Allowed) != 1 {
-		t.Fatalf("allowed = %d, want sufficiently anchored edit allowed; blocked=%v", len(filtered.Allowed), filtered.Blocked)
+	if len(filtered.Allowed) != 0 {
+		t.Fatalf("allowed = %d, want unread edit blocked", len(filtered.Allowed))
+	}
+	if got := filtered.Blocked[0]; !strings.Contains(got, "ledger 中没有该文件的读取记录") {
+		t.Fatalf("blocked reason = %q, want read-before-write hook reason", got)
 	}
 }
 

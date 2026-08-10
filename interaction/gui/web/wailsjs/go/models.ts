@@ -1,15 +1,15 @@
 export namespace protocol {
-
+	
 	export class CommandMenuItem {
 	    value: string;
 	    label: string;
 	    description?: string;
 	    submit?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CommandMenuItem(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.value = source["value"];
@@ -22,18 +22,18 @@ export namespace protocol {
 	    title: string;
 	    empty?: string;
 	    items: CommandMenuItem[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CommandMenu(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.title = source["title"];
 	        this.empty = source["empty"];
 	        this.items = this.convertValues(source["items"], CommandMenuItem);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -56,15 +56,15 @@ export namespace protocol {
 }
 
 export namespace runtime {
-
+	
 	export class WorkspaceConfig {
 	    path: string;
 	    access?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -75,11 +75,11 @@ export namespace runtime {
 	    sandbox_mode?: string;
 	    network?: boolean;
 	    writable_roots?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SandboxConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sandbox_mode = source["sandbox_mode"];
@@ -92,11 +92,11 @@ export namespace runtime {
 	    ask?: string[];
 	    deny?: string[];
 	    sandbox?: Record<string, SandboxConfig>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PermissionsConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.allow = source["allow"];
@@ -104,7 +104,7 @@ export namespace runtime {
 	        this.deny = source["deny"];
 	        this.sandbox = this.convertValues(source["sandbox"], SandboxConfig, true);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -128,11 +128,11 @@ export namespace runtime {
 	    args?: string[];
 	    env?: Record<string, string>;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MCPServerConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.command = source["command"];
@@ -148,11 +148,11 @@ export namespace runtime {
 	    secret_key: string;
 	    base_url?: string;
 	    model?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ImageGenConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -167,11 +167,11 @@ export namespace runtime {
 	    context_window: number;
 	    context_window_source: string;
 	    reasoning_efforts?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ModelProfile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.context_window = source["context_window"];
@@ -189,11 +189,11 @@ export namespace runtime {
 	    reasoning_effort?: string;
 	    context_window?: number;
 	    profile: ModelProfile;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ModelConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -206,7 +206,7 @@ export namespace runtime {
 	        this.context_window = source["context_window"];
 	        this.profile = this.convertValues(source["profile"], ModelProfile);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -236,11 +236,11 @@ export namespace runtime {
 	    mcp_servers?: Record<string, MCPServerConfig>;
 	    permissions?: PermissionsConfig;
 	    workspaces?: WorkspaceConfig[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConfigView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -254,7 +254,7 @@ export namespace runtime {
 	        this.permissions = this.convertValues(source["permissions"], PermissionsConfig);
 	        this.workspaces = this.convertValues(source["workspaces"], WorkspaceConfig);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -278,11 +278,11 @@ export namespace runtime {
 	    label: string;
 	    tokens: number;
 	    tone: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextSegment(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
@@ -318,11 +318,11 @@ export namespace runtime {
 	    subCacheHit: number;
 	    subCacheMiss: number;
 	    segments: ContextSegment[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextSnapshot(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.budget = source["budget"];
@@ -352,7 +352,7 @@ export namespace runtime {
 	        this.subCacheMiss = source["subCacheMiss"];
 	        this.segments = this.convertValues(source["segments"], ContextSegment);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -376,11 +376,11 @@ export namespace runtime {
 	    args?: string;
 	    content: string;
 	    isError?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DisplayBlock(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.toolName = source["toolName"];
@@ -394,11 +394,11 @@ export namespace runtime {
 	    url?: string;
 	    width?: number;
 	    height?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ImageRef(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -413,11 +413,11 @@ export namespace runtime {
 	    reasoning?: string;
 	    blocks?: DisplayBlock[];
 	    images?: ImageRef[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DisplayMessage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.role = source["role"];
@@ -426,7 +426,7 @@ export namespace runtime {
 	        this.blocks = this.convertValues(source["blocks"], DisplayBlock);
 	        this.images = this.convertValues(source["images"], ImageRef);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -445,9 +445,9 @@ export namespace runtime {
 		    return a;
 		}
 	}
-
-
-
+	
+	
+	
 	export class MCPServerView {
 	    name: string;
 	    plugin: string;
@@ -457,11 +457,11 @@ export namespace runtime {
 	    status?: string;
 	    error?: string;
 	    toolCount?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MCPServerView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -474,18 +474,18 @@ export namespace runtime {
 	        this.toolCount = source["toolCount"];
 	    }
 	}
-
-
+	
+	
 	export class ModelSpec {
 	    provider: string;
 	    model: string;
 	    protocol?: string;
 	    context_window?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ModelSpec(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.provider = source["provider"];
@@ -494,7 +494,7 @@ export namespace runtime {
 	        this.context_window = source["context_window"];
 	    }
 	}
-
+	
 	export class PluginView {
 	    name: string;
 	    version?: string;
@@ -508,11 +508,11 @@ export namespace runtime {
 	    commands?: string[];
 	    mcpServers?: string[];
 	    hasHooks?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PluginView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -529,18 +529,18 @@ export namespace runtime {
 	        this.hasHooks = source["hasHooks"];
 	    }
 	}
-
+	
 	export class SessionMeta {
 	    id: string;
 	    cwd: string;
 	    createdAt: number;
 	    updatedAt: number;
 	    msgCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SessionMeta(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -559,11 +559,11 @@ export namespace runtime {
 	    source: string;
 	    sourceKind: string;
 	    plugin?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -580,18 +580,18 @@ export namespace runtime {
 	    skills: SkillView[];
 	    plugins: PluginView[];
 	    mcp: MCPServerView[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillManagementView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skills = this.convertValues(source["skills"], SkillView);
 	        this.plugins = this.convertValues(source["plugins"], PluginView);
 	        this.mcp = this.convertValues(source["mcp"], MCPServerView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -610,6 +610,7 @@ export namespace runtime {
 		    return a;
 		}
 	}
-
+	
 
 }
+

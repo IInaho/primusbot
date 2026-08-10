@@ -62,8 +62,7 @@ type RunConfig struct {
 	// approved while the parent run is active become visible immediately.
 	Environment prompt.EnvironmentProvider
 	// Policy, when non-nil, is the main agent's shared governance handle:
-	// sub-agent tool calls are recorded into the same ledger and
-	// exploration budget.
+	// sub-agent tool calls are recorded into the same ledger.
 	Policy *policy.Policy
 }
 

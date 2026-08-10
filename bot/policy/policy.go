@@ -1,70 +1,28 @@
-// Package policy owns agent behavior policy. Policy is the only runtime entry:
-// it combines exploration scoring, tool-event collection and hook evaluation.
+// Package policy owns deterministic agent behavior policy. Policy is the only
+// runtime entry: it combines the tool-event ledger with hook evaluation. See
+// README.md for the package's governance principles and non-goals.
 package policy
 
 import (
-	"fmt"
 	"sync"
 
-	"nekocode/bot/policy/exploration"
 	"nekocode/bot/policy/ledger"
-	"nekocode/bot/policy/semantics"
 )
-
-const quotaExhaustedMsg = `[配额] 本轮读取配额已达上限 (%d)。基于已有信息继续，不要重试。`
-
-type toolQuota struct {
-	maxSlots int
-	used     int
-}
-
-func computeToolQuota(usedTokens, contextWindow int) toolQuota {
-	if contextWindow <= 0 {
-		return toolQuota{maxSlots: 3}
-	}
-	ratio := float64(usedTokens) / float64(contextWindow)
-	switch {
-	case ratio < 0.15:
-		return toolQuota{maxSlots: 8}
-	case ratio < 0.30:
-		return toolQuota{maxSlots: 4}
-	default:
-		return toolQuota{maxSlots: 2}
-	}
-}
-
-func (q *toolQuota) consumeCall(toolName string, args map[string]any) error {
-	if !semantics.ClassifyToolCall(toolName, args).Exploratory {
-		return nil
-	}
-	q.used++
-	if q.used > q.maxSlots {
-		return fmt.Errorf(quotaExhaustedMsg, q.maxSlots)
-	}
-	return nil
-}
 
 type Policy struct {
 	mu sync.Mutex
 
-	hooks       *hookEngine
-	ledger      *ledger.Ledger
-	exploration *exploration.Tracker
+	hooks  *hookEngine
+	ledger *ledger.Ledger
 
-	turn           Turn
-	quota          toolQuota
-	readsLeft      int
-	modelResults   int
-	garbledCount   int
-	readOnlyStreak int
+	garbledCount int
 }
 
 // New initializes all policy modules with an empty hook set.
 func New() *Policy {
 	return &Policy{
-		hooks:       newHookEngine(),
-		ledger:      ledger.New(),
-		exploration: exploration.New(),
+		hooks:  newHookEngine(),
+		ledger: ledger.New(),
 	}
 }
 
@@ -89,47 +47,23 @@ func (p *Policy) SetSessionID(id string) {
 	}
 }
 
-// ResetRun clears run policy state while preserving files already read in the
-// current persisted session.
+// ResetRun clears all run policy state, including read authorization evidence.
 func (p *Policy) ResetRun() {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
-	p.turn = Turn{}
-	p.quota = toolQuota{}
-	p.readsLeft = 0
-	p.modelResults = 0
 	p.garbledCount = 0
-	p.readOnlyStreak = 0
 	p.mu.Unlock()
-	p.exploration.Reset()
 	p.ledger.ResetRun()
 	p.hooks.reset()
 }
 
-// BeginTurn publishes the facts shared by policy hooks in one model turn.
-func (p *Policy) BeginTurn(turn Turn, usedTokens, contextWindow int) {
-	if p == nil {
-		return
-	}
-	p.ledger.BeginTurn()
-	p.mu.Lock()
-	p.turn = turn
-	p.quota = computeToolQuota(usedTokens, contextWindow)
-	p.readsLeft = p.quota.maxSlots
-	p.modelResults = 0
-	p.mu.Unlock()
-}
-
 // BeforeModel evaluates policy immediately before a model request.
-func (p *Policy) BeforeModel(toolResultCount int) []Result {
+func (p *Policy) BeforeModel() []Result {
 	if p == nil {
 		return nil
 	}
-	p.mu.Lock()
-	p.modelResults = toolResultCount
-	p.mu.Unlock()
 	return p.evaluate(PreModel, ToolFacts{})
 }
 
@@ -184,32 +118,11 @@ func (p *Policy) evaluate(point HookPoint, tool ToolFacts) []Result {
 }
 
 func (p *Policy) facts(tool ToolFacts) Facts {
-	activity := p.ledger.TurnSnapshot()
 	p.mu.Lock()
-	turn := p.turn
-	readsLeft := p.readsLeft
-	modelResults := p.modelResults
 	garbledCount := p.garbledCount
-	readOnlyStreak := p.readOnlyStreak
 	p.mu.Unlock()
 	return Facts{
-		Turn: TurnFacts{
-			Input:     turn.Input,
-			ReadsLeft: readsLeft,
-			HasTasks:  turn.HasTasks,
-			TasksDone: turn.TasksDone,
-		},
-		Tool: tool,
-		Activity: ActivityFacts{
-			ToolCalls:       activity.ToolCalls,
-			ExploreCalls:    activity.ExploreCalls,
-			ResearcherCalls: activity.ResearcherCalls,
-			HasEdits:        activity.HasEdits,
-			HasProgress:     activity.HasProgress,
-			ReadOnlyStreak:  readOnlyStreak,
-		},
-		Exploration: ExplorationFacts{Score: p.exploration.Value()},
-		Model:       ModelFacts{ToolResults: modelResults},
-		Response:    ResponseFacts{GarbledCount: garbledCount},
+		Tool:     tool,
+		Response: ResponseFacts{GarbledCount: garbledCount},
 	}
 }

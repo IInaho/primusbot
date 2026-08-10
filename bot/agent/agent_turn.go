@@ -24,30 +24,15 @@ func newTurnRunner(agent *Agent) *turnRunner {
 	return &turnRunner{agent: agent}
 }
 
-// prepareTurn readies a turn: auto-compacts the context, publishes policy
-// facts, and stages hints left by the previous lifecycle event.
-func (r *turnRunner) prepareTurn(input string) error {
+// prepareTurn auto-compacts the context and stages hints left by the previous
+// lifecycle event.
+func (r *turnRunner) prepareTurn(_ string) error {
 	a := r.agent
 	if _, err := a.deps.ctxMgr.AutoCompactIfNeeded(); err != nil {
 		return err
 	}
-	r.beginTurn(input)
-	return nil
-}
-
-func (r *turnRunner) beginTurn(input string) {
-	a := r.agent
-	if a.deps.gov == nil {
-		a.applyTurnHints(nil)
-		return
-	}
-	status := a.deps.ctxMgr.Status()
-	a.deps.gov.BeginTurn(policy.Turn{
-		Input:     input,
-		HasTasks:  status.HasTasks,
-		TasksDone: status.TasksDone,
-	}, status.Tokens, status.Budget)
 	a.applyTurnHints(nil)
+	return nil
 }
 
 // interruptedBeforeReasoning reports whether the run was interrupted before

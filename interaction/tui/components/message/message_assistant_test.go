@@ -93,3 +93,34 @@ func TestAssistantMessageRendersRestoredReasoning(t *testing.T) {
 		t.Fatalf("assistant reasoning was not rendered:\n%s", clean)
 	}
 }
+
+func TestAssistantMessagePreservesWrappedTableColumnIndentation(t *testing.T) {
+	sty := styles.DefaultStyles()
+	content := `| 文件类型 | 主流策略 | 关键点 |
+|---|---|---|
+| PDF | Docling / MinerU / marker / Adobe Extract（LLM 版）；无文本层时 OCR（PaddleOCR） | 版面分析是关键：多栏、页眉页脚、目录、表格、公式要分别处理；扫描件必须 OCR |`
+	m := NewAssistantMessageItem(&sty, content)
+
+	clean := ansi.Strip(m.Render(80))
+	headerColumn := -1
+	wrappedColumn := -1
+	for _, line := range strings.Split(clean, "\n") {
+		separator := strings.Index(line, "│")
+		if separator < 0 {
+			continue
+		}
+		column := ansi.StringWidth(line[:separator])
+		switch {
+		case strings.Contains(line, "文件类型"):
+			headerColumn = column
+		case strings.Contains(line, "PaddleOCR"):
+			wrappedColumn = column
+		}
+	}
+	if headerColumn < 0 || wrappedColumn < 0 {
+		t.Fatalf("expected table header and wrapped cell in output:\n%s", clean)
+	}
+	if wrappedColumn != headerColumn {
+		t.Fatalf("wrapped table cell shifted from column %d to %d:\n%s", headerColumn, wrappedColumn, clean)
+	}
+}

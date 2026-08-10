@@ -3,311 +3,77 @@ package ledger
 import (
 	"reflect"
 	"testing"
-
-	"nekocode/bot/policy/semantics"
 )
 
-func TestLedgerRecordsModificationAndVerification(t *testing.T) {
+func TestLedgerRecordsDedicatedReadAndModificationTools(t *testing.T) {
 	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "write",
-		Args:      map[string]any{"path": "x.go"},
-		Semantics: semantics.ClassifyToolCall("write", nil),
-	})
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": "go test ./..."},
-		Output:    "ok",
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": "go test ./..."}),
-	})
+	l.RecordTool(ToolEvent{Name: "read", Args: map[string]any{"path": "/tmp/source.go"}})
+	l.RecordTool(ToolEvent{Name: "edit", Args: map[string]any{"path": "/tmp/source.go"}})
+	l.RecordTool(ToolEvent{Name: "write", Args: map[string]any{"path": "/tmp/new.go"}})
 
 	snap := l.Snapshot()
-	if !snap.HasModifications() {
-		t.Fatal("expected modification")
+	if !l.WasRead("/tmp/source.go") || !l.WasRead("/tmp/new.go") {
+		t.Fatalf("read files = %+v", snap.ReadFiles)
 	}
-	if !snap.HasPassingVerification() {
-		t.Fatal("expected passing verification")
-	}
-	if len(snap.Verifications) != 1 || !snap.Verifications[0].Trusted || snap.Verifications[0].ProjectRule {
-		t.Fatalf("verification trust = %+v, want trusted direct verification", snap.Verifications)
+	if !reflect.DeepEqual(snap.ModifiedFiles, []string{"/tmp/new.go", "/tmp/source.go"}) {
+		t.Fatalf("modified files = %+v", snap.ModifiedFiles)
 	}
 }
 
-func TestWasRead(t *testing.T) {
+func TestLedgerDoesNotInferFactsFromShellCommandText(t *testing.T) {
 	l := New()
+	l.RecordTool(ToolEvent{Name: "shell", Args: map[string]any{
+		"command": "cat main.go && go test ./... > test.out",
+	}})
 
-	// Not read yet
-	if l.WasRead("/tmp/test.go") {
-		t.Error("file not read → should return false")
-	}
-
-	// Record a read (via a read tool event that has SourceProducing)
-	l.RecordTool(ToolEvent{
-		Name:      "read",
-		Args:      map[string]any{"path": "/tmp/test.go"},
-		Semantics: semantics.Semantics{SourceProducing: true},
-	})
-
-	if !l.WasRead("/tmp/test.go") {
-		t.Error("file was read → should return true")
-	}
-
-	// Path cleaning should normalize
-	if !l.WasRead("/tmp/foo/../test.go") {
-		t.Error("cleaned path should match")
-	}
-
-	// Different file not read
-	if l.WasRead("/tmp/other.go") {
-		t.Error("unrelated file → should return false")
+	snap := l.Snapshot()
+	if l.WasRead("main.go") || len(snap.ModifiedFiles) != 0 {
+		t.Fatalf("shell text became inferred evidence: %+v", snap)
 	}
 }
 
-func TestResetPreservesSessionReadFiles(t *testing.T) {
+func TestFailedAndBlockedToolsOnlyRecordTheirConcreteOutcome(t *testing.T) {
 	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "read",
-		Args:      map[string]any{"path": "/tmp/session-read.go"},
-		Semantics: semantics.Semantics{SourceProducing: true},
-	})
+	l.RecordTool(ToolEvent{Name: "read", Args: map[string]any{"path": "missing.go"}, Error: "not found"})
+	l.RecordTool(ToolEvent{Name: "write", Args: map[string]any{"path": "blocked.go"}, Blocked: true, BlockText: "denied"})
 
-	// Reset is called between turns, but historical reads survive.
+	snap := l.Snapshot()
+	if l.WasRead("missing.go") || len(snap.ModifiedFiles) != 0 {
+		t.Fatalf("failed/blocked calls changed file evidence: %+v", snap)
+	}
+	if len(snap.ToolErrors) != 1 || len(snap.BlockedTools) != 1 || snap.ToolEventCount != 2 {
+		t.Fatalf("outcome evidence = %+v", snap)
+	}
+}
+
+func TestResetRunClearsPriorReadAuthorization(t *testing.T) {
+	l := New()
+	l.RecordTool(ToolEvent{Name: "read", Args: map[string]any{"path": "/tmp/read.go"}})
+	l.RecordTool(ToolEvent{Name: "edit", Args: map[string]any{"path": "/tmp/read.go"}})
 	l.ResetRun()
 
-	if !l.WasRead("/tmp/session-read.go") {
-		t.Fatal("Reset must preserve session-scoped readFiles across turns")
+	if l.WasRead("/tmp/read.go") {
+		t.Fatal("read from an earlier run remained trusted")
 	}
-
-	// Turn-scoped counters are still reset.
 	snap := l.Snapshot()
-	if snap.ToolEventCount != 0 {
-		t.Fatalf("ToolEventCount = %d, want 0 after Reset", snap.ToolEventCount)
-	}
-	if len(snap.ModifiedFiles) != 0 {
-		t.Fatalf("ModifiedFiles = %+v, want empty after Reset", snap.ModifiedFiles)
-	}
-	if len(snap.BlockedTools) != 0 || len(snap.ToolErrors) != 0 || len(snap.Verifications) != 0 {
-		t.Fatalf("turn-scoped slices should be empty after Reset: %+v", snap)
-	}
-
-	// A new read after Reset is also retained (accumulates).
-	l.RecordTool(ToolEvent{
-		Name:      "read",
-		Args:      map[string]any{"path": "/tmp/second-read.go"},
-		Semantics: semantics.Semantics{SourceProducing: true},
-	})
-	if !l.WasRead("/tmp/session-read.go") || !l.WasRead("/tmp/second-read.go") {
-		t.Fatal("both reads should be known after Reset+Record")
+	if len(snap.ModifiedFiles) != 0 || snap.ToolEventCount != 0 {
+		t.Fatalf("run evidence survived reset: %+v", snap)
 	}
 }
 
-func TestSuccessfulWriteMarksFileAsKnownContent(t *testing.T) {
-	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "write",
-		Args:      map[string]any{"path": "/tmp/new.go"},
-		Semantics: semantics.ClassifyToolCall("write", nil),
-	})
-
-	if !l.WasRead("/tmp/new.go") {
-		t.Fatal("successful write should mark file as known content")
-	}
-}
-
-func TestRestorePreservesReadAndModifiedFiles(t *testing.T) {
+func TestRestoreDoesNotTrustPersistedReads(t *testing.T) {
 	l := New()
 	l.Restore(Snapshot{
-		ReadFiles:      []string{"/tmp/../tmp/read.go"},
-		ModifiedFiles:  []string{"./main.go"},
+		ReadFiles:      []string{"z.go", "dir/../a.go"},
+		ModifiedFiles:  []string{"b.go", "a.go"},
 		ToolEventCount: 3,
 	})
 
-	if !l.WasRead("/tmp/read.go") {
-		t.Fatal("restored read file should be known")
-	}
 	snap := l.Snapshot()
-	if len(snap.ModifiedFiles) != 1 || snap.ModifiedFiles[0] != "main.go" {
-		t.Fatalf("modified files = %+v, want main.go", snap.ModifiedFiles)
+	if len(snap.ReadFiles) != 0 {
+		t.Fatalf("persisted reads were restored as trusted evidence: %+v", snap.ReadFiles)
 	}
-	if snap.ToolEventCount != 3 {
-		t.Fatalf("tool event count = %d, want 3", snap.ToolEventCount)
-	}
-}
-
-func TestFailedWriteDoesNotMarkFileAsKnownContent(t *testing.T) {
-	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "write",
-		Args:      map[string]any{"path": "/tmp/new.go"},
-		Error:     "write failed",
-		Semantics: semantics.ClassifyToolCall("write", nil),
-	})
-
-	if l.WasRead("/tmp/new.go") {
-		t.Fatal("failed write should not mark file as known content")
-	}
-}
-
-func TestFailedReadDoesNotMarkFileAsKnownContent(t *testing.T) {
-	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "read",
-		Args:      map[string]any{"path": "/tmp/missing.go"},
-		Error:     "not found",
-		Semantics: semantics.ClassifyToolCall("read", nil),
-	})
-
-	if l.WasRead("/tmp/missing.go") {
-		t.Fatal("failed read should not mark file as known content")
-	}
-}
-
-func TestLedgerRecordsBashReadPaths(t *testing.T) {
-	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": "cat bot/agent/ledger/ledger.go"},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": "cat bot/agent/ledger/ledger.go"}),
-	})
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": "rg -n WasRead bot/agent/ledger/ledger_test.go"},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": "rg -n WasRead bot/agent/ledger/ledger_test.go"}),
-	})
-
-	if !l.WasRead("bot/agent/ledger/ledger.go") {
-		t.Fatal("cat path should be recorded as read")
-	}
-	if !l.WasRead("bot/agent/ledger/ledger_test.go") {
-		t.Fatal("rg path should be recorded as read")
-	}
-
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": "cd bot && cat policy/ledger/ledger.go"},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": "cd bot && cat policy/ledger/ledger.go"}),
-	})
-	if !l.WasRead("policy/ledger/ledger.go") {
-		t.Fatal("cat after cd should be recorded as read")
-	}
-}
-
-func TestLedgerRecordsBashWritePaths(t *testing.T) {
-	cases := []struct {
-		cmd  string
-		path string
-	}{
-		{"go test ./... > test.out", "test.out"},
-		{"go test ./...>test.out", "test.out"},
-		{"go test ./... >| test.out", "test.out"},
-		{"go test ./... >|test.out", "test.out"},
-		{"go test ./... | tee test.out", "test.out"},
-		{"go test ./...&&touch marker.txt", "marker.txt"},
-		{"sed -i 's/a/b/' main.go", "main.go"},
-		{"touch marker.txt", "marker.txt"},
-		{"touch README", "README"},
-		{"rm main.go", "main.go"},
-		{"mkdir generated", "generated"},
-	}
-	for _, c := range cases {
-		l := New()
-		l.RecordTool(ToolEvent{
-			Name:      "shell",
-			Args:      map[string]any{"command": c.cmd},
-			Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": c.cmd}),
-		})
-		snap := l.Snapshot()
-		found := false
-		for _, p := range snap.ModifiedFiles {
-			if p == c.path {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatalf("%q modified files = %+v, want %q", c.cmd, snap.ModifiedFiles, c.path)
-		}
-	}
-}
-
-func TestLedgerDoesNotRecordFailedEditAsModified(t *testing.T) {
-	l := New()
-	l.RecordTool(ToolEvent{
-		Name:      "edit",
-		Args:      map[string]any{"path": "main.go"},
-		Error:     "anchor not found",
-		Semantics: semantics.ClassifyToolCall("edit", nil),
-	})
-	if snap := l.Snapshot(); len(snap.ModifiedFiles) != 0 {
-		t.Fatalf("failed edit modified files = %+v, want none", snap.ModifiedFiles)
-	}
-}
-
-func TestLedgerDoesNotRecordFailedBashAsModified(t *testing.T) {
-	l := New()
-	cmd := "touch marker.txt"
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": cmd},
-		Error:     "permission denied",
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": cmd}),
-	})
-	if snap := l.Snapshot(); len(snap.ModifiedFiles) != 0 {
-		t.Fatalf("failed bash modified files = %+v, want none", snap.ModifiedFiles)
-	}
-}
-
-func TestLedgerIgnoresDeviceWritePaths(t *testing.T) {
-	l := New()
-	cmd := "go test ./... > /dev/null"
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": cmd},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": cmd}),
-	})
-	if snap := l.Snapshot(); len(snap.ModifiedFiles) != 0 {
-		t.Fatalf("modified files = %+v, want none for device redirect", snap.ModifiedFiles)
-	}
-}
-
-func TestLedgerRecordsOnlyCopyDestinationAsModified(t *testing.T) {
-	l := New()
-	cmd := "cp src dst"
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": cmd},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": cmd}),
-	})
-	snap := l.Snapshot()
-	if len(snap.ModifiedFiles) != 1 || snap.ModifiedFiles[0] != "dst" {
-		t.Fatalf("modified files = %+v, want only dst", snap.ModifiedFiles)
-	}
-}
-
-func TestLedgerSkipsChmodModeOperand(t *testing.T) {
-	l := New()
-	cmd := "chmod 644 main.go"
-	l.RecordTool(ToolEvent{
-		Name:      "shell",
-		Args:      map[string]any{"command": cmd},
-		Semantics: semantics.ClassifyToolCall("shell", map[string]any{"command": cmd}),
-	})
-	snap := l.Snapshot()
-	if len(snap.ModifiedFiles) != 1 || snap.ModifiedFiles[0] != "main.go" {
-		t.Fatalf("modified files = %+v, want only main.go", snap.ModifiedFiles)
-	}
-}
-
-func TestSnapshotSortsPathSets(t *testing.T) {
-	l := New()
-	l.Restore(Snapshot{
-		ReadFiles:     []string{"z.go", "a.go"},
-		ModifiedFiles: []string{"b.go", "a.go"},
-	})
-	snap := l.Snapshot()
-	if !reflect.DeepEqual(snap.ReadFiles, []string{"a.go", "z.go"}) {
-		t.Fatalf("ReadFiles = %+v, want sorted", snap.ReadFiles)
-	}
-	if !reflect.DeepEqual(snap.ModifiedFiles, []string{"a.go", "b.go"}) {
-		t.Fatalf("ModifiedFiles = %+v, want sorted", snap.ModifiedFiles)
+	if !reflect.DeepEqual(snap.ModifiedFiles, []string{"a.go", "b.go"}) || snap.ToolEventCount != 3 {
+		t.Fatalf("restored snapshot = %+v", snap)
 	}
 }

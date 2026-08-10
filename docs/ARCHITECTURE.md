@@ -25,7 +25,7 @@ bot/
 ├── agent/subagent/      # 子 Agent 执行引擎
 ├── contextmgr/          # 上下文、压缩、memory、token 统计
 ├── provider/            # LLM 协议、客户端工厂、stream/http 类型
-├── policy/              # 策略系统：Policy、Hook 引擎（Registry/builtin/plugin）、ledger、budget、tool semantics
+├── policy/              # 确定性策略：Policy、Hook 引擎（Registry/builtin/plugin）、ledger
 ├── extension/           # plugin、skill、mcp、tool 能力实现、执行内核与统一管理
 ├── command/             # slash command 注册和生命周期命令
 ├── session/             # 会话持久化
@@ -159,22 +159,16 @@ nekocode/
 │   │   ├── openai/                 #     OpenAI Chat Completions 兼容实现（DeepSeek / MiniMax 等）
 │   │   ├── provider.go             #     入口：LLM 接口、Config 与 New 工厂
 │   │   └── retry.go                #     指数退避重试
-│   ├── policy/                    #   治理引擎 + 治理语义
+│   ├── policy/                    #   确定性治理引擎
 │   │   ├── policy.go              #     唯一入口：Policy 构造、生命周期、快照
 │   │   ├── policy_tools.go        #     BeforeTool / RecordTool(s)
-│   │   ├── events.go              #     Turn / ToolRequest / ToolResult / Facts
+│   │   ├── events.go              #     ToolRequest / ToolResult / Facts
 │   │   ├── hook.go                #     Hook / State / Result 对外类型
 │   │   ├── hooks.go               #     Hook 注册、私有状态、评估
 │   │   ├── audit.go               #     Hook 审计事件与输出格式化
 │   │   ├── plugin.go              #     LoadPluginHooks（声明式 hooks）
 │   │   ├── builtin/               #     内置 Hook 实现
-│   │   │   ├── all.go             #       All() 列表
-│   │   │   ├── quota_rules.go     #       QuotaHook
-│   │   │   ├── tool_rules.go      #       工具安全与工具结果 guardrail
-│   │   │   ├── exploration_rules.go#      探索预算与探索防护
-│   │   │   ├── progress_rules.go  #       防卡进度规则
-│   │   │   ├── verification_rules.go #    验证规则
-│   │   │   └── garbled_rules.go   #       乱码响应熔断
+│   │   │   └── all.go             #       注册、修改前强制读取、乱码响应熔断
 │   │   ├── plugin/                #     声明式 Hook 实现
 │   │   │   ├── types.go           #       Point / Event / Hint / Result / Hook 类型
 │   │   │   ├── config.go          #       配置加载
@@ -183,10 +177,7 @@ nekocode/
 │   │   │   ├── matcher.go         #       Tool name matcher
 │   │   │   └── runner.go          #       命令执行 + 超时
 │   │   ├── ledger/                #     工具执行账本
-│   │   │   ├── ledger.go          #       入口：事件记录、turn 状态、快照
-│   │   │   └── paths.go           #       shell 读写路径提取
-│   │   ├── exploration/           #     探索分数
-│   │   └── semantics/             #     工具语义分类
+│   │   │   └── ledger.go          #       确定性事件、路径集合与快照
 │   ├── extension/                  #   扩展系统
 │   │   ├── extension.go            #     入口：Manager（插件/Skill/Hook/Agent/MCP 生命周期）
 │   │   ├── extension_commands.go   #     /plugin 命令与安装交互
@@ -326,7 +317,6 @@ New()
 Run() 主循环 → runTurn(state)
   │
   ├─ AutoCompactIfNeeded() 看门狗
-  ├─ Policy.BeginTurn()：重置 turn 事件、计算配额、发布事实
   ├─ drainSteering() 排空中途输入
   │
   ├─ Reason(state) → ReasoningResult
@@ -337,9 +327,9 @@ Run() 主循环 → runTurn(state)
   │   └─ withRetry() 指数退避重试
   │
   ├─ [工具调用] executeAndFeedback(calls, reasoning, state)
-  │   ├─ Policy.BeforeTool()：配额 + PreToolUse 决策
+  │   ├─ Policy.BeforeTool()：确定性 PreToolUse 决策
   │   ├─ 工具执行
-  │   └─ Policy.RecordTools()：账本 + 探索分数 + PostToolUse/PostToolBatch
+  │   └─ Policy.RecordTools()：账本 + PostToolUse/PostToolBatch
   │
   ├─ [文本响应] handleText(reasoning, state)
   │   ├─ Emit garbled/chat Turn
@@ -362,9 +352,8 @@ Agent 循环硬限制：
 | `bot/agent/internal/kernel/` | Agent 循环核心控制流（Loop/RunLoop、Lifecycle、Gate），零业务依赖 |
 | `bot/agent/internal/llmstream/` | LLM 流式调用 + 工具调用解析 + 重试 |
 | `bot/agent/subagent/` | 子 Agent 引擎 + 注册表 + 安全审核 |
-| `bot/policy/` | Policy：组合 hook、ledger、exploration 与 quota 的唯一入口 |
-| `bot/policy/ledger/` | 工具执行账本：readFiles / modifiedFiles / blockedTools / verifications |
-| `bot/policy/exploration/` | 并发安全的探索分数 |
+| [`bot/policy/`](../bot/policy/README.md) | Policy：组合确定性 hook 与 ledger 的唯一入口；治理原则与非目标见目录 README |
+| `bot/policy/ledger/` | 工具执行账本：readFiles / modifiedFiles / blockedTools / toolErrors |
 
 ## 上下文管理
 
@@ -478,7 +467,7 @@ type Tool interface {
 
 `bot/extension/tool/builtin/catalog/toolbox.go` 中的 `Toolbox` 注册内置工具（shell/process/read/write/list/tree/glob/edit/grep/web_search/web_fetch/question/todo_write/task/diff/index）。`image_gen` 按配置条件注册；Extension manager 统一注册 `skill` 和 constant-schema `capability` 工具。`bot/core/bot.go` 只负责 Extension、Agent 和 command parser 的顶层组装。
 
-`Registry` 除了保存 `Tool`，还集中保存 preview 与 delegated-call target 等执行元数据。模型侧名称仍是固定的 `capability`，但解析后的 canonical identity 会随 `ToolCallItem` 贯穿权限、Pre/Post Hook、quota、Ledger、audit、结果和 UI 回调。canonical identity 会转义 server/tool 名称中的 `%` 和 `__`，避免不同 server.tool 组合碰撞到同一条权限规则。Runner 和 Policy 都不通过 optional interface 或硬编码 MCP 参数来推断行为。
+`Registry` 除了保存 `Tool`，还集中保存 preview 与 delegated-call target 等执行元数据。模型侧名称仍是固定的 `capability`，但解析后的 canonical identity 会随 `ToolCallItem` 贯穿权限、Pre/Post Hook、Ledger、audit、结果和 UI 回调。canonical identity 会转义 server/tool 名称中的 `%` 和 `__`，避免不同 server.tool 组合碰撞到同一条权限规则。Runner 和 Policy 都不通过 optional interface 或硬编码 MCP 参数来推断行为。
 
 ### 内置工具
 
@@ -544,23 +533,19 @@ type Tool interface {
 
 ### 事件与状态
 
-Runtime 只向 `Policy` 提交 `Turn`、`ToolRequest`、`ToolResult` 和
-`TurnResult`。Policy 组合 ledger 与 exploration，生成只读 `Facts` 供
-hook 判断。Hook 的计数器和去重标记按 hook 名隔离，不能读写其他规则或
-runtime 的内部字段。
+Runtime 只向 `Policy` 提交 `ToolRequest`、`ToolResult` 和 `TurnResult`。
+Policy 只生成工具调用结果、目标文件是否存在/已读、乱码计数等可直接观测的
+`Facts`。Hook 的计数器和去重标记按 hook 名隔离，不能读写其他规则或 runtime
+的内部字段。
 
-### 内置 Hook（9 个）
+### 默认内置 Hook（2 个）
+
+默认规则只处理可机械确认的条件，不根据调用次数、命令名称、todo 或探索状态
+推断任务是否完成、验证是否充分或模型下一步应该做什么。
 
 | Hook | Point | 功能 |
 |------|-------|------|
-| quota | PreModel | 读取配额不足时告警，引导优先实质性修改 |
-| tool_result_guardrail | PreModel | 工具结果过多时注入 request-scoped 提醒 |
-| read_before_write | PreToolUse | edit/write 前检查目标文件读取记录 |
-| read_only_spiral | PostToolBatch | 连续只读探索后提醒综合发现并停止继续读 |
-| verification | Stop | 有未完成任务但本轮无工具调用时提醒继续 |
-| exploration_exhausted | PreModel | 探索调用 ≥10 且分数耗尽时提醒收敛 |
-| explore_cascade | PostToolBatch | 本轮启动 ≥4 个 researcher 时提醒综合信息 |
-| progress_stall | PostToolBatch | 连续多轮无进展后提醒推进或报告阻塞 |
+| read_before_write | PreToolUse | 主 Agent 的 edit/write 前检查当前 run 读取记录 |
 | garbled_circuit_breaker | Stop | 累计 5 次 garbled 工具调用则强制停止 |
 
 ## Plugin 系统
@@ -610,6 +595,18 @@ runtime 的内部字段。
 - `Load(pluginDirs)` / `Reload(pluginDirs)` 显式接收插件 Skill 目录，不持有目录回调
 - 不依赖 Runtime DTO：GUI/API 管理快照由 `runtime/standard` 使用
   `Manager.Snapshot()` 投影
+- 核心 system prompt 只保留全局授权、安全、信任与证据边界；诊断、设计和交付审查流程按需从 Skill 注入，避免每轮重复携带
+
+### 内置技能
+
+| Skill | 触发场景 | 工作流 |
+|-------|---------|--------|
+| `hunt` | 报错、失败测试、异常行为、根因排查 | 复现 → 可证伪假设 → 交叉证据 → 根因/修复 |
+| `think` | 功能构思、架构、方案取舍、实施计划 | 现状调研 → 推荐方案 → 前提与风险 → 用户批准 |
+| `check` | diff/PR/issue 审查、非平凡实现后的交付检查 | 范围核对 → 风险审查 → 独立复核 → 验证 |
+| `skill-creator` | 创建、审查或更新技能 | 收集需求 → 编写 SKILL.md → 校验 |
+
+Skill frontmatter 中的 `context`、`agent`、`allowed-tools`、`max_steps` 和 `context_window` 当前会被解析并保存在 `Skill`，但执行仍采用主 Agent 按需加载正文的 inline 路径。内置工作流不依赖尚未接线的 fork 元数据；需要隔离复核时由 `check` 使用现有 `task(type=verify)`。
 
 ## 子 Agent 系统
 
@@ -644,24 +641,21 @@ runtime 的内部字段。
 ### Ledger（工具执行账本）
 
 `bot/policy/ledger/ledger.go` 是账本入口，追踪所有工具执行事件，记录：
-- `readFiles`：已读取文件集合
-- `modifiedFiles`：已修改文件集合
+- `readFiles`：当前 run 内专用 `read` 工具成功读取，或 `write` 成功写入的文件集合
+- `modifiedFiles`：专用 `write/edit` 工具成功修改的文件集合
 - `blockedTools`：被阻止的工具调用
 - `toolErrors`：工具执行错误
-- `verifications`：验证记录
+
+Ledger 不解析 shell 命令来推断读取、修改或验证；命令文本只能证明命令被执行，
+不能证明其语义或充分性。读取证据不跨 run 恢复，避免旧 session 或外部文件变化
+把陈旧记录变成修改授权。
+
+当前 `PreToolUse` 生命周期由主 Agent 执行；executor 子 Agent 共享 ledger 记录，
+但尚未接入该前置 hook，因此不能把 `read_before_write` 描述为所有执行器的全局保证。
 
 ### ResponseGate（响应门控）
 
 `bot/agent/internal/kernel/gate.go`：防止治理内部信号泄漏到模型可见输出。默认最多 2 次重试。
-
-### 工具语义分类
-
-`bot/policy/semantics/semantics.go`：定义工具语义标签：
-- `SourceProducing`：产生源码信息（read/grep/glob/list）
-- `Mutating`：修改文件（write/edit/bash）
-- `Verifying`：验证操作
-- `VerificationTrusted`：直接验证命令（如 `go test`、`pytest`）
-- `VerificationProjectRule`：项目脚本/规则验证（如 `npm run test`、`make test`）
 
 ## TUI 组件树
 
@@ -692,14 +686,12 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 | Bot 底座 | `bot/core/` | Agent 能力装配、领域操作与生命周期，不感知 UI/runtime |
 | 标准适配 | `runtime/standard/` | Bot 领域协议 → runtime 能力与 UI DTO |
 | Agent 循环 | `bot/agent/` | Reason→Execute→Feedback，中断，重试 |
-| 治理系统 | `bot/policy/` | Policy：hook + ledger + exploration + quota |
-| 工具账本 | `bot/policy/ledger/` | 工具执行追踪（读/写/阻止/错误/验证） |
+| 治理系统 | `bot/policy/` | Policy：确定性 hook + ledger |
+| 工具账本 | `bot/policy/ledger/` | 专用工具事实追踪（读/写/阻止/错误） |
 | 推理格式 | `bot/agent/model.go` | LLM 响应分类 + GarbledToolCall 检测 |
-| 工具策略 | `bot/policy/` | 配额、工具前后决策、事件收集、hook 注入 |
+| 工具策略 | `bot/policy/` | 确定性工具前后决策、事件收集、hook 注入 |
 | 子 Agent | `bot/agent/subagent/` | 独立循环，3 种内置类型 + 插件扩展 |
 | 子槽位 | `bot/agent/slots.go` | 并发控制（8 槽位 + 颜色） |
-| 探索分数 | `bot/policy/exploration/` | 工具事件驱动的分数衰减与恢复 |
-| 工具配额 | `bot/policy/policy.go` | Policy 私有的单轮读取配额 |
 | LLM 网关 | `bot/provider/` | OpenAI/Anthropic 双协议，统一接口 |
 | 工具系统 | `bot/extension/tool/` | Registry + builtin 实现 + runtime 执行编排 |
 | 工具注册 | `bot/extension/tool/builtin/catalog/` | Toolbox 内置工具组装与关闭 |
@@ -716,12 +708,11 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 | MCP 客户端 | `bot/extension/mcp/` | JSON-RPC 2.0 |
 | Skill 系统 | `bot/extension/skill/` | manager + 管理快照 + YAML 技能加载 |
 | Hook 系统 | `bot/policy/` | 事件驱动（6 种触发点）+ 声明式（plugin/） |
-| 内置 Hook | `bot/policy/builtin/` | 9 个内置 Hook 实现 |
+| 内置 Hook | `bot/policy/builtin/` | 修改前强制读取 + 乱码熔断 |
 | 声明式 Hook | `bot/policy/plugin/` | JSON 配置驱动 Hook |
 | 命令系统 | `bot/command/` | 斜杠命令解析 |
 | 文件回滚 | `bot/checkpoint/` | 用户回合锚点、write/edit 写前快照、最近 10 个有效回合与 `/rewind` |
 | 诊断日志 | `logger/` | 项目文件日志（时间戳 + subagent 标签） |
-| 工具语义 | `bot/policy/semantics/` | Semantics 分类（SourceProducing/Mutating/Verifying） |
 | Session 持久化 | `bot/session/` | Manager、Snapshot 与 JSON 存取 |
 | TUI | `interaction/tui/` | Bubble Tea v2 组件化 |
 | Connector | `interaction/connect/` | Telegram 等外部 IM 接入 |

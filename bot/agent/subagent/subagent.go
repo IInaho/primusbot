@@ -34,13 +34,11 @@ type Config struct {
 }
 
 type runState struct {
-	startTime      time.Time
-	toolUseCount   int
-	totalTokens    int
-	sensitiveOps   int
-	readOnlyStreak int
-	readOnlyWarned bool
-	lastText       string
+	startTime    time.Time
+	toolUseCount int
+	totalTokens  int
+	sensitiveOps int
+	lastText     string
 }
 
 // New creates a reusable subagent engine.

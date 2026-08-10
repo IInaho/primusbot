@@ -7,8 +7,8 @@ import (
 
 func TestFormatHints(t *testing.T) {
 	hints := []Hint{
-		{Type: "quota", Severity: "warning", Content: "one"},
-		{Type: "verification", Severity: "critical", Content: "two"},
+		{Type: "notice", Severity: "warning", Content: "one"},
+		{Type: "guard", Severity: "critical", Content: "two"},
 	}
 	s := FormatHints(hints)
 	if !strings.Contains(s, `<runtime_policy_hints>`) {
@@ -20,11 +20,11 @@ func TestFormatHints(t *testing.T) {
 	if !strings.Contains(s, "only to the immediately following model response") {
 		t.Error("missing one-response lifetime")
 	}
-	if !strings.Contains(s, "type=\"quota\"") {
-		t.Error("missing quota hint")
+	if !strings.Contains(s, "type=\"notice\"") {
+		t.Error("missing notice hint")
 	}
-	if !strings.Contains(s, "type=\"verification\"") {
-		t.Error("missing verification hint")
+	if !strings.Contains(s, "type=\"guard\"") {
+		t.Error("missing guard hint")
 	}
 }
 
