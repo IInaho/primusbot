@@ -235,7 +235,8 @@ nekocode/
 │   ├── commands.go/stream.go       #   共享指令与流式节流
 │   ├── telegram/                   #   Telegram connector（polling + pairing + taskview 渲染）
 │   ├── feishu/                     #   飞书 connector（Lark SDK WS 长连接 + DM 配对，MVP）
-│   └── qqbot/                      #   QQ connector（腾讯官方机器人平台：Gateway WS + v2 消息 API，纯文本）
+│   ├── qqbot/                      #   QQ connector（腾讯官方机器人平台：Gateway WS + v2 消息 API，纯文本）
+│   └── wecom/                      #   企业微信智能机器人（官方 WebSocket 长连接 + owner 配对）
 ├── interaction/interaction.go      # 多种交互端共享的工具参数展示格式
 ├── interaction/tui/                # TUI 交互界面
 │   ├── tui.go                      #   package tui 入口（Run 函数）

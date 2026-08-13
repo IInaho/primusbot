@@ -30,7 +30,7 @@ NekoCode is an **AI coding assistant**. Just tell it what you need, the way you 
 
 **Why choose it?**
 
-- **Remote access:** connect through Telegram, Feishu, or QQ to submit work and receive results away from your computer
+- **Remote access:** connect through Telegram, Feishu, QQ, or WeCom to submit work and receive results away from your computer
 - **Single-binary distribution:** the TUI ships as one executable; Linux builds require a compatible glibc environment
 - **Claude Code-style extensions:** NekoCode supports a tested subset of its plugin and skill formats
 - **Extensible core:** the `bot → runtime → interaction` layers can be embedded in other applications

@@ -10,6 +10,7 @@ import (
 	"nekocode/interaction/connect/feishu"
 	"nekocode/interaction/connect/qqbot"
 	"nekocode/interaction/connect/telegram"
+	"nekocode/interaction/connect/wecom"
 	controlruntime "nekocode/runtime"
 )
 
@@ -31,6 +32,9 @@ func New() (*controlruntime.Runtime, error) {
 	})
 	rt.RegisterConnector("qqbot", func(runtime controlruntime.ConnectorRuntime) controlruntime.Connector {
 		return qqbot.New(runtime)
+	})
+	rt.RegisterConnector("wecom", func(runtime controlruntime.ConnectorRuntime) controlruntime.Connector {
+		return wecom.New(runtime)
 	})
 	return rt, nil
 }

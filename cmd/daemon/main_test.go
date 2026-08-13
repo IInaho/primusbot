@@ -97,6 +97,24 @@ func TestBootstrapConnectorsStartsPersistedConfiguration(t *testing.T) {
 	assertBootstrapCalls(t, rt.calls, wantCalls)
 }
 
+func TestBootstrapConnectorsConfiguresWeCom(t *testing.T) {
+	rt := &bootstrapRuntime{}
+	statuses, err := bootstrapConnectors(context.Background(), rt.Connect, env(map[string]string{
+		"NEKOCODE_WECOM_BOT_ID":     " bot-id ",
+		"NEKOCODE_WECOM_BOT_SECRET": " secret ",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].name != "wecom" {
+		t.Fatalf("statuses = %#v", statuses)
+	}
+	assertBootstrapCalls(t, rt.calls, []bootstrapCall{
+		{name: "wecom", args: []string{"add", "bot-id", "secret"}},
+		{name: "wecom", args: nil},
+	})
+}
+
 func TestBootstrapConnectorsRejectsInvalidConfiguration(t *testing.T) {
 	for _, values := range []map[string]string{
 		{"NEKOCODE_CONNECTORS": "slack"},

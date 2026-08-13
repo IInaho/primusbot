@@ -124,9 +124,26 @@ type Tracker interface {
 // in exactly one place (Translate) and capability gating in exactly one
 // place (deliverable).
 func Dispatch(ctx context.Context, rt controlruntime.ConnectorRuntime, sink Sink) error {
+	return dispatch(ctx, rt, sink, nil)
+}
+
+// DispatchReady is Dispatch with a startup result. It reports nil only after
+// the runtime event subscription exists, allowing connectors to avoid
+// accepting an inbound task before its outbound path is ready.
+func DispatchReady(ctx context.Context, rt controlruntime.ConnectorRuntime, sink Sink, ready chan<- error) error {
+	return dispatch(ctx, rt, sink, ready)
+}
+
+func dispatch(ctx context.Context, rt controlruntime.ConnectorRuntime, sink Sink, ready chan<- error) error {
 	events, err := rt.Events(ctx, controlruntime.EventFilter{})
 	if err != nil {
+		if ready != nil {
+			ready <- err
+		}
 		return err
+	}
+	if ready != nil {
+		ready <- nil
 	}
 	caps := sink.Caps()
 	tracker, _ := sink.(Tracker)

@@ -22,6 +22,7 @@ var connectorBootstraps = map[string]connectorBootstrap{
 	"feishu":   bootstrapFeishu,
 	"telegram": bootstrapTelegram,
 	"qqbot":    bootstrapQQBot,
+	"wecom":    bootstrapWeCom,
 }
 
 // bootstrapConnectors makes the daemon self-contained. NEKOCODE_CONNECTORS
@@ -60,6 +61,9 @@ func selectedConnectors(getenv func(string) string) ([]string, error) {
 		if strings.TrimSpace(getenv("NEKOCODE_QQBOT_APP_ID")) != "" || strings.TrimSpace(getenv("NEKOCODE_QQBOT_APP_SECRET")) != "" {
 			inferred = append(inferred, "qqbot")
 		}
+		if strings.TrimSpace(getenv("NEKOCODE_WECOM_BOT_ID")) != "" || strings.TrimSpace(getenv("NEKOCODE_WECOM_BOT_SECRET")) != "" {
+			inferred = append(inferred, "wecom")
+		}
 		return inferred, nil
 	}
 	if strings.EqualFold(raw, "none") || strings.EqualFold(raw, "off") {
@@ -70,7 +74,7 @@ func selectedConnectors(getenv func(string) string) ([]string, error) {
 	for _, item := range strings.Split(raw, ",") {
 		name := strings.ToLower(strings.TrimSpace(item))
 		if connectorBootstraps[name] == nil {
-			return nil, fmt.Errorf("unknown connector %q; available: feishu, telegram, qqbot", name)
+			return nil, fmt.Errorf("unknown connector %q; available: feishu, telegram, qqbot, wecom", name)
 		}
 		if !seen[name] {
 			seen[name] = true
@@ -104,6 +108,12 @@ func bootstrapQQBot(ctx context.Context, connect connectorConnect, getenv func(s
 		"NEKOCODE_QQBOT_APP_ID", getenv("NEKOCODE_QQBOT_APP_ID"),
 		"NEKOCODE_QQBOT_APP_SECRET", getenv("NEKOCODE_QQBOT_APP_SECRET"),
 		[]string{"start"}, false)
+}
+
+func bootstrapWeCom(ctx context.Context, connect connectorConnect, getenv func(string) string) (string, error) {
+	return bootstrapCredentialPair(ctx, connect, "wecom",
+		"NEKOCODE_WECOM_BOT_ID", getenv("NEKOCODE_WECOM_BOT_ID"),
+		"NEKOCODE_WECOM_BOT_SECRET", getenv("NEKOCODE_WECOM_BOT_SECRET"), nil, true)
 }
 
 // bootstrapCredentialPair validates a credential pair, saves it when present,

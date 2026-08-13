@@ -45,6 +45,16 @@ func (t *QuestionTracker) Remove(id string) {
 	t.mu.Unlock()
 }
 
+// Clear drops all tracked questions when a connector's authorized identity
+// changes. This prevents a newly paired user from targeting the prior user's
+// implicit "last question" with /answer.
+func (t *QuestionTracker) Clear() {
+	t.mu.Lock()
+	clear(t.pending)
+	t.lastID = ""
+	t.mu.Unlock()
+}
+
 // View returns the pending question view, for channels rendering options.
 func (t *QuestionTracker) View(id string) (controlruntime.QuestionView, bool) {
 	t.mu.Lock()

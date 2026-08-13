@@ -18,6 +18,7 @@ func TestRedactInputText(t *testing.T) {
 		{"/connect telegram add 123:secret-token", "/connect telegram add [redacted]"},
 		{"/connect slack token xoxb-secret-token", "/connect slack token [redacted]"},
 		{"/connect slack add workspace xoxb-secret-token", "/connect slack add workspace [redacted]"},
+		{"/connect wecom add bot-id bot-secret", "/connect wecom add bot-id [redacted]"},
 		{"/connect discord token secret-token", "/connect discord token [redacted]"},
 		{"/connect telegram status", "/connect telegram status"},
 		{"/plugin install https://token:secret@github.com/owner/repo --yes", "/plugin install https://github.com/owner/repo --yes"},

@@ -22,7 +22,7 @@ management client. Select one or more transports with a comma-separated
 service variable:
 
 ```text
-NEKOCODE_CONNECTORS=feishu,telegram
+NEKOCODE_CONNECTORS=feishu,telegram,wecom
 ```
 
 Provide credentials for the selected transports on first boot:
@@ -34,6 +34,8 @@ NEKOCODE_TELEGRAM_BOT_TOKEN=123456:xxx
 NEKOCODE_QQBOT_APP_ID=xxx
 NEKOCODE_QQBOT_APP_SECRET=xxx
 NEKOCODE_QQBOT_SANDBOX=false
+NEKOCODE_WECOM_BOT_ID=xxx
+NEKOCODE_WECOM_BOT_SECRET=xxx
 ```
 
 If `NEKOCODE_CONNECTORS` is omitted, transports are inferred from credential
@@ -42,12 +44,12 @@ recommended because it also starts connectors from persisted configuration
 when credentials are no longer present in the environment. Use `none` to
 disable all connector bootstrap.
 
-For Feishu and Telegram, the first boot logs a short-lived pairing code or
-link. Complete that action in a direct message to the bot. Pairing and
+For Feishu, Telegram, and WeCom, the first boot logs a short-lived pairing
+code or link. Complete that action by messaging the bot. Pairing and
 credentials are persisted in `~/.nekocode/connect.json`; later daemon restarts
 restore the selected connections. Keep the service user's `HOME` stable across
-restarts. Changing the Feishu app ID clears the old owner binding and starts a
-new pairing flow.
+restarts. Changing a Feishu app ID or WeCom bot ID clears its old owner binding
+and starts a new pairing flow.
 
 `NEKOCODE_DAEMON_TOKEN` is independent of connector credentials. It protects
 the daemon's HTTP management API and is not needed by IM connectors.

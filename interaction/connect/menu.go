@@ -71,6 +71,14 @@ func NewCommandMenus() *CommandMenus {
 	return &CommandMenus{pending: make(map[string]pendingCommandMenu), latest: make(map[string]menuPosition)}
 }
 
+// Clear drops all pending menu callbacks when a connector identity changes.
+func (m *CommandMenus) Clear() {
+	m.mu.Lock()
+	clear(m.pending)
+	clear(m.latest)
+	m.mu.Unlock()
+}
+
 // HandleText opens a menu for a command or resolves a numeric reply to the
 // most recent menu in this conversation. Non-menu text is left untouched.
 func (m *CommandMenus) HandleText(ctx context.Context, rt controlruntime.ConnectorRuntime, scope, text string) MenuResult {
