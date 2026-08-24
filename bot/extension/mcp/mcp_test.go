@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestManagerAddServer(t *testing.T) {
@@ -145,5 +146,80 @@ func TestManagerClose(t *testing.T) {
 	m.Close()
 	if len(m.Health()) != 0 {
 		t.Errorf("health should be empty, got %v", m.Health())
+	}
+}
+
+func TestManagerAddBackgroundDoesNotWaitForServer(t *testing.T) {
+	cmd, cleanup := startMockMCPWithDelay(t, []toolDef{
+		{Name: "alpha", InputSchema: inputSchema{Type: "object"}},
+	}, 300*time.Millisecond)
+	defer cleanup()
+
+	m := New()
+	defer m.Close()
+	start := time.Now()
+	if err := m.AddBackground("config:slow", "slow", ServerConfig{Command: cmd.Path}); err != nil {
+		t.Fatalf("AddBackground: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("AddBackground blocked for %s", elapsed)
+	}
+	if h := m.Health()["slow"]; h.Status != StatusStarting {
+		t.Fatalf("initial health = %+v, want starting", h)
+	}
+	if _, err := m.CallServerTool(context.Background(), "slow", "alpha", nil); err == nil || !strings.Contains(err.Error(), "still starting") {
+		t.Fatalf("call while starting error = %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		h := m.Health()["slow"]
+		if h.Status == StatusReady {
+			if h.ToolCount != 1 {
+				t.Fatalf("ready health = %+v, want one tool", h)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("server did not become ready: %+v", m.Health()["slow"])
+}
+
+func TestManagerAddBackgroundRecordsFailure(t *testing.T) {
+	m := New()
+	defer m.Close()
+	if err := m.AddBackground("config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"}); err != nil {
+		t.Fatalf("AddBackground: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		h := m.Health()["bad"]
+		if h.Status == StatusError {
+			if h.Error == "" {
+				t.Fatal("error health should include a message")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("server failure was not recorded: %+v", m.Health()["bad"])
+}
+
+func TestManagerCloseCancelsBackgroundStartup(t *testing.T) {
+	cmd, cleanup := startMockMCPWithDelay(t, nil, 5*time.Second)
+	defer cleanup()
+
+	m := New()
+	if err := m.AddBackground("config:slow", "slow", ServerConfig{Command: cmd.Path}); err != nil {
+		t.Fatalf("AddBackground: %v", err)
+	}
+	start := time.Now()
+	m.Close()
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Close waited too long for background startup: %s", elapsed)
+	}
+	if len(m.Health()) != 0 {
+		t.Fatalf("health after Close = %v, want empty", m.Health())
 	}
 }

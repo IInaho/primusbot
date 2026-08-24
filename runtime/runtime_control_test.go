@@ -87,12 +87,21 @@ func TestSteerCallbackDoesNotDeadlockWithCancel(t *testing.T) {
 
 	select {
 	case err := <-steered:
-		var protocolErr *ProtocolError
-		if err != nil && (!errors.As(err, &protocolErr) || protocolErr.Code != ErrorConflict) {
-			t.Fatal(err)
+		if err != nil {
+			t.Fatalf("accepted steering returned an error after cancellation raced: %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("SteerRun deadlocked with CancelRun")
+	}
+	accepted := rt.events.History(EventFilter{RunID: runID, Types: []EventType{EventInputAccepted}})
+	steeringEvents := 0
+	for _, event := range accepted {
+		if payload, ok := event.Payload.(MessagePayload); ok && payload.Content == "more" {
+			steeringEvents++
+		}
+	}
+	if steeringEvents != 1 {
+		t.Fatalf("accepted steering events = %d, want 1", steeringEvents)
 	}
 	select {
 	case err := <-cancelled:

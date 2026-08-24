@@ -715,7 +715,7 @@ TUI 和 GUI 直接渲染菜单；Telegram 渲染 inline keyboard 并同步平台
 | 内置 Hook | `bot/policy/builtin/` | 修改前强制读取 + 乱码熔断 |
 | 声明式 Hook | `bot/policy/plugin/` | JSON 配置驱动 Hook |
 | 命令系统 | `bot/command/` | 斜杠命令解析 |
-| 文件回滚 | `bot/checkpoint/` | 用户回合锚点、write/edit 写前快照、最近 10 个有效回合与 `/rewind` |
+| 文件回滚 | `bot/checkpoint/` | 用户消息锚点、write/edit 写前快照、最近 100 个消息恢复点与 `/rewind` |
 | 诊断日志 | `logger/` | 项目文件日志（时间戳 + subagent 标签） |
 | Session 持久化 | `bot/session/` | Manager、Snapshot 与 JSON 存取 |
 | TUI | `interaction/tui/` | Bubble Tea v2 组件化 |

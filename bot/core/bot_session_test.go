@@ -17,12 +17,12 @@ import (
 	"nekocode/bot/session"
 )
 
-func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
+func TestRewindMenuShowsUserMessagesAndChangedFiles(t *testing.T) {
 	cwd := t.TempDir()
 	manager := session.New(cwd)
 	cp := checkpoint.New(t.TempDir())
 	cp.Activate(manager.CurrentID(), nil, 0)
-	turn, err := cp.Begin(manager.CurrentID())
+	turn, err := cp.BeginMessage(manager.CurrentID(), "Update the main entrypoint")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +42,12 @@ func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
 	if err := cp.Finish(manager.CurrentID()); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := cp.BeginMessage(manager.CurrentID(), "Review the result"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finish(manager.CurrentID()); err != nil {
+		t.Fatal(err)
+	}
 
 	contextManager := ctxmgr.New(ctxmgr.Config{})
 	b := &Bot{cwd: cwd, sess: manager, checkpoints: cp, ctxMgr: contextManager}
@@ -49,21 +55,29 @@ func TestRewindMenuShowsTurnAndChangedFiles(t *testing.T) {
 	parser.Register("rewind", func(context.Context, *command.Command) (string, bool) { return "", true })
 	b.registerCommandMenus(parser)
 	menu, ok := parser.Menu(context.Background(), "/rewind")
-	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/rewind "+turn ||
-		!menu.Items[0].Submit || !strings.Contains(menu.Items[0].Description, "1 files · +0 ~1 -0") {
+	if !ok || len(menu.Items) != 2 || menu.Items[0].Label != "Review the result" ||
+		!strings.Contains(menu.Items[0].Description, "Latest message") ||
+		!strings.Contains(menu.Items[0].Description, "0 files") ||
+		menu.Items[1].Value != "/rewind "+turn || menu.Items[1].Label != "Update the main entrypoint" ||
+		!menu.Items[1].Submit || !strings.Contains(menu.Items[1].Description, "1 messages ago") ||
+		!strings.Contains(menu.Items[1].Description, "1 files · +0 ~1 -0") {
 		t.Fatalf("rewind menu = %+v, %v", menu, ok)
 	}
 	message, err := b.rewindCheckpoint(turn)
-	if err != nil || !strings.Contains(message, "1 files across 1 directories") {
+	if err != nil || !strings.Contains(message, `Rewound to "Update the main entrypoint"`) || !strings.Contains(message, "1 files across 1 directories") {
 		t.Fatalf("rewind = %q, %v", message, err)
 	}
 	messages := contextManager.Snapshot().Messages
 	event := messages[len(messages)-1]
 	if event.Source != types.MessageSourceRuntimeEvent ||
+		!strings.Contains(event.Content, `"rewind_id": ".rewind-`) ||
 		!strings.Contains(event.Content, filepath.ToSlash(path)) ||
 		!strings.Contains(event.Content, filepath.ToSlash(cwd)) ||
 		!strings.Contains(event.Content, `"action": "restored_previous_file"`) {
 		t.Fatalf("rewind event = %+v", event)
+	}
+	if pending := cp.Recovered(manager.CurrentID()); len(pending) != 0 {
+		t.Fatalf("persisted rewind journal was not acknowledged: %+v", pending)
 	}
 }
 
@@ -77,6 +91,73 @@ func TestCheckpointChangeHelpersDoNotTreatUnknownAsModified(t *testing.T) {
 	created, modified, deleted := checkpointChangeCounts(turn)
 	if created != 1 || modified != 1 || deleted != 1 {
 		t.Fatalf("change counts = +%d ~%d -%d", created, modified, deleted)
+	}
+}
+
+func TestResumePersistsCommittedRewindEventBeforeAcknowledgingJournal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cwd := t.TempDir()
+	checkpointRoot := t.TempDir()
+	manager := session.New(cwd)
+	sessionID := manager.CurrentID()
+	cp := checkpoint.New(checkpointRoot)
+	cp.Activate(sessionID, nil, 0)
+	path := filepath.Join(cwd, "state.txt")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := cp.BeginMessage(sessionID, "change state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Capture(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finish(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := manager.Current()
+	snapshot.Messages = []types.Message{{Role: "user", Content: "change state"}}
+	snapshot.CheckpointTurns = cp.Index(sessionID)
+	snapshot.CheckpointNext = cp.Next(sessionID)
+	if err := manager.Save(snapshot); err != nil {
+		t.Fatal(err)
+	}
+	result, err := cp.Rewind(sessionID, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cp.Recovered(sessionID)) != 1 {
+		t.Fatal("committed rewind journal was not retained for session recovery")
+	}
+
+	reloadedCP := checkpoint.New(checkpointRoot)
+	b := &Bot{cwd: cwd, sess: manager, checkpoints: reloadedCP, ctxMgr: ctxmgr.New(ctxmgr.Config{})}
+	if _, err := b.resumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if !b.hasRewindEvent(result.RewindID) {
+		t.Fatal("resume did not append the committed rewind workspace event")
+	}
+	if pending := reloadedCP.Recovered(sessionID); len(pending) != 0 {
+		t.Fatalf("recovered journal was not acknowledged: %+v", pending)
+	}
+	persisted, err := manager.Load(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, message := range persisted.Messages {
+		found = found || strings.Contains(message.Content, result.RewindID)
+	}
+	if !found {
+		t.Fatal("recovered rewind event was not persisted in the session")
 	}
 }
 

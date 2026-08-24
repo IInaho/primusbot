@@ -39,7 +39,11 @@ func (r *turnRunner) prepareTurn(_ string) error {
 // the LLM call starts; if so it marks the stop reason and notifies the callback.
 func (r *turnRunner) interruptedBeforeReasoning(callback RunCallback) bool {
 	a := r.agent
-	a.drainSteering()
+	if err := a.drainSteering(); err != nil {
+		a.run.err = err
+		a.clearFinalState()
+		return true
+	}
 	if a.getCtx().Err() == nil {
 		return false
 	}
@@ -67,7 +71,11 @@ func (r *turnRunner) retryAfterInterruptedReasoning(reasoning *reasoningResult, 
 	// unbounded loops when the LLM repeatedly produces interrupted output.
 	a.run.step++
 	a.deps.ctxMgr.TruncateTo(msgCountBefore)
-	a.drainSteering()
+	if err := a.drainSteering(); err != nil {
+		a.run.err = err
+		a.clearFinalState()
+		a.life.Finished().Store(true)
+	}
 	return true
 }
 

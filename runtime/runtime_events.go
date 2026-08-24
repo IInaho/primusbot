@@ -8,7 +8,10 @@ import (
 
 	internalconnectors "nekocode/runtime/internal/connectors"
 	"nekocode/runtime/internal/recording"
+	"nekocode/runtime/internal/runstore"
 )
+
+const recordedRunRestoreLimit = runstore.DefaultLimit
 
 type Connector = internalconnectors.Connector
 type ConnectorFactory = internalconnectors.ConnectorFactory
@@ -82,7 +85,7 @@ func (r *Runtime) EnableEventRecording(baseDir string) error {
 	if strings.TrimSpace(baseDir) == "" {
 		return fmt.Errorf("runtime: empty event recording directory")
 	}
-	events, err := recording.LoadRecordedEvents(baseDir)
+	events, err := recording.LoadRecentRecordedEvents(baseDir, recordedRunRestoreLimit)
 	if err != nil {
 		return fmt.Errorf("runtime: load recorded events: %w", err)
 	}

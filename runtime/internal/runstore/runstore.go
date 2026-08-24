@@ -8,7 +8,8 @@ import (
 	"nekocode/runtime/internal/core"
 )
 
-const defaultRunStoreLimit = 100
+// DefaultLimit is the number of recent runs retained in memory.
+const DefaultLimit = 100
 
 type RunStore struct {
 	mu    sync.Mutex
@@ -25,7 +26,7 @@ type runRecord struct {
 
 func NewRunStore(limit int) *RunStore {
 	if limit <= 0 {
-		limit = defaultRunStoreLimit
+		limit = DefaultLimit
 	}
 	return &RunStore{
 		limit: limit,

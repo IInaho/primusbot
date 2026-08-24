@@ -239,13 +239,23 @@ func (m *Manager) setPluginEnabled(ctx context.Context, name string, enabled boo
 	return true, nil
 }
 
-// AddMCPServer starts a host-configured MCP server.
+// AddMCPServer starts a host-configured MCP server synchronously.
 func (m *Manager) AddMCPServer(name string, cfg mcp.ServerConfig) error {
 	m.ops.Lock()
 	defer m.ops.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.mcp.Add(context.Background(), "config:"+name, name, cfg)
+}
+
+// AddMCPServerBackground registers a host-configured MCP server and starts it
+// asynchronously so application startup is not gated on external processes.
+func (m *Manager) AddMCPServerBackground(name string, cfg mcp.ServerConfig) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mcp.AddBackground("config:"+name, name, cfg)
 }
 
 func (m *Manager) activateLocked(ctx context.Context, p *plugin.Plugin) error {
@@ -289,7 +299,7 @@ func (m *Manager) activateLocked(ctx context.Context, p *plugin.Plugin) error {
 		id := "plugin:" + p.Name + ":" + name
 		state.mcpIDs = append(state.mcpIDs, id)
 		m.active[p.Name] = state
-		if err := m.mcp.Add(ctx, id, name, plugin.ExpandPluginMCPConfig(cfg, p.Dir)); err != nil {
+		if err := m.mcp.AddBackground(id, name, plugin.ExpandPluginMCPConfig(cfg, p.Dir)); err != nil {
 			logger.Log("plugin: mcp %s: %v", name, err)
 			if ctx.Err() != nil {
 				m.deactivateLocked(p.Name)

@@ -23,7 +23,7 @@ func (b *Bot) initConfigMCPServers() {
 		if !cfg.Enabled {
 			continue
 		}
-		err := b.ext.AddMCPServer(name, mcp.ServerConfig{
+		err := b.ext.AddMCPServerBackground(name, mcp.ServerConfig{
 			Command: cfg.Command,
 			Args:    append([]string(nil), cfg.Args...),
 			Env:     cfg.Env,

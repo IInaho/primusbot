@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -154,6 +156,9 @@ func (b *Bot) resumeSession(id string) (*session.Snapshot, error) {
 		b.cmd.ResetSkill()
 	}
 	b.syncPolicySessionID()
+	if err := b.recoverCheckpointEvents(snapshot.ID); err != nil {
+		return nil, err
+	}
 	return snapshot, nil
 }
 
@@ -239,18 +244,92 @@ func (b *Bot) rewindCheckpoint(turn string) (string, error) {
 	}
 	result, err := b.checkpoints.Rewind(b.sess.CurrentID(), turn)
 	if err != nil {
+		var partial *checkpoint.PartialRewindError
+		if errors.As(err, &partial) {
+			b.invalidateRewindPaths(partial.Changes)
+			event := formatPartialRewindEvent(result, err)
+			b.ctxMgr.Add("user", event, types.MessageSourceRuntimeEvent)
+		}
 		return "", err
 	}
+	b.invalidateRewindPaths(result.Changes)
+	event, directories := formatRewindEvent(result)
+	b.ctxMgr.Add("user", event, types.MessageSourceRuntimeEvent)
+	if err := b.saveSession(); err != nil {
+		return "", fmt.Errorf("persist rewind event: %w", err)
+	}
+	if err := b.checkpoints.AcknowledgeRecovered(b.sess.CurrentID(), result.RewindID); err != nil {
+		log.Printf("checkpoint: defer rewind journal cleanup: %v", err)
+	}
+	label := result.UserMessage
+	if label == "" {
+		label = "the selected message"
+	}
+	return fmt.Sprintf("Rewound to %q: %d files across %d directories.", label, len(result.Changes), len(directories)), nil
+}
+
+func (b *Bot) recoverCheckpointEvents(sessionID string) error {
+	if b.checkpoints == nil {
+		return nil
+	}
+	pending := b.checkpoints.Recovered(sessionID)
+	added := false
+	for _, result := range pending {
+		if !b.hasRewindEvent(result.RewindID) {
+			b.invalidateRewindPaths(result.Changes)
+			event, _ := formatRewindEvent(result)
+			b.ctxMgr.Add("user", event, types.MessageSourceRuntimeEvent)
+			added = true
+		}
+	}
+	if added {
+		if err := b.saveSession(); err != nil {
+			return fmt.Errorf("persist recovered rewind event: %w", err)
+		}
+	}
+	for _, result := range pending {
+		if err := b.checkpoints.AcknowledgeRecovered(sessionID, result.RewindID); err != nil {
+			log.Printf("checkpoint: defer recovered rewind cleanup: %v", err)
+		}
+	}
+	return nil
+}
+
+func (b *Bot) hasRewindEvent(rewindID string) bool {
+	if rewindID == "" {
+		return false
+	}
+	for _, message := range b.ctxMgr.Snapshot().Messages {
+		if message.Source == types.MessageSourceRuntimeEvent && strings.Contains(message.Content, rewindID) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Bot) invalidateRewindPaths(changes []checkpoint.RollbackChange) {
 	if ag := b.getAgent(); ag != nil {
 		state := ag.ToolExecutionState()
-		for _, change := range result.Changes {
+		for _, change := range changes {
 			state.FileCache.Invalidate(change.Path)
 		}
 		state.SnapshotStore = execution.NewSnapshotStore()
 	}
-	event, directories := formatRewindEvent(result)
-	b.ctxMgr.Add("user", event, types.MessageSourceRuntimeEvent)
-	return fmt.Sprintf("Rewound to turn %s: %d files across %d directories.", result.Turn, len(result.Changes), len(directories)), nil
+}
+
+func formatPartialRewindEvent(result checkpoint.Result, rewindErr error) string {
+	payload := struct {
+		Turn        string                      `json:"turn"`
+		UserMessage string                      `json:"user_message,omitempty"`
+		Files       []checkpoint.RollbackChange `json:"possibly_changed_files"`
+		Error       string                      `json:"error"`
+		Instruction string                      `json:"instruction"`
+	}{
+		Turn: result.Turn, UserMessage: result.UserMessage, Files: result.Changes, Error: rewindErr.Error(),
+		Instruction: "The rewind rollback was incomplete. Treat every listed path as authoritative filesystem state and re-read it before further changes.",
+	}
+	encoded, _ := json.MarshalIndent(payload, "", "  ")
+	return "<workspace_event type=\"checkpoint_rewind_partial\">\n" + string(encoded) + "\n</workspace_event>"
 }
 
 func formatRewindEvent(result checkpoint.Result) (string, []string) {
@@ -264,13 +343,15 @@ func formatRewindEvent(result checkpoint.Result) (string, []string) {
 	}
 	sort.Strings(directories)
 	payload := struct {
+		RewindID            string                      `json:"rewind_id"`
 		Turn                string                      `json:"turn"`
+		UserMessage         string                      `json:"user_message,omitempty"`
 		Files               []checkpoint.RollbackChange `json:"files"`
 		AffectedDirectories []string                    `json:"affected_directories"`
 		Instruction         string                      `json:"instruction"`
 		Scope               string                      `json:"scope"`
 	}{
-		Turn: result.Turn, Files: result.Changes, AffectedDirectories: directories,
+		RewindID: result.RewindID, Turn: result.Turn, UserMessage: result.UserMessage, Files: result.Changes, AffectedDirectories: directories,
 		Instruction: "The filesystem is authoritative. Earlier tool results describing these paths are stale; re-read a file before making further changes.",
 		Scope:       "Only the listed files were rolled back. Directory metadata was not restored; directories identify where affected files are located.",
 	}

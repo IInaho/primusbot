@@ -2,6 +2,7 @@ package recording
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,71 @@ func TestEventRecorderWritesAndRestoresEvents(t *testing.T) {
 	run, ok := store.Lookup(runID)
 	if !ok || run.Input != "edit README" || run.Output != "done" {
 		t.Fatalf("restored run = %#v ok=%v", run, ok)
+	}
+}
+
+func TestLoadRecentRecordedEventsLimitsRunFiles(t *testing.T) {
+	baseDir := t.TempDir()
+	recorder, err := NewEventRecorder(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		recorder.Record(core.Event{
+			ID: fmt.Sprintf("evt_%d", i), RunID: core.RunID(fmt.Sprintf("run_%d", i)),
+			Type: core.EventRunDone, Time: time.Unix(int64(i), 0),
+			Payload: core.RunResult{Output: fmt.Sprintf("run %d", i)},
+		})
+	}
+
+	events, err := LoadRecentRecordedEvents(baseDir, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].RunID != "run_2" || events[1].RunID != "run_3" {
+		t.Fatalf("recent events = %#v, want runs 2 and 3", events)
+	}
+}
+
+func TestLoadRecentRecordedEventsUsesFileRecencyAcrossRecorderBatches(t *testing.T) {
+	baseDir := t.TempDir()
+	olderBatch := filepath.Join(baseDir, "20260101", "run_1")
+	newerBatch := filepath.Join(baseDir, "20260102", "run_1")
+	for _, dir := range []string{olderBatch, newerBatch} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeEvent := func(path, id string, eventTime time.Time) {
+		t.Helper()
+		data, err := json.Marshal(recordedEventFrom(core.Event{
+			ID: id, RunID: core.RunID(id), Type: core.EventRunDone, Time: eventTime,
+			Payload: core.RunResult{Output: id},
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPath := filepath.Join(olderBatch, "events.jsonl")
+	newPath := filepath.Join(newerBatch, "events.jsonl")
+	writeEvent(oldPath, "older_batch_recent_write", time.Unix(20, 0))
+	writeEvent(newPath, "newer_batch_stale_write", time.Unix(10, 0))
+	if err := os.Chtimes(newPath, time.Unix(10, 0), time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oldPath, time.Unix(20, 0), time.Unix(20, 0)); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := LoadRecentRecordedEvents(baseDir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].RunID != "older_batch_recent_write" {
+		t.Fatalf("recent events = %#v", events)
 	}
 }
 

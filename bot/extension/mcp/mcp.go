@@ -35,6 +35,7 @@ type server struct {
 	name   string
 	client *client
 	tools  []toolDef
+	cancel context.CancelFunc
 }
 
 // Manager owns the lifecycle of every MCP server connection: spawning
@@ -46,14 +47,21 @@ type Manager struct {
 	servers map[string]*server
 	owners  map[string]string
 	health  map[string]Health
+	ctx     context.Context
+	cancel  context.CancelFunc
+	closed  bool
+	wg      sync.WaitGroup
 }
 
 // New creates an empty Manager that owns MCP server lifecycles.
 func New() *Manager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		servers: make(map[string]*server),
 		owners:  make(map[string]string),
 		health:  make(map[string]Health),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
@@ -62,6 +70,9 @@ func New() *Manager {
 func (m *Manager) Add(ctx context.Context, id, name string, cfg ServerConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return fmt.Errorf("manager is closed")
+	}
 
 	if owner := m.owners[name]; owner != "" && owner != id {
 		return fmt.Errorf("server name %q is already owned by %s", name, owner)
@@ -91,6 +102,79 @@ func (m *Manager) Add(ctx context.Context, id, name string, cfg ServerConfig) er
 	return nil
 }
 
+// AddBackground registers a server immediately and performs its process
+// startup and tool discovery in the background. This keeps application startup
+// independent from package runners and external MCP server latency.
+func (m *Manager) AddBackground(id, name string, cfg ServerConfig) error {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return fmt.Errorf("manager is closed")
+	}
+	if owner := m.owners[name]; owner != "" && owner != id {
+		m.mu.Unlock()
+		return fmt.Errorf("server name %q is already owned by %s", name, owner)
+	}
+
+	var previous *server
+	if current, ok := m.servers[id]; ok {
+		previous = current
+		delete(m.servers, id)
+		if m.owners[current.name] == id {
+			delete(m.owners, current.name)
+			delete(m.health, current.name)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(m.ctx)
+	s := &server{name: name, client: newClient(name, cfg), cancel: cancel}
+	m.servers[id] = s
+	m.owners[name] = id
+	m.health[name] = Health{Status: StatusStarting}
+	m.wg.Add(1)
+	go m.startBackground(ctx, id, s)
+	if previous != nil {
+		if previous.cancel != nil {
+			previous.cancel()
+		}
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			_ = previous.client.Close()
+		}()
+	}
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) startBackground(ctx context.Context, id string, s *server) {
+	defer m.wg.Done()
+
+	err := s.client.Start(ctx)
+	var defs []toolDef
+	if err == nil {
+		defs, err = s.client.ListTools(ctx)
+		if err != nil {
+			_ = s.client.Close()
+		}
+	}
+
+	m.mu.Lock()
+	if m.servers[id] != s {
+		m.mu.Unlock()
+		_ = s.client.Close()
+		return
+	}
+	if err != nil {
+		m.health[s.name] = Health{Status: StatusError, Error: err.Error()}
+		m.mu.Unlock()
+		return
+	}
+	s.tools = append([]toolDef(nil), defs...)
+	m.health[s.name] = Health{Status: StatusReady, ToolCount: len(defs)}
+	m.mu.Unlock()
+}
+
 // Remove stops the server owned by id. Its tools disappear from the
 // capability proxy's routing (the provider-visible schema is unaffected).
 func (m *Manager) Remove(id string) {
@@ -102,13 +186,28 @@ func (m *Manager) Remove(id string) {
 // Close stops every managed server.
 func (m *Manager) Close() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, s := range m.servers {
-		_ = s.client.Close()
-		delete(m.servers, id)
+	if m.closed {
+		m.mu.Unlock()
+		return
 	}
+	m.closed = true
+	m.cancel()
+	servers := make([]*server, 0, len(m.servers))
+	for _, s := range m.servers {
+		servers = append(servers, s)
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}
+	clear(m.servers)
 	clear(m.owners)
 	clear(m.health)
+	m.mu.Unlock()
+
+	for _, s := range servers {
+		_ = s.client.Close()
+	}
+	m.wg.Wait()
 }
 
 // Health returns a snapshot of per-server health keyed by server name.
@@ -122,6 +221,9 @@ func (m *Manager) removeLocked(id string) {
 	s, ok := m.servers[id]
 	if !ok {
 		return
+	}
+	if s.cancel != nil {
+		s.cancel()
 	}
 	_ = s.client.Close()
 	delete(m.servers, id)
@@ -232,6 +334,9 @@ func (m *Manager) findTool(serverName, toolName string) (*client, toolDef, error
 			if tool.Name == toolName {
 				return s.client, tool, nil
 			}
+		}
+		if m.health[serverName].Status == StatusStarting {
+			return nil, toolDef{}, fmt.Errorf("server %q is still starting", serverName)
 		}
 		return nil, toolDef{}, fmt.Errorf("server %q has no tool %q", serverName, toolName)
 	}

@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -41,7 +44,7 @@ func TestRewindRestoresModifiedCreatedAndDeletedFiles(t *testing.T) {
 
 	m := New(root)
 	m.Activate("session-1", nil, 0)
-	turn, err := m.Begin("session-1")
+	turn, err := m.BeginMessage("session-1", "Update binary handling")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,19 +116,163 @@ func TestRewindRestoresModifiedCreatedAndDeletedFiles(t *testing.T) {
 	if index := reloaded.Index("session-1"); len(index) != 0 {
 		t.Fatalf("rewound index = %v, want empty", index)
 	}
-	if next, err := reloaded.Begin("session-1"); err != nil || next != "2" {
+	pending := reloaded.Recovered("session-1")
+	if len(pending) != 1 || pending[0].RewindID != result.RewindID || pending[0].Turn != turn {
+		t.Fatalf("pending committed rewind = %+v", pending)
+	}
+	if err := reloaded.AcknowledgeRecovered("session-1", result.RewindID); err != nil {
+		t.Fatal(err)
+	}
+	if next, err := reloaded.BeginMessage("session-1", "Continue work"); err != nil || next != "2" {
 		t.Fatalf("next turn after rewind = %q err=%v, want 2", next, err)
 	}
 }
 
-func TestFinalizeDropsNoOpCapture(t *testing.T) {
+func TestHistoryRejectsManifestWithoutValidAuthentication(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	turn, err := m.BeginMessage("session", "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(m.turnDir("session", turn), manifestName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(data), "original", "modified", 1)
+	if err := os.WriteFile(path, []byte(tampered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	history, err := m.History("session")
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("unauthenticated manifest history = %+v err=%v", history, err)
+	}
+}
+
+func TestActivateMigratesStrictlyValidLegacyManifest(t *testing.T) {
+	root := t.TempDir()
+	work := t.TempDir()
+	path := filepath.Join(work, "legacy.txt")
+	if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turnDir := filepath.Join(root, "session", "1")
+	if err := secureDir(turnDir); err != nil {
+		t.Fatal(err)
+	}
+	legacy := manifest{
+		Turn: "1",
+		Entries: []entry{{
+			Path: path, Before: "file", Change: ChangeModified,
+			Snapshot: snapshotName(path), Mode: 0o644,
+		}},
+	}
+	if err := writePrivateFile(filepath.Join(turnDir, snapshotName(path)), []byte("before")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(filepath.Join(turnDir, manifestName), data); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(root)
+	m.Activate("session", []string{"1"}, 1)
+	history, err := m.History("session")
+	if err != nil || len(history) != 1 {
+		t.Fatalf("legacy history = %+v err=%v", history, err)
+	}
+	migrated, err := m.readManifest(turnDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.Version != 2 || migrated.MAC == "" || !validContentDigest(migrated.Entries[0].Digest) {
+		t.Fatalf("legacy manifest was not authenticated: %+v", migrated)
+	}
+	if _, err := m.Rewind("session", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := os.ReadFile(path); err != nil || string(restored) != "before" {
+		t.Fatalf("legacy rewind = %q err=%v", restored, err)
+	}
+}
+
+func TestConcurrentManagersPublishOneCompleteAuthenticationKey(t *testing.T) {
+	root := t.TempDir()
+	start := make(chan struct{})
+	errCh := make(chan error, 8)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			<-start
+			m := New(root)
+			sessionID := "session-" + strconv.Itoa(worker)
+			m.Activate(sessionID, nil, 0)
+			if _, err := m.BeginMessage(sessionID, "concurrent"); err != nil {
+				errCh <- err
+				return
+			}
+			if err := m.Finish(sessionID); err != nil {
+				errCh <- err
+			}
+		}(worker)
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+	key, err := readAuthKey(filepath.Join(root, macKeyName))
+	if err != nil || len(key) != 32 {
+		t.Fatalf("published authentication key length = %d err=%v", len(key), err)
+	}
+}
+
+func TestAuthenticatedManifestCannotMoveAcrossSessions(t *testing.T) {
+	root := t.TempDir()
+	m := New(root)
+	m.Activate("session-a", nil, 0)
+	if _, err := m.BeginMessage("session-a", "signed for A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session-a"); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(m.turnDir("session-a", "1"), manifestName)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationDir := m.turnDir("session-b", "1")
+	if err := secureDir(destinationDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(filepath.Join(destinationDir, manifestName), data); err != nil {
+		t.Fatal(err)
+	}
+	m.Activate("session-b", []string{"1"}, 1)
+	if _, err := m.History("session-b"); err == nil || !strings.Contains(err.Error(), "manifest session") {
+		t.Fatalf("cross-session manifest error = %v", err)
+	}
+}
+
+func TestFinishRetainsNoOpMessageAnchor(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "same.txt")
 	if err := os.WriteFile(path, []byte("same"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := New(t.TempDir())
 	m.Activate("session", nil, 0)
-	turn, err := m.Begin("session")
+	turn, err := m.BeginMessage("session", "Inspect this file without changing it")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,35 +285,39 @@ func TestFinalizeDropsNoOpCapture(t *testing.T) {
 	if err := m.Finish("session"); err != nil {
 		t.Fatal(err)
 	}
-	if turns := m.Index("session"); len(turns) != 0 {
-		t.Fatalf("no-op turn was retained: %v", turns)
+	if turns := m.Index("session"); !reflect.DeepEqual(turns, []string{turn}) {
+		t.Fatalf("message anchor index = %v, want [%s]", turns, turn)
+	}
+	history, err := m.History("session")
+	if err != nil || len(history) != 1 || history[0].UserMessage != "Inspect this file without changing it" || len(history[0].Changes) != 0 {
+		t.Fatalf("message anchor history = %+v err=%v", history, err)
+	}
+	if _, err := m.Rewind("session", ""); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(m.turnDir("session", turn)); !os.IsNotExist(err) {
-		t.Fatalf("no-op checkpoint directory survived: %v", err)
-	}
-	if _, err := m.Rewind("session", ""); err == nil {
-		t.Fatal("rewind found an empty checkpoint")
+		t.Fatalf("rewound message anchor survived: %v", err)
 	}
 }
 
 func TestBeginRejectsOverlappingTurns(t *testing.T) {
 	m := New(t.TempDir())
 	m.Activate("session", nil, 0)
-	if _, err := m.Begin("session"); err != nil {
+	if _, err := m.BeginMessage("session", "first"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Begin("session"); err == nil {
+	if _, err := m.BeginMessage("session", "overlap"); err == nil {
 		t.Fatal("second Begin replaced an active checkpoint turn")
 	}
 	if err := m.Finish("session"); err != nil {
 		t.Fatal(err)
 	}
-	if turn, err := m.Begin("session"); err != nil || turn != "2" {
+	if turn, err := m.BeginMessage("session", "second"); err != nil || turn != "2" {
 		t.Fatalf("Begin after Finish = %q, %v", turn, err)
 	}
 }
 
-func TestFinishKeepsLatestTenCompleteTurns(t *testing.T) {
+func TestFinishKeepsLatestHundredMessageAnchors(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(t.TempDir(), "file.txt")
 	if err := os.WriteFile(path, []byte("0"), 0o644); err != nil {
@@ -174,8 +325,8 @@ func TestFinishKeepsLatestTenCompleteTurns(t *testing.T) {
 	}
 	m := New(root)
 	m.Activate("session", nil, 0)
-	for i := 1; i <= 12; i++ {
-		if _, err := m.Begin("session"); err != nil {
+	for i := 1; i <= 102; i++ {
+		if _, err := m.BeginMessage("session", "Change file"); err != nil {
 			t.Fatal(err)
 		}
 		if err := m.Capture(path); err != nil {
@@ -192,7 +343,10 @@ func TestFinishKeepsLatestTenCompleteTurns(t *testing.T) {
 		}
 	}
 
-	wantTurns := []string{"3", "4", "5", "6", "7", "8", "9", "10", "11", "12"}
+	wantTurns := make([]string, 0, MaxTurnsPerSession)
+	for i := 3; i <= 102; i++ {
+		wantTurns = append(wantTurns, strconv.Itoa(i))
+	}
 	if got := m.Index("session"); !reflect.DeepEqual(got, wantTurns) {
 		t.Fatalf("retained turns = %v, want %v", got, wantTurns)
 	}
@@ -205,7 +359,7 @@ func TestFinishKeepsLatestTenCompleteTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != MaxTurnsPerSession || history[0].Turn != "12" || history[len(history)-1].Turn != "3" {
+	if len(history) != MaxTurnsPerSession || history[0].Turn != "102" || history[len(history)-1].Turn != "3" {
 		t.Fatalf("history order = %+v", history)
 	}
 }
@@ -217,7 +371,7 @@ func TestRewindRejectsInFlightMutation(t *testing.T) {
 	}
 	m := New(t.TempDir())
 	m.Activate("session", nil, 0)
-	if _, err := m.Begin("session"); err != nil {
+	if _, err := m.BeginMessage("session", "Modify busy file"); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Capture(path); err != nil {
@@ -234,5 +388,316 @@ func TestRewindRejectsInFlightMutation(t *testing.T) {
 	}
 	if _, err := m.Rewind("session", ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBeginStoresBoundedSingleLineMessagePreview(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	message := "  first \x1bline\n\t" + strings.Repeat("界", maxMessageRunes) + "  "
+	if _, err := m.BeginMessage("session", message); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := m.History("session")
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history = %+v err=%v", history, err)
+	}
+	if strings.ContainsAny(history[0].UserMessage, "\x1b\n\t") || !strings.HasSuffix(history[0].UserMessage, "…") || len([]rune(history[0].UserMessage)) != maxMessageRunes {
+		t.Fatalf("message preview = %q", history[0].UserMessage)
+	}
+}
+
+func TestHistoryAndRewindStripPersistedFormatControls(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	turn, err := m.BeginMessage("session", "safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	mf, err := m.readManifest(m.turnDir("session", turn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mf.UserMessage = "visible\u202Espoof\u2066text"
+	if err := m.writeManifest(m.turnDir("session", turn), mf); err != nil {
+		t.Fatal(err)
+	}
+	history, err := m.History("session")
+	if err != nil || len(history) != 1 {
+		t.Fatalf("history = %+v err=%v", history, err)
+	}
+	if strings.ContainsAny(history[0].UserMessage, "\u202E\u2066") {
+		t.Fatalf("history exposed bidi controls: %q", history[0].UserMessage)
+	}
+	result, err := m.Rewind("session", turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(result.UserMessage, "\u202E\u2066") {
+		t.Fatalf("rewind result exposed bidi controls: %q", result.UserMessage)
+	}
+}
+
+func TestRewindSnapshotDigestFailureLeavesEveryFileUnchanged(t *testing.T) {
+	root := t.TempDir()
+	work := t.TempDir()
+	first := filepath.Join(work, "a.txt")
+	second := filepath.Join(work, "b.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := New(root)
+	m.Activate("session", nil, 0)
+	turn, err := m.BeginMessage("session", "change both")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{first, second} {
+		if err := m.Capture(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Finalize(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.turnDir("session", turn), snapshotName(second)), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Rewind("session", turn); err == nil {
+		t.Fatal("rewind unexpectedly succeeded with a tampered snapshot")
+	}
+	for _, path := range []string{first, second} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != "after" {
+			t.Fatalf("%s changed after failed rewind: %q err=%v", path, data, err)
+		}
+	}
+	if got := m.Index("session"); !reflect.DeepEqual(got, []string{turn}) {
+		t.Fatalf("failed rewind changed checkpoint index: %v", got)
+	}
+}
+
+func TestActivateRecoversInterruptedRewindJournal(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	m.Activate("session", nil, 0)
+	turn, err := m.BeginMessage("session", "change")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Capture(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("after"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+
+	stageDir, err := os.MkdirTemp(filepath.Join(root, "session"), ".rewind-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackDir := filepath.Join(stageDir, rewindRollbackDir)
+	if err := secureDir(rollbackDir); err != nil {
+		t.Fatal(err)
+	}
+	rollbackName := snapshotName(path)
+	if err := writePrivateFile(filepath.Join(rollbackDir, rollbackName), []byte("after")); err != nil {
+		t.Fatal(err)
+	}
+	journal := rewindJournal{
+		ID: filepath.Base(stageDir), Session: "session", Phase: "staged", Target: turn, Turns: []string{turn},
+		Files:   []rewindRollback{{Path: path, Exists: true, Snapshot: rollbackName, Digest: contentDigest([]byte("after")), Mode: 0o600}},
+		Changes: []RollbackChange{{Path: path, Action: RollbackRestoredFile}},
+	}
+	if err := m.writeRewindJournal(stageDir, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(m.turnDir("session", turn), filepath.Join(stageDir, turn)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := New(root)
+	reloaded.Activate("session", []string{turn}, 1)
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "after" {
+		t.Fatalf("recovered workspace = %q err=%v", data, err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("recovered mode = %v err=%v", info, err)
+	}
+	if got := reloaded.Index("session"); !reflect.DeepEqual(got, []string{turn}) {
+		t.Fatalf("recovered checkpoint index = %v", got)
+	}
+	if _, err := os.Stat(reloaded.turnDir("session", turn)); err != nil {
+		t.Fatalf("checkpoint turn was not restored: %v", err)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(root, "session", ".rewind-*")); len(matches) != 0 {
+		t.Fatalf("rewind staging area survived recovery: %v", matches)
+	}
+}
+
+func TestRewindRejectsTamperedManifestPathsAndSnapshots(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	turn, err := m.BeginMessage("session", "safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	mf, err := m.readManifest(m.turnDir("session", turn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mf.Entries = []entry{{Path: filepath.Join(t.TempDir(), "victim"), Before: "file", Change: ChangeModified, Snapshot: "../outside", Mode: 0o644}}
+	if err := m.writeManifest(m.turnDir("session", turn), mf); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Rewind("session", turn); err == nil || !strings.Contains(err.Error(), "invalid snapshot") {
+		t.Fatalf("tampered manifest error = %v", err)
+	}
+}
+
+func TestRotateMessageCreatesAFileRestoreBoundary(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(root)
+	m.Activate("session", nil, 0)
+	first, err := m.BeginMessage("session", "First request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Capture(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RotateMessage("Steer the running agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Capture(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("steered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := m.History("session")
+	if err != nil || len(history) != 2 || history[0].UserMessage != "Steer the running agent" || history[1].Turn != first {
+		t.Fatalf("history = %+v err=%v", history, err)
+	}
+	if _, err := m.Rewind("session", history[0].Turn); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "first" {
+		t.Fatalf("rewind to steering boundary = %q err=%v", data, err)
+	}
+}
+
+func TestHistoryReconcilesMissingPersistedManifest(t *testing.T) {
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	first, err := m.BeginMessage("session", "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.BeginMessage("session", "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(m.turnDir("session", first)); err != nil {
+		t.Fatal(err)
+	}
+	history, err := m.History("session")
+	if err != nil || len(history) != 1 || history[0].Turn != second {
+		t.Fatalf("reconciled history = %+v err=%v", history, err)
+	}
+	if got := m.Index("session"); !reflect.DeepEqual(got, []string{second}) {
+		t.Fatalf("reconciled index = %v", got)
+	}
+}
+
+func TestRotateMessageFailureKeepsPreviousAnchorActive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(t.TempDir())
+	m.Activate("session", nil, 0)
+	first, err := m.BeginMessage("session", "Initial request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Block creation of the next checkpoint directory without disturbing the
+	// current manifest, simulating a filesystem failure during rotation.
+	if err := os.WriteFile(m.turnDir("session", "2"), []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RotateMessage("Steering request"); err == nil {
+		t.Fatal("rotation unexpectedly succeeded")
+	}
+	if err := m.Capture(path); err != nil {
+		t.Fatalf("previous anchor was not restored: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finalize(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Rewind("session", first); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "before" {
+		t.Fatalf("restored file = %q err=%v", data, err)
 	}
 }

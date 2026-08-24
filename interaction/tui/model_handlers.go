@@ -153,6 +153,13 @@ func (m *Model) handleQuestionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKeyPress(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
+		if m.Input.HasContent() {
+			m.Input.Clear()
+			m.Suggestions.Hide()
+			m.commandMenuBack = nil
+			m.resizeMessages()
+			return nil
+		}
 		return tea.Quit
 
 	case "up":

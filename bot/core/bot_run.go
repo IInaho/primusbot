@@ -15,8 +15,7 @@ func (b *Bot) Steer(ctx context.Context, msg string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.getAgent().Steer(msg)
-	return nil
+	return b.getAgent().TrySteer(msg)
 }
 
 func (b *Bot) getAgent() *agentcore.Agent {
@@ -57,7 +56,7 @@ func (b *Bot) runAgent(input string, onStep func(ev protocol.StepEvent)) (string
 		b.ctxMgr.SetRuntimePolicy("")
 	}()
 	if b.checkpoints != nil {
-		if _, err := b.checkpoints.Begin(sessionID); err != nil {
+		if _, err := b.checkpoints.BeginMessage(sessionID, input); err != nil {
 			return "", err
 		}
 	}

@@ -182,7 +182,7 @@ func TestDisplayMessagesCarriesToolErrorState(t *testing.T) {
 	}
 }
 
-func TestDisplayMessagesRestoresAssistantReasoning(t *testing.T) {
+func TestDisplayMessagesHidesPersistedAssistantReasoning(t *testing.T) {
 	msgs := []types.Message{
 		{Role: "assistant", ReasoningContent: "inspect repository", ToolCalls: []types.ToolCall{{
 			ID: "shell-call", Function: types.FunctionCall{Name: "shell"},
@@ -192,14 +192,14 @@ func TestDisplayMessagesRestoresAssistantReasoning(t *testing.T) {
 	}
 
 	got := DisplayMessages(msgs)
-	if len(got) != 1 || got[0].Reasoning != "inspect repository\n\nsummarize result" {
-		t.Fatalf("display reasoning = %+v, want complete assistant reasoning", got)
+	if len(got) != 1 || got[0].Content != "done" || got[0].Reasoning != "" {
+		t.Fatalf("display messages = %+v, want content without persisted reasoning", got)
 	}
 }
 
-func TestDisplayMessagesKeepsReasoningOnlyAssistantTurn(t *testing.T) {
+func TestDisplayMessagesDropsReasoningOnlyAssistantTurn(t *testing.T) {
 	got := DisplayMessages([]types.Message{{Role: "assistant", ReasoningContent: "partial thought"}})
-	if len(got) != 1 || got[0].Reasoning != "partial thought" {
-		t.Fatalf("display messages = %+v, want reasoning-only turn", got)
+	if len(got) != 0 {
+		t.Fatalf("display messages = %+v, want reasoning-only turn hidden", got)
 	}
 }

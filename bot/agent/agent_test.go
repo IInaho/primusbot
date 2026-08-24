@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"nekocode/bot/agent/internal/kernel"
+	"nekocode/bot/checkpoint"
 	"nekocode/bot/contextmgr"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
@@ -17,6 +20,62 @@ func messagesContain(msgs []types.Message, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestDrainSteeringRotatesCheckpointMessage(t *testing.T) {
+	cp := checkpoint.New(t.TempDir())
+	cp.Activate("session", nil, 0)
+	if _, err := cp.BeginMessage("session", "Initial request"); err != nil {
+		t.Fatal(err)
+	}
+	ctxManager := contextmgr.New(contextmgr.Config{})
+	a := &Agent{
+		life: kernel.NewLifecycle(context.Background(), steeringChBuffer),
+		deps: agentDeps{ctxMgr: ctxManager, checkpoints: cp},
+	}
+	if err := a.TrySteer("Updated direction"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.drainSteering(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cp.Finish("session"); err != nil {
+		t.Fatal(err)
+	}
+	history, err := cp.History("session")
+	if err != nil || len(history) != 2 || history[0].UserMessage != "Updated direction" || history[1].UserMessage != "Initial request" {
+		t.Fatalf("steering checkpoint history = %+v err=%v", history, err)
+	}
+}
+
+func TestSteerRejectsFullQueueWithoutCancelingCurrentContext(t *testing.T) {
+	a := &Agent{life: kernel.NewLifecycle(context.Background(), steeringChBuffer)}
+	for n := 0; n < steeringChBuffer; n++ {
+		if err := a.TrySteer("queued"); err != nil {
+			t.Fatalf("steer %d: %v", n, err)
+		}
+	}
+	current := a.getCtx()
+	if err := a.TrySteer("overflow"); err == nil {
+		t.Fatal("full steering queue was accepted")
+	}
+	if err := current.Err(); err != nil {
+		t.Fatalf("rejected steering canceled the current context: %v", err)
+	}
+}
+
+func TestSteerKeepsLegacyMethodSignature(t *testing.T) {
+	a := &Agent{life: kernel.NewLifecycle(context.Background(), steeringChBuffer)}
+	var steer func(string) = a.Steer
+	steer("legacy caller")
+	select {
+	case got := <-a.life.Steering():
+		if got != "legacy caller" {
+			t.Fatalf("steering message = %q", got)
+		}
+	default:
+		t.Fatal("legacy Steer wrapper did not enqueue the message")
+	}
 }
 
 func TestBindInteractionRestoresPreviousCallbacks(t *testing.T) {

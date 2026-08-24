@@ -19,6 +19,10 @@ import (
 // startMockMCP builds and starts a minimal MCP server that responds to
 // initialize, tools/list, and tools/call JSON-RPC methods.
 func startMockMCP(t *testing.T, tools []toolDef) (*exec.Cmd, func()) {
+	return startMockMCPWithDelay(t, tools, 0)
+}
+
+func startMockMCPWithDelay(t *testing.T, tools []toolDef, delay time.Duration) (*exec.Cmd, func()) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -32,11 +36,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 )
 
 var toolsJSON = []byte(%q)
 
 func main() {
+	time.Sleep(time.Duration(%d))
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -89,7 +95,7 @@ func main() {
 		fmt.Println(string(out))
 	}
 }
-`, toolsData)
+`, toolsData, delay)
 
 	os.WriteFile(script, []byte(code), 0o644)
 

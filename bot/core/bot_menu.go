@@ -85,19 +85,27 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		}
 		history, err := b.checkpoints.History(b.sess.CurrentID())
 		if err != nil {
-			return protocol.CommandMenu{Title: "Rewind checkpoint", Empty: err.Error()}, true
+			return protocol.CommandMenu{Title: "Rewind to message", Empty: err.Error()}, true
 		}
 		items := make([]protocol.CommandMenuItem, 0, len(history))
-		for _, turn := range history {
+		for i, turn := range history {
 			created, modified, deleted := checkpointChangeCounts(turn)
+			label := turn.UserMessage
+			position := "Latest message"
+			if label == "" {
+				label = "Legacy checkpoint " + turn.Turn
+				position = "Legacy checkpoint"
+			} else if i > 0 {
+				position = fmt.Sprintf("%d messages ago", i)
+			}
 			items = append(items, protocol.CommandMenuItem{
-				Value: "/rewind " + turn.Turn, Label: "Turn " + turn.Turn,
-				Description: fmt.Sprintf("%s · %d files · +%d ~%d -%d",
-					turn.CreatedAt.Local().Format("01-02 15:04"), len(turn.Changes), created, modified, deleted),
+				Value: "/rewind " + turn.Turn, Label: label,
+				Description: fmt.Sprintf("%s · %s · %d files · +%d ~%d -%d",
+					position, turn.CreatedAt.Local().Format("01-02 15:04"), len(turn.Changes), created, modified, deleted),
 				Submit: true,
 			})
 		}
-		return protocol.CommandMenu{Title: "Rewind checkpoint", Empty: "No checkpoints available", Items: items}, true
+		return protocol.CommandMenu{Title: "Rewind to message", Empty: "No rewind points available", Items: items}, true
 	})
 }
 

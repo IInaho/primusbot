@@ -271,12 +271,12 @@ func RegisterDefaults(p *Parser, deps Deps) {
 		return result, true
 	})
 
-	p.RegisterInfo("rewind", "Restore files to a checkpoint", func(_ context.Context, cmd *Command) (string, bool) {
+	p.RegisterInfo("rewind", "Restore files to a user message", func(_ context.Context, cmd *Command) (string, bool) {
 		if deps.Rewind == nil {
 			return "Checkpoint rewind is unavailable.", true
 		}
 		if len(cmd.Args) > 1 {
-			return "Usage: /rewind [turn|list]", true
+			return "Usage: /rewind [checkpoint]", true
 		}
 		turn := ""
 		if len(cmd.Args) == 1 {

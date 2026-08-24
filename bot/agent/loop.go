@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"errors"
+
 	"nekocode/bot/agent/internal/kernel"
 	"nekocode/bot/policy"
 	"nekocode/bot/provider/types"
@@ -56,7 +58,7 @@ func (r *loopRunner) run(input string, callback RunCallback) *RunResult {
 	result := r.finishRun(callback)
 	// Flush any steering messages that arrived too late to be drained during
 	// the run, so they are still recorded in the context instead of being lost.
-	a.drainSteering()
+	result.Error = errors.Join(result.Error, a.drainSteering())
 	return result
 }
 

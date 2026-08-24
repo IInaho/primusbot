@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"nekocode/bot/agent/internal/kernel"
@@ -53,6 +54,7 @@ type agentDeps struct {
 	llmClient    provider.LLM
 	toolRegistry *tools.Registry
 	toolExecutor *runner.Executor
+	checkpoints  *checkpoint.Manager
 	subSlotMgr   *slotManager
 	gov          *aggov.Policy
 }
@@ -94,6 +96,7 @@ func New(ctx context.Context, cfg Config) *Agent {
 			llmClient:    cfg.Model,
 			toolRegistry: cfg.Tools,
 			toolExecutor: runner.NewExecutor(cfg.Tools),
+			checkpoints:  cfg.Checkpoints,
 			subSlotMgr:   newSlotManager(),
 		},
 		gate: kernel.NewGate(defaultMaxRetries),
@@ -124,14 +127,20 @@ func (a *Agent) getCtx() context.Context {
 	return a.life.Context()
 }
 
-func (a *Agent) Steer(msg string) {
+// Steer retains the original fire-and-forget API for downstream callers.
+// Runtime-facing code should use TrySteer so queue pressure is observable.
+func (a *Agent) Steer(msg string) { _ = a.TrySteer(msg) }
+
+func (a *Agent) TrySteer(msg string) error {
 	logger.Log("Steer: msg=%q", msg)
 	select {
 	case a.life.Steering() <- msg:
 	default:
+		return fmt.Errorf("steering queue is full; wait for the agent to process an earlier message")
 	}
 	a.life.ReplaceContext()
 	logger.Log("Steer: context replaced")
+	return nil
 }
 
 func (a *Agent) Abort() {
@@ -179,13 +188,18 @@ func (a *Agent) applyTurnHints(hints []aggov.Hint) {
 	a.deps.ctxMgr.SetHints(aggov.FormatHints(hints))
 }
 
-func (a *Agent) drainSteering() {
+func (a *Agent) drainSteering() error {
 	for {
 		select {
 		case msg := <-a.life.Steering():
+			if a.deps.checkpoints != nil {
+				if err := a.deps.checkpoints.RotateMessage(msg); err != nil {
+					return fmt.Errorf("checkpoint steering boundary: %w", err)
+				}
+			}
 			a.deps.ctxMgr.Add("user", msg, "user")
 		default:
-			return
+			return nil
 		}
 	}
 }

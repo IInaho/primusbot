@@ -47,7 +47,7 @@ func TestExecutorCheckpointsWriteBeforeMutation(t *testing.T) {
 	}
 	cp := checkpoint.New(t.TempDir())
 	cp.Activate("session", nil, 0)
-	if _, err := cp.Begin("session"); err != nil {
+	if _, err := cp.BeginMessage("session", "Write a file"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,7 +77,7 @@ func TestExecutorDoesNotCheckpointShellSideEffects(t *testing.T) {
 	}
 	cp := checkpoint.New(t.TempDir())
 	cp.Activate("session", nil, 0)
-	if _, err := cp.Begin("session"); err != nil {
+	if _, err := cp.BeginMessage("session", "Run a shell mutation"); err != nil {
 		t.Fatal(err)
 	}
 	r := tools.New(&fileMutationTool{testTool{name: "shell"}})

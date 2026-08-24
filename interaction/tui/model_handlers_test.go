@@ -203,3 +203,76 @@ func TestNestedCommandMenuEscReturnsToParent(t *testing.T) {
 		t.Fatalf("escape did not restore parent: input=%q\n%s", m.Input.Value(), m.Suggestions.View(80))
 	}
 }
+
+func TestCtrlCClearsPopulatedInputBeforeQuitting(t *testing.T) {
+	bot := &commandFakeBot{commands: []string{"/help", "/status"}}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.Input.SetValue("/h")
+	m.refreshSuggestions()
+	if !m.Suggestions.Visible() {
+		t.Fatal("command suggestions should be visible before clear")
+	}
+
+	cmd := m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if cmd != nil {
+		t.Fatal("ctrl+c with input should clear instead of quitting")
+	}
+	if m.Input.HasContent() || m.Input.Value() != "" {
+		t.Fatalf("input after ctrl+c = %q, want empty", m.Input.Value())
+	}
+	if m.Suggestions.Visible() {
+		t.Fatal("ctrl+c should close command suggestions")
+	}
+}
+
+func TestCtrlCWithEmptyInputQuits(t *testing.T) {
+	m, err := NewModel(&tickFakeBot{})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+
+	cmd := m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("ctrl+c with empty input should quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c command returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestCtrlCClearsSteeringInputWithoutLeavingProcessingState(t *testing.T) {
+	m, err := NewModel(&tickFakeBot{})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.transitionTo(stateProcessing)
+	m.Input.SetValue("additional direction")
+
+	if cmd := m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})); cmd != nil {
+		t.Fatal("ctrl+c with steering input should not quit")
+	}
+	if m.Input.HasContent() || m.state != stateProcessing {
+		t.Fatalf("after clear: input=%q state=%v, want empty processing state", m.Input.Value(), m.state)
+	}
+}
+
+func TestEnterSubmitsExpandedLargePaste(t *testing.T) {
+	bot := &tickFakeBot{}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	content := strings.Repeat("pasted diagnostic line\n", 12) + "last line"
+	model, _ := m.Update(tea.PasteMsg{Content: content})
+	m = model.(*Model)
+
+	if cmd := m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})); cmd == nil {
+		t.Fatal("enter after a large paste should start a run")
+	}
+	if got := bot.submittedInputs(); len(got) != 1 || got[0] != content {
+		t.Fatalf("submitted input did not preserve pasted content: got %d entries", len(got))
+	}
+}

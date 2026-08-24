@@ -135,26 +135,24 @@ func (r *Runtime) SteerRun(ctx context.Context, runID RunID, input Input) error 
 	var steerErr error
 	if !lease.guard(func() {
 		steerErr = steer(steerCtx, input.Text)
+		if steerErr == nil {
+			r.events.Publish(Event{
+				RunID:  runID,
+				Type:   EventInputAccepted,
+				Source: input.Source,
+				Payload: MessagePayload{
+					Role:    "user",
+					Content: RedactInputText(input.Text),
+					Source:  input.Source,
+					Sender:  input.Sender,
+				},
+			})
+		}
 	}) {
 		return protocolError(ErrorConflict, "steer_run", fmt.Sprintf("run %s is no longer active", runID))
 	}
 	if steerErr != nil {
 		return steerErr
-	}
-	if !lease.guard(func() {
-		r.events.Publish(Event{
-			RunID:  runID,
-			Type:   EventInputAccepted,
-			Source: input.Source,
-			Payload: MessagePayload{
-				Role:    "user",
-				Content: RedactInputText(input.Text),
-				Source:  input.Source,
-				Sender:  input.Sender,
-			},
-		})
-	}) {
-		return protocolError(ErrorConflict, "steer_run", fmt.Sprintf("run %s is no longer active", runID))
 	}
 	return nil
 }

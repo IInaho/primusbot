@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,6 +123,20 @@ func recordedEventFrom(ev core.Event) recordedEvent {
 }
 
 func LoadRecordedEvents(baseDir string) ([]core.Event, error) {
+	return loadRecordedEvents(baseDir, 0)
+}
+
+// LoadRecentRecordedEvents restores only the newest run files. Runtime's
+// in-memory run store is bounded, so decoding older files would consume startup
+// time only for those records to be discarded immediately.
+func LoadRecentRecordedEvents(baseDir string, runLimit int) ([]core.Event, error) {
+	if runLimit <= 0 {
+		return nil, nil
+	}
+	return loadRecordedEvents(baseDir, runLimit)
+}
+
+func loadRecordedEvents(baseDir string, runLimit int) ([]core.Event, error) {
 	if strings.TrimSpace(baseDir) == "" {
 		return nil, fmt.Errorf("runtime: empty event recorder base dir")
 	}
@@ -129,20 +144,73 @@ func LoadRecordedEvents(baseDir string) ([]core.Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(matches)
+	sortRecordedRunFiles(matches)
+	if runLimit > 0 && len(matches) > runLimit {
+		matches = matches[len(matches)-runLimit:]
+	}
+
+	loaded := make([][]core.Event, len(matches))
+	workers := min(runtime.GOMAXPROCS(0), len(matches))
+	var wg sync.WaitGroup
+	jobs := make(chan int)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				events, err := loadRecordedEventFile(matches[i])
+				if err != nil {
+					log.Printf("runtime: skip recorded events %s: %v", matches[i], err)
+					continue
+				}
+				loaded[i] = events
+			}
+		}()
+	}
+	for i := range matches {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
 	var out []core.Event
-	for _, path := range matches {
-		events, err := loadRecordedEventFile(path)
-		if err != nil {
-			log.Printf("runtime: skip recorded events %s: %v", path, err)
-			continue
-		}
+	for _, events := range loaded {
 		out = append(out, events...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Time.Before(out[j].Time)
 	})
 	return out, nil
+}
+
+func sortRecordedRunFiles(paths []string) {
+	modified := make(map[string]time.Time, len(paths))
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil {
+			modified[path] = info.ModTime()
+		}
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if !modified[paths[i]].Equal(modified[paths[j]]) {
+			return modified[paths[i]].Before(modified[paths[j]])
+		}
+		leftBatch, leftRun := recordedRunOrder(paths[i])
+		rightBatch, rightRun := recordedRunOrder(paths[j])
+		if leftBatch != rightBatch {
+			return leftBatch < rightBatch
+		}
+		if leftRun != rightRun {
+			return leftRun < rightRun
+		}
+		return paths[i] < paths[j]
+	})
+}
+
+func recordedRunOrder(path string) (string, uint64) {
+	runDir := filepath.Base(filepath.Dir(path))
+	batch := filepath.Base(filepath.Dir(filepath.Dir(path)))
+	run, _ := strconv.ParseUint(strings.TrimPrefix(runDir, "run_"), 10, 64)
+	return batch, run
 }
 
 func pruneEmptyBatches(baseDir string) {

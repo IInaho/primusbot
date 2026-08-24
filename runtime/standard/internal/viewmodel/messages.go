@@ -31,7 +31,7 @@ func DisplayMessages(messages []types.Message) []controlruntime.DisplayMessage {
 			i++
 		case "assistant":
 			msg, next := displayAssistantTurn(messages, i, toolNames, toolArgs)
-			if msg.Content != "" || msg.Reasoning != "" || len(msg.Blocks) > 0 || len(msg.Images) > 0 {
+			if msg.Content != "" || len(msg.Blocks) > 0 || len(msg.Images) > 0 {
 				out = append(out, msg)
 			}
 			i = next
@@ -66,7 +66,6 @@ func toolMetaByID(msgs []types.Message) (names map[string]string, args map[strin
 
 func displayAssistantTurn(msgs []types.Message, idx int, toolNames, toolArgs map[string]string) (controlruntime.DisplayMessage, int) {
 	var contentParts []string
-	var reasoningParts []string
 	var blocks []controlruntime.DisplayBlock
 	var images []controlruntime.ImageRef
 
@@ -74,9 +73,6 @@ func displayAssistantTurn(msgs []types.Message, idx int, toolNames, toolArgs map
 	for next < len(msgs) && msgs[next].Role == "assistant" {
 		m := msgs[next]
 		next++
-		if reasoning := strings.TrimSpace(m.ReasoningContent); reasoning != "" {
-			reasoningParts = append(reasoningParts, reasoning)
-		}
 
 		if len(m.ToolCalls) == 0 {
 			if content := strings.TrimSpace(m.Content); content != "" && !isInternalMessage(m) {
@@ -93,11 +89,10 @@ func displayAssistantTurn(msgs []types.Message, idx int, toolNames, toolArgs map
 	}
 
 	return controlruntime.DisplayMessage{
-		Role:      "assistant",
-		Content:   strings.Join(contentParts, "\n\n"),
-		Reasoning: strings.Join(reasoningParts, "\n\n"),
-		Blocks:    blocks,
-		Images:    images,
+		Role:    "assistant",
+		Content: strings.Join(contentParts, "\n\n"),
+		Blocks:  blocks,
+		Images:  images,
 	}, next
 }
 
