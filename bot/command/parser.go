@@ -303,7 +303,11 @@ func RegisterDefaults(p *Parser, deps Deps) {
 			sb.WriteString("\n/model <name> to switch")
 			return sb.String(), true
 		}
-		if err := deps.SwitchModel(strings.Join(cmd.Args, " ")); err != nil {
+		name := strings.Join(cmd.Args, " ")
+		if name == deps.GetConfigFn().Name {
+			return "Already using model '" + name + "'. Nothing to switch.", true
+		}
+		if err := deps.SwitchModel(name); err != nil {
 			return err.Error(), true
 		}
 		return "Switched to " + getConfig(), true

@@ -28,6 +28,10 @@ type RuntimeClient interface {
 	Close() error
 }
 
+type sessionDeleter interface {
+	DeleteSession(string) error
+}
+
 type Model struct {
 	Runtime  RuntimeClient
 	Header   *components.Header

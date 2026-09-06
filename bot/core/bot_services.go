@@ -41,6 +41,13 @@ func (b *Bot) model() config.ModelConfig {
 	return b.cfg.ActiveModelConfig()
 }
 
+// persistConfigLocked writes the current in-memory configuration to disk.
+// Callers must hold b.mu. The config is cloned first so config.Validate's
+// in-place fixes cannot mutate the shared configuration.
+func (b *Bot) persistConfigLocked() error {
+	return config.Save(b.cfg.Clone())
+}
+
 func (b *Bot) SwitchModel(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -50,6 +57,11 @@ func (b *Bot) SwitchModel(name string) error {
 	}
 
 	b.rebuildAgentLocked()
+	// Persist the switch so the choice survives restarts. The in-memory
+	// switch already took effect, so a save failure must not be silent.
+	if err := b.persistConfigLocked(); err != nil {
+		return fmt.Errorf("switched to %q but failed to persist config: %w", name, err)
+	}
 	return nil
 }
 
@@ -76,6 +88,10 @@ func (b *Bot) SetReasoningEffort(effort string) error {
 		}
 		b.cfg.Models[i].ReasoningEffort = effort
 		b.rebuildAgentLocked()
+		// Persist the effort so the choice survives restarts.
+		if err := b.persistConfigLocked(); err != nil {
+			return fmt.Errorf("effort set to %q but failed to persist config: %w", effort, err)
+		}
 		return nil
 	}
 	return fmt.Errorf("active model %q not found", active)

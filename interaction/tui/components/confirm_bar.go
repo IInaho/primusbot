@@ -13,9 +13,16 @@ import (
 
 type ConfirmBar struct {
 	req      *controlruntime.ConfirmRequest
+	action   *actionConfirmation
 	sty      *styles.Styles
 	selected int
 	respond  func(ok bool, remember bool)
+}
+
+type actionConfirmation struct {
+	title       string
+	description string
+	acceptLabel string
 }
 
 func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
@@ -24,24 +31,42 @@ func NewConfirmBar(sty *styles.Styles) *ConfirmBar {
 
 func (c *ConfirmBar) SetRequest(req *controlruntime.ConfirmRequest, respond func(ok bool, remember bool)) {
 	c.req = req
+	c.action = nil
 	c.selected = 0
 	c.respond = respond
 }
 
+// SetDestructive asks for confirmation of a local destructive UI action.
+// Unlike permission requests, it deliberately offers only delete and cancel.
+// Options render horizontally with cancel first, so index 0 is the safe choice.
+func (c *ConfirmBar) SetDestructive(title, description, acceptLabel string, respond func(ok bool)) {
+	c.req = nil
+	c.action = &actionConfirmation{title: title, description: description, acceptLabel: acceptLabel}
+	c.selected = 0 // Default to the safe choice: cancel.
+	if respond == nil {
+		c.respond = nil
+	} else {
+		c.respond = func(ok bool, _ bool) { respond(ok) }
+	}
+}
+
 func (c *ConfirmBar) Clear() {
 	c.req = nil
+	c.action = nil
 	c.respond = nil
 }
 
 func (c *ConfirmBar) Selected() int {
-	if c.req == nil {
+	if c.req == nil && c.action == nil {
 		return 0
 	}
 	return c.selected
 }
 
+func (c *ConfirmBar) IsDestructive() bool { return c.action != nil }
+
 func (c *ConfirmBar) Move(delta int) {
-	if c.req == nil {
+	if c.req == nil && c.action == nil {
 		return
 	}
 	n := len(c.options())
@@ -52,7 +77,7 @@ func (c *ConfirmBar) Move(delta int) {
 }
 
 func (c *ConfirmBar) Submit() {
-	if c.req == nil {
+	if c.req == nil && c.action == nil {
 		return
 	}
 	opts := c.options()
@@ -67,6 +92,7 @@ func (c *ConfirmBar) Respond(ok bool, remember bool) {
 		c.respond(ok, remember)
 	}
 	c.req = nil
+	c.action = nil
 	c.respond = nil
 }
 
@@ -75,7 +101,7 @@ func (c *ConfirmBar) Respond(ok bool, remember bool) {
 // persists an allow Rule for any ask except CapProcessHost, which is
 // intentionally non-persistent (every host-execution must prompt).
 func (c *ConfirmBar) CanRemember() bool {
-	if c.req == nil {
+	if c.req == nil || c.action != nil {
 		return false
 	}
 	return c.req.Approval.CanRemember()
@@ -85,6 +111,18 @@ func (c *ConfirmBar) CanRemember() bool {
 // predicted sandbox capabilities, the same decision atomically covers the
 // command and the capabilities shown in the card.
 func (c *ConfirmBar) options() []confirmOption {
+	if c.action != nil {
+		acceptLabel := c.action.acceptLabel
+		if acceptLabel == "" {
+			acceptLabel = "确认"
+		}
+		// Cancel first: the safe default sits at index 0 and the destructive
+		// accept action renders last, in the danger palette.
+		return []confirmOption{
+			{Label: "取消", Action: func(c *ConfirmBar) { c.Respond(false, false) }},
+			{Label: acceptLabel, Action: func(c *ConfirmBar) { c.Respond(true, false) }},
+		}
+	}
 	if c.req == nil {
 		return nil
 	}
@@ -112,7 +150,7 @@ func confirmMaxLines(termHeight int) int {
 }
 
 func (c *ConfirmBar) Height(width, termHeight int) int {
-	if c.req == nil {
+	if c.req == nil && c.action == nil {
 		return 0
 	}
 	contentW := max(40, width-6)
@@ -121,13 +159,19 @@ func (c *ConfirmBar) Height(width, termHeight int) int {
 	if n > maxLines {
 		n = maxLines + 1
 	}
+	if c.action != nil {
+		// Destructive layout is compact: options share one horizontal line
+		// and there is no separate risk-tag row.
+		// title(1) + desc(n) + opts(1) + navSep(1) + navHint(1) + bottom(1)
+		return n + 5
+	}
 	opts := len(c.options())
 	// title(1) + desc(n) + sep(1) + levelTag(1) + opts + navSep(1) + navHint(1) + bottom(1)
 	return n + opts + 5
 }
 
 func (c *ConfirmBar) View(width, termHeight int) string {
-	if c.req == nil {
+	if c.req == nil && c.action == nil {
 		return ""
 	}
 	barW := max(40, width-4)
@@ -135,7 +179,12 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 	maxLines := confirmMaxLines(termHeight)
 
 	titleText := c.titleText()
-	title := c.sty.Primary.Bold(true).Render("  " + titleText)
+	// Destructive confirmations use a red title so the danger reads at a glance.
+	titleStyle := lipgloss.Style(c.sty.Primary.Bold(true))
+	if c.action != nil {
+		titleStyle = c.sty.Red.Bold(true)
+	}
+	title := titleStyle.Render("  " + titleText)
 	prefix := "┌─  " + titleText + " "
 	rightLen := max(0, barW-lipgloss.Width(prefix)-1)
 	rightDash := c.sty.Border.Render(strings.Repeat(styles.Horizontal, rightLen) + "┐")
@@ -155,8 +204,6 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 	if truncated {
 		descLines = descLines[:maxLines]
 	}
-
-	levelTag := c.levelText()
 
 	opts := c.options()
 
@@ -178,32 +225,74 @@ func (c *ConfirmBar) View(width, termHeight int) string {
 	if truncated {
 		fmt.Fprintf(&b, "%s\n", padTo(c.sty.Muted.Render("  ... (truncated)")))
 	}
-	fmt.Fprintf(&b, "%s\n", sep)
-	// Risk level tag on its own line above the options.
-	fmt.Fprintf(&b, "%s\n", padTo("  "+levelTag))
-	// Options stacked vertically; the selected one is highlighted.
-	for i, opt := range opts {
-		var row string
-		if i == c.selected {
-			row = c.sty.Primary.Bold(true).
-				Background(lipgloss.Color(styles.BtnYesBg)).
-				Padding(0, 2).
-				Render("▸ " + opt.Label)
-			row = "  " + row
-		} else {
-			row = c.sty.Muted.Render("    " + opt.Label)
+	if c.action != nil {
+		// Destructive confirmations render compactly: the options share one
+		// horizontal row right below the description, with no risk-tag row
+		// or separator (the red title already signals the danger).
+		fmt.Fprintf(&b, "%s\n", padTo(c.horizontalOptions(opts)))
+	} else {
+		fmt.Fprintf(&b, "%s\n", sep)
+		// Risk level tag on its own line above the options.
+		fmt.Fprintf(&b, "%s\n", padTo("  "+c.levelText()))
+		// Options stacked vertically; the selected one is highlighted.
+		for i, opt := range opts {
+			var row string
+			if i == c.selected {
+				row = lipgloss.Style(c.sty.Primary).Bold(true).
+					Background(lipgloss.Color(styles.BtnYesBg)).
+					Padding(0, 2).
+					Render("▸ " + opt.Label)
+				row = "  " + row
+			} else {
+				row = c.sty.Muted.Render("    " + opt.Label)
+			}
+			fmt.Fprintf(&b, "%s\n", padTo(row))
 		}
-		fmt.Fprintf(&b, "%s\n", padTo(row))
 	}
 	// Nav hint footer, visually separated from the options.
 	fmt.Fprintf(&b, "%s\n", navSep)
-	fmt.Fprintf(&b, "%s\n", padTo(c.sty.Muted.Render("  ↑↓选择  Enter确认  Esc拒绝")))
+	navHint := "  ↑↓选择  Enter确认  Esc拒绝"
+	if c.action != nil {
+		navHint = "  ↑↓选择  Enter确认  Esc取消"
+	}
+	fmt.Fprintf(&b, "%s\n", padTo(c.sty.Muted.Render(navHint)))
 	b.WriteString(bottomBorder)
 
 	return b.String()
 }
 
+// horizontalOptions renders the options inline on a single row. The last
+// option is the destructive accept action and keeps the danger palette
+// (dark-red background when selected, red text when idle).
+func (c *ConfirmBar) horizontalOptions(opts []confirmOption) string {
+	parts := make([]string, 0, len(opts))
+	for i, opt := range opts {
+		danger := i == len(opts)-1
+		switch {
+		case i == c.selected:
+			bg := styles.BtnYesBg
+			fg := lipgloss.Style(c.sty.Primary)
+			if danger {
+				bg = styles.BtnNoBg
+				fg = c.sty.Red
+			}
+			parts = append(parts, fg.Bold(true).
+				Background(lipgloss.Color(bg)).
+				Padding(0, 1).
+				Render("▸ "+opt.Label))
+		case danger:
+			parts = append(parts, c.sty.Red.Render(opt.Label))
+		default:
+			parts = append(parts, c.sty.Muted.Render(opt.Label))
+		}
+	}
+	return " " + strings.Join(parts, "  ")
+}
+
 func (c *ConfirmBar) titleText() string {
+	if c.action != nil {
+		return c.action.title
+	}
 	if c.isExecutionApproval() {
 		return "执行确认"
 	}
@@ -238,6 +327,9 @@ func (c *ConfirmBar) descLines(maxW int) []string {
 }
 
 func (c *ConfirmBar) formatDesc() string {
+	if c.action != nil {
+		return c.action.description
+	}
 	if c.isPermissionConfirm() {
 		return c.formatPermissionDesc()
 	}

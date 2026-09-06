@@ -89,8 +89,14 @@ func (m *Model) handleDone(msg doneMsg) tea.Cmd {
 
 func (m *Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "y", "Y":
+	case "enter":
 		m.ConfirmBar.Submit()
+	case "y", "Y":
+		if m.ConfirmBar.IsDestructive() {
+			m.ConfirmBar.Respond(true, false)
+		} else {
+			m.ConfirmBar.Submit()
+		}
 	case "up":
 		m.ConfirmBar.Move(-1)
 		return m, nil
@@ -265,6 +271,9 @@ func (m *Model) handleProcessingKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) handleIdleKey(msg tea.KeyPressMsg) tea.Cmd {
+	if (msg.String() == "d" || msg.String() == "D") && m.requestSessionDelete() {
+		return nil
+	}
 	switch msg.String() {
 	case "end":
 		m.Messages.GotoBottom()
@@ -367,11 +376,62 @@ func (m *Model) refreshSuggestions() {
 }
 
 func (m *Model) openCommandMenu(input string) bool {
-	menu, ok := m.Runtime.CommandMenu(context.Background(), strings.TrimSpace(input))
+	input = strings.TrimSpace(input)
+	menu, ok := m.Runtime.CommandMenu(context.Background(), input)
 	if !ok {
 		return false
 	}
 	m.Suggestions.OpenMenu(menu.Title, menu.Empty, menu.Items)
+	if input == "/sessions" {
+		if _, ok := m.Runtime.(sessionDeleter); ok {
+			for _, item := range menu.Items {
+				if item.Key != "" {
+					m.Suggestions.SetActionHint("d delete")
+					break
+				}
+			}
+		}
+	}
+	m.resizeMessages()
+	return true
+}
+
+func (m *Model) requestSessionDelete() bool {
+	if strings.TrimSpace(m.Input.Value()) != "/sessions" || !m.Suggestions.IsMenu() {
+		return false
+	}
+	deleter, ok := m.Runtime.(sessionDeleter)
+	if !ok {
+		return false
+	}
+	selected, ok := m.Suggestions.Selected()
+	if !ok {
+		return false
+	}
+	if selected.Key == "" {
+		return false
+	}
+	sessionID := selected.Key
+	m.Suggestions.Hide()
+	m.preConfirmState = m.state
+	m.state = stateConfirming
+	m.ConfirmBar.SetDestructive(
+		"删除会话",
+		fmt.Sprintf("确定删除会话 %s？会话记录和检查点将被永久删除。", sessionID),
+		"删除",
+		func(confirmed bool) {
+			if !confirmed {
+				m.openCommandMenu("/sessions")
+				return
+			}
+			if err := deleter.DeleteSession(sessionID); err != nil {
+				content := fmt.Sprintf("删除会话 %s 失败：%v", sessionID, err)
+				m.Messages.AddMessage(message.ChatMessage{Role: "error", Content: content})
+				m.Messages.GotoBottom()
+			}
+			m.openCommandMenu("/sessions")
+		},
+	)
 	m.resizeMessages()
 	return true
 }

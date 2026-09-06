@@ -22,6 +22,7 @@ type Suggestions struct {
 	scrollOff   int
 	visible     bool
 	menu        bool
+	actionHint  string
 	sty         *styles.Styles
 }
 
@@ -90,14 +91,32 @@ func (s *Suggestions) Accept() (controlruntime.CommandMenuItem, bool) {
 		return controlruntime.CommandMenuItem{}, false
 	}
 	item := s.items[s.selectedIdx]
+	if item.Current {
+		// Already active: keep the picker open and tell the user why nothing
+		// happened instead of submitting a redundant switch.
+		s.actionHint = "already current"
+		return item, false
+	}
 	s.Hide()
 	return item, true
 }
+
+// Selected returns the currently highlighted menu item without closing the
+// picker. It is used by contextual actions such as deleting a saved session.
+func (s *Suggestions) Selected() (controlruntime.CommandMenuItem, bool) {
+	if !s.visible || !s.menu || len(s.items) == 0 {
+		return controlruntime.CommandMenuItem{}, false
+	}
+	return s.items[s.selectedIdx], true
+}
+
+func (s *Suggestions) SetActionHint(hint string) { s.actionHint = hint }
 
 func (s *Suggestions) Cycle(delta int) {
 	if !s.visible || len(s.items) == 0 {
 		return
 	}
+	s.actionHint = ""
 	s.selectedIdx += delta
 	if s.selectedIdx < 0 {
 		s.selectedIdx = len(s.items) - 1
@@ -125,6 +144,7 @@ func (s *Suggestions) reset() {
 	s.scrollOff = 0
 	s.visible = false
 	s.menu = false
+	s.actionHint = ""
 }
 
 func (s *Suggestions) Height() int {
@@ -174,10 +194,20 @@ func (s *Suggestions) View(width int) string {
 	}
 
 	hints := "↑↓ move  enter select  esc close"
+	if s.actionHint != "" {
+		hints = s.actionHint + "  " + hints
+	}
 	if s.scrollOff > 0 || s.scrollOff+maxVisibleSuggestions < len(s.items) {
 		hints = fmt.Sprintf("%d/%d  ", s.selectedIdx+1, len(s.items)) + hints
 	}
-	fmt.Fprintf(&b, "\n\n%s", s.sty.Subtle.Render(truncateSuggestion(hints, width)))
+	hints = truncateSuggestion(hints, width)
+	// Colorize the contextual action hint (e.g. "d delete") so it stands out
+	// from the passive navigation hints. Applied after truncation because
+	// runewidth cannot count embedded ANSI escapes.
+	if s.actionHint != "" && strings.HasPrefix(hints, s.actionHint) {
+		hints = s.sty.Red.Render(s.actionHint) + hints[len(s.actionHint):]
+	}
+	fmt.Fprintf(&b, "\n\n%s", s.sty.Subtle.Render(hints))
 	return b.String()
 }
 
@@ -192,6 +222,11 @@ func (s *Suggestions) visibleLabelWidth(end, width int) int {
 func (s *Suggestions) renderRow(item controlruntime.CommandMenuItem, selected bool, labelWidth, width int) string {
 	rail, marker := styles.Vertical, "  "
 	railStyle, labelStyle := s.sty.Border, s.sty.Muted
+	suffix := ""
+	if item.Current {
+		marker, labelStyle = "✓ ", s.sty.Green
+		suffix = " ✓"
+	}
 	if selected {
 		rail, marker = styles.HeavyVert, "▸ "
 		railStyle, labelStyle = s.sty.Primary.Bold(true), s.sty.Primary.Bold(true)
@@ -200,6 +235,10 @@ func (s *Suggestions) renderRow(item controlruntime.CommandMenuItem, selected bo
 	label += strings.Repeat(" ", max(0, labelWidth-runewidth.StringWidth(label)))
 	prefix := railStyle.Render(rail) + " " + labelStyle.Render(marker+label)
 	used := 1 + 1 + 2 + labelWidth
+	if suffix != "" {
+		prefix += s.sty.Green.Render(suffix)
+		used += runewidth.StringWidth(suffix)
+	}
 	if item.Description == "" || width-used < 8 {
 		return prefix
 	}

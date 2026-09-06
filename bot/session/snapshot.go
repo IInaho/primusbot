@@ -170,8 +170,10 @@ func list() []Meta {
 	return out
 }
 
+// Age reports how long ago the session was created, so listings always
+// answer "when did this session start" regardless of recent activity.
 func (m Meta) Age() string {
-	d := time.Since(time.Unix(m.UpdatedAt, 0))
+	d := time.Since(time.Unix(m.CreatedAt, 0))
 	switch {
 	case d < time.Minute:
 		return "just now"

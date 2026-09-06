@@ -125,6 +125,41 @@ func TestUnifiedPermissionConfirmCanRemember(t *testing.T) {
 	}
 }
 
+func TestDestructiveConfirmDefaultsToCancel(t *testing.T) {
+	sty := styles.DefaultStyles()
+	cb := NewConfirmBar(&sty)
+	confirmed := true
+	cb.SetDestructive("删除会话", "确定删除 session_1？", "删除", func(ok bool) {
+		confirmed = ok
+	})
+
+	view := cb.View(80, 24)
+	for _, want := range []string{"删除会话", "session_1", "删除", "取消"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("destructive confirm missing %q:\n%s", want, view)
+		}
+	}
+	// Options render horizontally with cancel first (the safe default).
+	if cb.Selected() != 0 {
+		t.Fatalf("selected = %d, want cancel option", cb.Selected())
+	}
+	cb.Submit()
+	if confirmed {
+		t.Fatal("default destructive action should cancel")
+	}
+
+	// Moving right highlights the destructive accept action.
+	confirmed = false
+	cb.SetDestructive("删除会话", "确定删除 session_1？", "删除", func(ok bool) {
+		confirmed = ok
+	})
+	cb.Move(1)
+	cb.Submit()
+	if !confirmed {
+		t.Fatal("move then submit should confirm deletion")
+	}
+}
+
 func TestCombinedApprovalShowsCommandRiskAndCapabilities(t *testing.T) {
 	sty := styles.DefaultStyles()
 	cb := NewConfirmBar(&sty)

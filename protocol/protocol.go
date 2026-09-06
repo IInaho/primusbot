@@ -77,10 +77,14 @@ type CommandMenu struct {
 }
 
 type CommandMenuItem struct {
+	Key         string `json:"key,omitempty"`
 	Value       string `json:"value"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Submit      bool   `json:"submit,omitempty"`
+	// Current marks the item as already active, so UIs can highlight it and
+	// refuse to re-select it.
+	Current bool `json:"current,omitempty"`
 }
 
 type TodoItem struct {

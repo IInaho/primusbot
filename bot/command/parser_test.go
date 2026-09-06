@@ -139,6 +139,33 @@ func TestParserCommands(t *testing.T) {
 	}
 }
 
+func TestModelCommandRefusesReselectingActiveModel(t *testing.T) {
+	switched := ""
+	p := New(Deps{
+		GetConfigFn: func() config.ModelConfig {
+			return config.ModelConfig{Name: "flash", Provider: "glm", Model: "glm-5.3-flash"}
+		},
+		ListModelsFn: func() []string { return []string{"flash", "pro"} },
+		SwitchModel: func(name string) error {
+			switched = name
+			return nil
+		},
+	})
+
+	out, handled := p.Execute(context.Background(), "/model flash", nil)
+	if !handled || !strings.Contains(out, "Already using model 'flash'") {
+		t.Fatalf("reselect active model: output=%q handled=%v", out, handled)
+	}
+	if switched != "" {
+		t.Fatal("SwitchModel should not run when re-selecting the active model")
+	}
+
+	out, handled = p.Execute(context.Background(), "/model pro", nil)
+	if !handled || switched != "pro" || !strings.Contains(out, "Switched to") {
+		t.Fatalf("switch model: output=%q handled=%v switched=%q", out, handled, switched)
+	}
+}
+
 func TestReasoningEffortCommand(t *testing.T) {
 	current := ""
 	p := New(Deps{

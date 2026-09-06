@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"nekocode/bot/config"
@@ -38,7 +37,7 @@ func TestNewBuildsRunnableBot(t *testing.T) {
 		t.Fatalf("effort command menu = %+v, %v", effortMenu, ok)
 	}
 	if effortMenu.Items[0].Value != "/effort auto" || !effortMenu.Items[0].Submit ||
-		!strings.Contains(effortMenu.Items[0].Description, "current") {
+		!effortMenu.Items[0].Current {
 		t.Fatalf("default effort menu item = %+v", effortMenu.Items[0])
 	}
 	for _, input := range []string{"/plan", "/export", "/new", "/context", "/summarize"} {

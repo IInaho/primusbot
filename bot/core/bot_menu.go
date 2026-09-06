@@ -17,13 +17,10 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		active := b.cfg.Active
 		items := make([]protocol.CommandMenuItem, 0, len(b.cfg.Models))
 		for _, model := range b.cfg.Models {
-			description := model.Provider + " / " + model.Model
-			if model.Name == active {
-				description += " · current"
-			}
 			items = append(items, protocol.CommandMenuItem{
 				Value: "/model " + model.Name, Label: model.Name,
-				Description: description, Submit: true,
+				Description: model.Provider + " / " + model.Model,
+				Submit:      true, Current: model.Name == active,
 			})
 		}
 		return protocol.CommandMenu{Title: "Choose model", Empty: "No models configured", Items: items}, true
@@ -36,14 +33,9 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		full := b.fullAccess.Load()
 		manualDesc := "Prompt for approval on guarded commands (default)"
 		fullDesc := "Run ALL commands with no approval — DANGEROUS"
-		if full {
-			fullDesc += " · current"
-		} else {
-			manualDesc += " · current"
-		}
 		return protocol.CommandMenu{Title: "Permission mode", Items: []protocol.CommandMenuItem{
-			{Value: "/permission manual", Label: "manual", Description: manualDesc, Submit: true},
-			{Value: "/permission full", Label: "full (全接管)", Description: fullDesc, Submit: true},
+			{Value: "/permission manual", Label: "manual", Description: manualDesc, Submit: true, Current: !full},
+			{Value: "/permission full", Label: "full (全接管)", Description: fullDesc, Submit: true, Current: full},
 		}}, true
 	})
 
@@ -60,10 +52,6 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 		}
 		items := make([]protocol.CommandMenuItem, 0, len(levels))
 		for _, level := range levels {
-			description := reasoningEffortDescription(level)
-			if level == currentValue {
-				description += " · current"
-			}
 			label := level
 			switch level {
 			case "auto":
@@ -73,7 +61,8 @@ func (b *Bot) registerCommandMenus(p *command.Parser) {
 			}
 			items = append(items, protocol.CommandMenuItem{
 				Value: "/effort " + level, Label: label,
-				Description: description, Submit: true,
+				Description: reasoningEffortDescription(level),
+				Submit:      true, Current: level == currentValue,
 			})
 		}
 		return protocol.CommandMenu{Title: "Reasoning effort", Items: items}, true

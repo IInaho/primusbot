@@ -179,7 +179,7 @@ func TestSessionCommandResumesDirectManager(t *testing.T) {
 	parser := command.NewParser()
 	b.registerSessionCommands(parser)
 	menu, ok := parser.Menu(context.Background(), "/sessions")
-	if !ok || len(menu.Items) != 1 || menu.Items[0].Value != "/sessions "+target.ID {
+	if !ok || len(menu.Items) != 1 || menu.Items[0].Key != target.ID || menu.Items[0].Value != "/sessions "+target.ID {
 		t.Fatalf("sessions menu = %+v, %v", menu, ok)
 	}
 	if _, handled := parser.Execute(context.Background(), parser.Parse("/sessions "+target.ID)); !handled {

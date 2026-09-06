@@ -77,7 +77,7 @@ NekoCode 需要一个模型服务商的 API Key 才能工作。首次使用前�
 - `/effort`：选择当前模型的推理强度
 - `/permission`：选择手动审批或全接管模式
 - `/rewind`：按用户消息选择最近 100 个恢复点，并显示相对位置、时间和文件变更数量；没有文件修改的消息也会保留为恢复锚点
-- `/sessions`：选择历史会话
+- `/sessions`：选择历史会话；TUI 中可按 `d` 删除当前选中的会话（需二次确认）
 - `/plugin`：先选择操作；enable/disable/info/uninstall 再选择插件
 - `/connect`、`/disconnect`：选择连接器
 

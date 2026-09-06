@@ -63,13 +63,12 @@ func (b *Bot) registerSessionCommands(p *command.Parser) {
 		items := make([]protocol.CommandMenuItem, 0, len(sessions))
 		for _, item := range sessions {
 			description := fmt.Sprintf("%s · %d messages · %s",
-				time.Unix(item.UpdatedAt, 0).Local().Format("01-02 15:04"), item.MsgCount, filepath.Base(item.CWD))
-			if item.ID == current {
-				description += " · current"
-			}
+				time.Unix(item.CreatedAt, 0).Local().Format("01-02 15:04"), item.MsgCount, filepath.Base(item.CWD))
 			items = append(items, protocol.CommandMenuItem{
+				Key:   item.ID,
 				Value: "/sessions " + item.ID, Label: item.ID,
 				Description: description, Submit: true,
+				Current: item.ID == current,
 			})
 		}
 		return protocol.CommandMenu{Title: "Resume session", Empty: "No saved sessions", Items: items}, true

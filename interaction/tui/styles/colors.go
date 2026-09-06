@@ -20,6 +20,7 @@ const (
 	Yellow    = "#c9a96e"
 	Red       = "#e06c75"
 	Blue      = "#7a8ba0"
+	Green     = "#98c379"
 	DiffGreen = "#98c379"
 	DiffDelBg = "#3d2020"
 	DiffAddBg = "#1e3024"
@@ -43,6 +44,7 @@ const (
 	teal     = Primary
 	blueInt  = Blue
 	redInt   = Red
+	greenInt = Green
 	yellow   = Yellow
 	catBody  = "#4ec9b0"
 	catEye   = "#7ec8e3"
@@ -56,6 +58,7 @@ type Styles struct {
 	Teal      lipgloss.Style
 	Blue      lipgloss.Style
 	Red       lipgloss.Style
+	Green     lipgloss.Style
 	Yellow    lipgloss.Style
 	Border    lipgloss.Style
 	CatBody   lipgloss.Style
@@ -75,6 +78,7 @@ func DefaultStyles() Styles {
 		Teal:    lipgloss.NewStyle().Foreground(lipgloss.Color(teal)),
 		Blue:    lipgloss.NewStyle().Foreground(lipgloss.Color(blueInt)),
 		Red:     lipgloss.NewStyle().Foreground(lipgloss.Color(redInt)),
+		Green:   lipgloss.NewStyle().Foreground(lipgloss.Color(greenInt)),
 		Yellow:  lipgloss.NewStyle().Foreground(lipgloss.Color(yellow)),
 		Border:  lipgloss.NewStyle().Foreground(lipgloss.Color(fgBorder)),
 		CatBody: lipgloss.NewStyle().Foreground(lipgloss.Color(catBody)),
@@ -96,6 +100,7 @@ var (
 	TealStyle    = defaultStyles.Teal
 	YellowStyle  = defaultStyles.Yellow
 	RedStyle     = defaultStyles.Red
+	GreenStyle   = defaultStyles.Green
 	BorderStyle  = defaultStyles.Border
 	CatBodyStyle = defaultStyles.CatBody
 	CatEyeStyle  = defaultStyles.CatEye

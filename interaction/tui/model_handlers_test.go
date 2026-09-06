@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -21,6 +22,17 @@ type commandFakeBot struct {
 type statusFakeBot struct {
 	tickFakeBot
 	selection controlruntime.ModelSelection
+}
+
+type sessionDeleteFakeBot struct {
+	commandFakeBot
+	deleted   []string
+	deleteErr error
+}
+
+func (b *sessionDeleteFakeBot) DeleteSession(id string) error {
+	b.deleted = append(b.deleted, id)
+	return b.deleteErr
 }
 
 func (b *statusFakeBot) CurrentModel() controlruntime.ModelSelection { return b.selection }
@@ -177,6 +189,56 @@ func TestEnterOpensCommandMenuAndSubmitsLeafChoice(t *testing.T) {
 	}
 }
 
+func TestEnterOnCurrentMenuItemHighlightsWithoutSubmitting(t *testing.T) {
+	bot := &commandFakeBot{
+		commands: []string{"/model"},
+		menus: map[string]controlruntime.CommandMenu{
+			"/model": {
+				Title: "Choose model",
+				Items: []controlruntime.CommandMenuItem{
+					{Value: "/model flash", Label: "flash", Description: "zai / glm-flash", Submit: true, Current: true},
+					{Value: "/model pro", Label: "pro", Description: "zai / glm-pro", Submit: true},
+				},
+			},
+		},
+	}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.Input.SetValue("/model")
+	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	if view := m.Suggestions.View(80); !strings.Contains(view, "✓") {
+		t.Fatalf("current model row missing check mark:\n%s", view)
+	}
+
+	cmd := m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd != nil {
+		t.Fatal("entering on the current model started a run")
+	}
+	if got := bot.submittedInputs(); len(got) != 0 {
+		t.Fatalf("submitted inputs = %#v, want no submission for the current model", got)
+	}
+	if !m.Suggestions.IsMenu() {
+		t.Fatal("menu should stay open after refusing the current model")
+	}
+	if view := m.Suggestions.View(80); !strings.Contains(view, "already current") {
+		t.Fatalf("missing 'already current' hint:\n%s", view)
+	}
+
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if view := m.Suggestions.View(80); strings.Contains(view, "already current") {
+		t.Fatalf("hint should clear after moving:\n%s", view)
+	} else if !strings.Contains(view, "✓") {
+		t.Fatalf("current model row should keep its check mark after moving:\n%s", view)
+	}
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if got := bot.submittedInputs(); len(got) != 1 || got[0] != "/model pro" {
+		t.Fatalf("submitted inputs = %#v, want /model pro", got)
+	}
+}
+
 func TestNestedCommandMenuEscReturnsToParent(t *testing.T) {
 	bot := &commandFakeBot{menus: map[string]controlruntime.CommandMenu{
 		"/plugin": {
@@ -201,6 +263,109 @@ func TestNestedCommandMenuEscReturnsToParent(t *testing.T) {
 	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	if m.Input.Value() != "/plugin" || !strings.Contains(m.Suggestions.View(80), "Plugin action") {
 		t.Fatalf("escape did not restore parent: input=%q\n%s", m.Input.Value(), m.Suggestions.View(80))
+	}
+}
+
+func TestSessionMenuDeletesHighlightedSessionAfterConfirmation(t *testing.T) {
+	bot := &sessionDeleteFakeBot{commandFakeBot: commandFakeBot{menus: map[string]controlruntime.CommandMenu{
+		"/sessions": {
+			Title: "Resume session",
+			Items: []controlruntime.CommandMenuItem{
+				{Key: "session_1", Value: "/sessions session_1", Label: "session_1", Submit: true},
+				{Key: "session_2", Value: "/sessions session_2", Label: "session_2", Submit: true},
+			},
+		},
+	}}}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.Input.SetValue("/sessions")
+	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if !strings.Contains(m.Suggestions.View(80), "d delete") {
+		t.Fatalf("session menu does not advertise delete action:\n%s", m.Suggestions.View(80))
+	}
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	if m.state != stateConfirming || !strings.Contains(m.ConfirmBar.View(80, 24), "session_2") {
+		t.Fatalf("delete confirmation not opened for highlighted session:\n%s", m.ConfirmBar.View(80, 24))
+	}
+	if len(bot.deleted) != 0 {
+		t.Fatalf("deleted before confirmation: %#v", bot.deleted)
+	}
+
+	m.handleConfirmKey(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+	if len(bot.deleted) != 1 || bot.deleted[0] != "session_2" {
+		t.Fatalf("deleted = %#v, want session_2", bot.deleted)
+	}
+	if m.state != stateReady || !m.Suggestions.IsMenu() {
+		t.Fatal("session menu should reopen after deletion")
+	}
+}
+
+func TestSessionDeleteConfirmationCanBeCancelled(t *testing.T) {
+	bot := &sessionDeleteFakeBot{commandFakeBot: commandFakeBot{menus: map[string]controlruntime.CommandMenu{
+		"/sessions": {
+			Items: []controlruntime.CommandMenuItem{{Key: "session_1", Value: "/sessions session_1", Label: "session_1", Submit: true}},
+		},
+	}}}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.Input.SetValue("/sessions")
+	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	m.handleConfirmKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+
+	if len(bot.deleted) != 0 {
+		t.Fatalf("cancelled deletion called runtime: %#v", bot.deleted)
+	}
+	if m.state != stateReady || !m.Suggestions.IsMenu() {
+		t.Fatal("session menu should reopen after cancellation")
+	}
+}
+
+func TestSessionDeleteFailureIsShownAndMenuReopens(t *testing.T) {
+	bot := &sessionDeleteFakeBot{
+		commandFakeBot: commandFakeBot{menus: map[string]controlruntime.CommandMenu{
+			"/sessions": {
+				Items: []controlruntime.CommandMenuItem{{Key: "session_1", Value: "/sessions session_1", Label: "session_1", Submit: true}},
+			},
+		}},
+		deleteErr: errors.New("session is locked"),
+	}
+	m, err := NewModel(bot)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.Input.SetValue("/sessions")
+	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m.handleKeyPress(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	m.handleConfirmKey(tea.KeyPressMsg(tea.Key{Code: 'y', Text: "y"}))
+
+	items := m.Messages.Items()
+	if len(items) != 1 {
+		t.Fatalf("message count = %d, want deletion error", len(items))
+	}
+	errItem, ok := items[0].(*message.ErrorMessageItem)
+	if !ok || !strings.Contains(ansi.Strip(errItem.Render(80)), "session is locked") {
+		t.Fatalf("deletion error not rendered: %#v", items[0])
+	}
+	if !m.Suggestions.IsMenu() {
+		t.Fatal("session menu should reopen after deletion failure")
+	}
+}
+
+func TestDStillTypesOutsideSessionMenu(t *testing.T) {
+	m, err := NewModel(&tickFakeBot{})
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	m.handleIdleKey(tea.KeyPressMsg(tea.Key{Code: 'd', Text: "d"}))
+	if got := m.Input.Value(); got != "d" {
+		t.Fatalf("input = %q, want d", got)
 	}
 }
 

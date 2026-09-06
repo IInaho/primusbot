@@ -13,6 +13,7 @@ var (
 	Vertical   = "│"
 	Horizontal = "─"
 	HeavyVert  = "┃"
+	Warn       = "⚠"
 )
 
 // Agent bullets for tool attribution in activity/changes sections.
@@ -34,6 +35,7 @@ func init() {
 		Vertical = "|"
 		Horizontal = "-"
 		HeavyVert = "|"
+		Warn = "!"
 		MainBullet = "*"
 		SubBullet = "*"
 		MainCat = "(=^.^=)"

@@ -72,7 +72,7 @@ func TestMetaAge(t *testing.T) {
 		{-48 * time.Hour, "2d ago"},
 	}
 	for _, tt := range tests {
-		m := Meta{UpdatedAt: now + int64(tt.offset.Seconds())}
+		m := Meta{CreatedAt: now + int64(tt.offset.Seconds())}
 		if got := m.Age(); got != tt.want {
 			t.Errorf("Age(%v) = %q, want %q", tt.offset, got, tt.want)
 		}
