@@ -93,6 +93,16 @@ nekocode-tui
 
 After configuration, start the TUI and enter a request.
 
+### Use as an ACP agent
+
+NekoCode supports the stable Agent Client Protocol v1. Configure your editor to launch it with the project directory as its working directory:
+
+```bash
+nekocode-tui --acp
+```
+
+ACP mode communicates over stdio and does not start the TUI. Session configuration is scoped to the current ACP connection and never overwrites global user configuration. Client-supplied stdio MCP processes are disabled by default; use `nekocode-tui --acp --allow-client-mcp` only when the client and its workspace configuration are fully trusted. See [docs/ACP.md](docs/ACP.md) for capabilities and limits.
+
 ## Star History
 
 <a href="https://www.star-history.com/?repos=lznauy%2FNekoCode&type=date&legend=top-left">

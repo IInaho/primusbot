@@ -265,10 +265,18 @@ func (r *Runtime) Runs(limit int) []RunSnapshot {
 	return r.runs.List(limit)
 }
 
+// Metrics returns the live context usage snapshot when the host supplies a
+// metrics service, falling back to the last observed event snapshot. The
+// cached value alone can go stale across session switches (it would report
+// the previous session's usage after session/load).
 func (r *Runtime) Metrics() MetricsSnapshot {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.latestMetrics
+	service, cached, closed := r.services.Metrics, r.latestMetrics, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return cached
+	}
+	return service()
 }
 
 func (r *Runtime) CommandCatalog() []string {

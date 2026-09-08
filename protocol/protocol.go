@@ -153,6 +153,9 @@ type ConfirmRequest struct {
 	Args     map[string]any
 	Kind     ConfirmKind
 	Approval *ApprovalContext
+	// CallID identifies the tool call this request belongs to, when known.
+	// It lets interaction surfaces attach the approval to the right tool.
+	CallID string
 	// Deprecated: capabilities live in Approval and are approved atomically.
 	CanEscalatePermission bool
 }
@@ -229,6 +232,7 @@ type Metrics struct {
 	TurnReasoning     int    `json:"turnReasoning,omitempty"`
 	TurnCacheReported bool   `json:"turnCacheReported"`
 	ContextTokens     int    `json:"contextTokens"`
+	ContextBudget     int    `json:"contextBudget"`
 	CompactCount      int    `json:"compactCount"`
 	Duration          string `json:"duration"`
 }

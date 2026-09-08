@@ -32,6 +32,7 @@ func (d ApprovalDecision) ConfirmReply() protocol.ConfirmReply {
 type ApprovalView struct {
 	ID           string                    `json:"id"`
 	ToolName     string                    `json:"tool_name"`
+	CallID       string                    `json:"call_id,omitempty"`
 	Args         map[string]any            `json:"args,omitempty"`
 	ArgsHash     string                    `json:"args_hash,omitempty"`
 	ToolCallHash string                    `json:"tool_call_hash,omitempty"`
@@ -50,6 +51,7 @@ type ApprovalView struct {
 func (v ApprovalView) ToConfirmRequest() protocol.ConfirmRequest {
 	return protocol.ConfirmRequest{
 		ToolName: v.ToolName,
+		CallID:   v.CallID,
 		Args:     v.Args,
 		Kind:     protocol.ConfirmKind(v.Kind),
 		Approval: v.Approval.Clone(),

@@ -44,15 +44,11 @@ func TestManagerAddServerStartFailure(t *testing.T) {
 		t.Fatal("Add should fail for a missing command")
 	}
 
-	h, ok := m.Health()["bad"]
-	if !ok {
-		t.Fatal("health should be recorded for failed server")
+	if _, ok := m.Health()["bad"]; ok {
+		t.Fatal("failed synchronous server leaked health state")
 	}
-	if h.Status != StatusError || h.Error == "" {
-		t.Errorf("health = %+v, want error status with message", h)
-	}
-	if !strings.Contains(m.ListCapabilities(), "bad (error") {
-		t.Fatal("errored server should be listed with its status")
+	if owner := m.Owner("bad"); owner != "" {
+		t.Fatalf("failed synchronous server retained owner %q", owner)
 	}
 }
 
@@ -105,6 +101,56 @@ func TestManagerReAddReplacesTools(t *testing.T) {
 	}
 }
 
+func TestManagerReplaceIsAtomic(t *testing.T) {
+	oldCmd, cleanupOld := startMockMCP(t, []toolDef{{Name: "old", InputSchema: inputSchema{Type: "object"}}})
+	defer cleanupOld()
+	newCmd, cleanupNew := startMockMCP(t, []toolDef{{Name: "new", InputSchema: inputSchema{Type: "object"}}})
+	defer cleanupNew()
+
+	m := New()
+	defer m.Close()
+	if err := m.Add(context.Background(), "session:acp:old", "old", ServerConfig{Command: oldCmd.Path}); err != nil {
+		t.Fatal(err)
+	}
+	err := m.Replace(context.Background(), []string{"session:acp:old"}, []Registration{
+		{ID: "session:acp:new", Name: "new", Config: ServerConfig{Command: newCmd.Path}},
+		{ID: "session:acp:bad", Name: "bad", Config: ServerConfig{Command: "/nonexistent-mcp-server"}},
+	})
+	if err == nil {
+		t.Fatal("replacement with a broken server succeeded")
+	}
+	if _, err := m.CallServerTool(context.Background(), "old", "old", nil); err != nil {
+		t.Fatalf("old server was lost after failed replacement: %v", err)
+	}
+	if _, exists := m.Health()["new"]; exists {
+		t.Fatal("staged server leaked into live health state")
+	}
+}
+
+func TestManagerReplaceCancellationLeavesOldSet(t *testing.T) {
+	oldCmd, cleanupOld := startMockMCP(t, []toolDef{{Name: "old", InputSchema: inputSchema{Type: "object"}}})
+	defer cleanupOld()
+	slowCmd, cleanupSlow := startMockMCPWithDelay(t, nil, 5*time.Second)
+	defer cleanupSlow()
+
+	m := New()
+	defer m.Close()
+	if err := m.Add(context.Background(), "session:acp:old", "old", ServerConfig{Command: oldCmd.Path}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := m.Replace(ctx, []string{"session:acp:old"}, []Registration{
+		{ID: "session:acp:slow", Name: "slow", Config: ServerConfig{Command: slowCmd.Path}},
+	})
+	if err == nil || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("Replace error = %v, want deadline exceeded", err)
+	}
+	if _, err := m.CallServerTool(context.Background(), "old", "old", nil); err != nil {
+		t.Fatalf("old server was lost after cancellation: %v", err)
+	}
+}
+
 func TestManagerRejectsDuplicateNameFromDifferentOwner(t *testing.T) {
 	cmd1, cleanup1 := startMockMCP(t, []toolDef{
 		{Name: "alpha", InputSchema: inputSchema{Type: "object"}},
@@ -140,7 +186,7 @@ func TestManagerClose(t *testing.T) {
 	if err := m.Add(context.Background(), "config:a", "a", ServerConfig{Command: cmd.Path}); err != nil {
 		t.Fatalf("Add a: %v", err)
 	}
-	// A server that fails to start still holds health state that Close clears.
+	// Failed synchronous starts roll back immediately; Close remains safe.
 	_ = m.Add(context.Background(), "config:bad", "bad", ServerConfig{Command: "/nonexistent-mcp-server"})
 
 	m.Close()

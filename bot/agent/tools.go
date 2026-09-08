@@ -156,8 +156,8 @@ func emitResultCallbacks(calls []core.ToolCallItem, blocked map[int]string, resu
 func (r *toolRunner) executeAllowedTools(allowed []core.ToolCallItem, callback RunCallback) []core.ToolCallResult {
 	executor := r.agent.deps.toolExecutor
 	if callback != nil {
-		executor.SetPreviewFn(func(toolName string, _ map[string]any, preview string) {
-			callback(protocol.StepEvent{Action: protocol.StepActionToolPreview, ToolName: toolName, Output: preview})
+		executor.SetPreviewFn(func(callID, toolName string, _ map[string]any, preview string) {
+			callback(protocol.StepEvent{Action: protocol.StepActionToolPreview, CallID: callID, ToolName: toolName, Output: preview})
 		})
 	} else {
 		executor.SetPreviewFn(nil)

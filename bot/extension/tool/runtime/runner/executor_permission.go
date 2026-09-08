@@ -85,6 +85,7 @@ func (e *Executor) tryPermissionEscalation(ctx context.Context, privileged tools
 		protocol.ConfirmKindPermission,
 		approvalContextFromPermission(req),
 	)
+	confirmReq.CallID = tc.ID
 	reply := confirmFn(confirmReq)
 	if !reply.Allowed {
 		return "", false, failUserDenied, execErr

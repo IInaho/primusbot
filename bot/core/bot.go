@@ -232,15 +232,19 @@ func (b *Bot) initAgent() {
 // for status reads from menus and UI refresh paths.
 func (b *Bot) FullAccess() bool { return b.fullAccess.Load() }
 
+// SetFullAccess toggles the full-takeover permission mode: every tool call
+// runs without approval prompts. Explicit deny rules still block.
+func (b *Bot) SetFullAccess(on bool) {
+	logger.Log("permission mode changed: full_access=%v", on)
+	b.fullAccess.Store(on)
+	b.getAgent().Executor().SetFullAccess(on)
+}
+
 func (b *Bot) initCommands() {
 	deps := command.Deps{
-		CtxMgr:      b.ctxMgr,
-		SetPlanMode: func(enabled bool) { b.getAgent().Executor().SetPlanMode(enabled) },
-		SetFullAccess: func(on bool) {
-			logger.Log("permission mode changed: full_access=%v", on)
-			b.fullAccess.Store(on)
-			b.getAgent().Executor().SetFullAccess(on)
-		},
+		CtxMgr:             b.ctxMgr,
+		SetPlanMode:        func(enabled bool) { b.getAgent().Executor().SetPlanMode(enabled) },
+		SetFullAccess:      b.SetFullAccess,
 		GetFullAccess:      b.fullAccess.Load,
 		ToolRegistry:       b.toolbox.Registry,
 		GetConfigFn:        b.model,

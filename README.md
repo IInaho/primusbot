@@ -94,6 +94,16 @@ nekocode-tui
 
 配置完成后即可开始使用。
 
+### 作为 ACP Agent 使用
+
+NekoCode 支持稳定版 Agent Client Protocol v1。让编辑器以项目目录为工作目录启动：
+
+```bash
+nekocode-tui --acp
+```
+
+ACP 使用 stdio 通信，因此该模式不会启动 TUI。会话配置仅在当前 ACP 连接内生效，不会覆盖用户的全局配置。出于安全考虑，客户端提供的 stdio MCP 进程默认禁用；仅在完全信任客户端及其工作区配置时使用 `nekocode-tui --acp --allow-client-mcp`。能力清单与限制见 [docs/ACP.md](docs/ACP.md)。
+
 ## Star 趋势
 
 <a href="https://www.star-history.com/?repos=lznauy%2FNekoCode&type=date&legend=top-left">

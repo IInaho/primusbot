@@ -68,3 +68,32 @@ func TestSetReasoningEffortPersistsConfig(t *testing.T) {
 		t.Fatalf("persisted reasoning effort = %q, want %q", got, "high")
 	}
 }
+
+func TestRuntimeModelChangesDoNotPersistConfig(t *testing.T) {
+	b := newPersistTestBot(t)
+	if err := b.SwitchModelRuntime("alt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetReasoningEffortRuntime("high"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Active != "default" || loaded.ActiveModelConfig().ReasoningEffort != "" {
+		t.Fatalf("runtime-only change leaked to disk: active=%q effort=%q", loaded.Active, loaded.ActiveModelConfig().ReasoningEffort)
+	}
+}
+
+func TestRuntimeReasoningRebuildPreservesFullAccess(t *testing.T) {
+	b := newPersistTestBot(t)
+	b.SetFullAccess(true)
+
+	if err := b.SetReasoningEffortRuntime("high"); err != nil {
+		t.Fatal(err)
+	}
+	if !b.FullAccess() || !b.getAgent().Executor().FullAccess() {
+		t.Fatal("agent rebuild disabled full access")
+	}
+}

@@ -13,6 +13,14 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
+// Registration binds a lifecycle owner ID and user-visible name to one MCP
+// server configuration. Replace uses registrations as an atomic set.
+type Registration struct {
+	ID     string
+	Name   string
+	Config ServerConfig
+}
+
 // toolDef represents a tool discovered from an MCP server.
 type toolDef struct {
 	Name        string      `json:"name"`

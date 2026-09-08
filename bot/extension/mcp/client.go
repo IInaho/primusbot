@@ -24,9 +24,10 @@ type client struct {
 	name   string
 	config ServerConfig
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     *bufio.Reader
+	stdoutPipe io.ReadCloser
 
 	mu             sync.Mutex // serializes requests; guards the fields above
 	reqID          atomic.Int64
@@ -57,6 +58,7 @@ func (c *client) Start(ctx context.Context) error {
 	}
 
 	cmd := exec.Command(c.config.Command, c.config.Args...)
+	configureProcess(cmd)
 	cmd.Env = os.Environ()
 	for k, v := range c.config.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -78,6 +80,7 @@ func (c *client) Start(ctx context.Context) error {
 	c.cmd = cmd
 	c.stdin = stdin
 	c.stdout = bufio.NewReader(stdout)
+	c.stdoutPipe = stdout
 
 	if err := c.initialize(ctx); err != nil {
 		_ = c.stopLocked(2 * time.Second)
@@ -93,8 +96,12 @@ func (c *client) Close() error {
 	return c.stopLocked(2 * time.Second)
 }
 
-// stopLocked closes stdin and waits for the process to exit, killing it if it
-// does not stop within timeout. The caller must hold c.mu.
+// stopLocked terminates the server process immediately: stdin is closed and
+// the whole process group is killed without a graceful-exit window. MCP
+// commands are untrusted session input and may spawn descendants that inherit
+// stdio and outlive the direct child. The timeout only guards the
+// pathological case where the tree kill failed; the wait then falls back to
+// killing the direct child. The caller must hold c.mu.
 func (c *client) stopLocked(timeout time.Duration) error {
 	if c.cmd == nil || c.cmd.Process == nil {
 		return nil
@@ -102,6 +109,10 @@ func (c *client) stopLocked(timeout time.Duration) error {
 
 	if c.stdin != nil {
 		_ = c.stdin.Close()
+	}
+	_ = killProcessTree(c.cmd.Process)
+	if c.stdoutPipe != nil {
+		_ = c.stdoutPipe.Close()
 	}
 
 	waitCh := make(chan error, 1)
@@ -114,7 +125,7 @@ func (c *client) stopLocked(timeout time.Duration) error {
 		<-waitCh
 	}
 
-	c.cmd, c.stdin, c.stdout = nil, nil, nil
+	c.cmd, c.stdin, c.stdout, c.stdoutPipe = nil, nil, nil, nil
 	return nil
 }
 

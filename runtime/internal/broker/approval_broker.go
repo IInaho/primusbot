@@ -65,6 +65,7 @@ func (b *ApprovalBroker) Register(req protocol.ConfirmRequest) func() protocol.C
 		view: core.ApprovalView{
 			ID:           id,
 			ToolName:     req.ToolName,
+			CallID:       req.CallID,
 			Args:         cloneMap(req.Args),
 			ArgsHash:     argsHash,
 			ToolCallHash: stableHash(approvalHashInput{ToolName: req.ToolName, Kind: req.Kind, ArgsHash: argsHash, Approval: req.Approval}),

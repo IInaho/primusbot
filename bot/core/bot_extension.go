@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 
 	"nekocode/bot/extension"
@@ -57,6 +58,13 @@ func (b *Bot) Extensions() extension.Snapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.ext.Snapshot()
+}
+
+// ReplaceSessionMCPServers atomically replaces transport-supplied MCP servers.
+func (b *Bot) ReplaceSessionMCPServers(ctx context.Context, source string, configs map[string]mcp.ServerConfig) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ext.ReplaceSessionMCPServers(ctx, source, configs)
 }
 
 func (b *Bot) SetPluginEnabled(name string, enabled bool) error {

@@ -300,6 +300,7 @@ func (e *Executor) promptConfirm(tc core.ToolCallItem, confirmFn protocol.Confir
 		approval.Combined = true
 	}
 	req := protocol.NewApprovalRequest(toolName, args, protocol.ConfirmKindPermission, approval)
+	req.CallID = tc.ID
 	reply := confirmFn(req)
 	if !reply.Allowed {
 		return reply, false

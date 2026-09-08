@@ -240,8 +240,9 @@ func (a *Agent) Metrics() protocol.Metrics {
 		TurnPrompt: turnPrompt, TurnCompletion: turnCompletion,
 		TurnTotal: turnTotal, TurnInput: turnInput, TurnCached: turnCached, TurnNew: turnNew,
 		TurnOutput: turnOutput, TurnReasoning: turnReasoning, TurnCacheReported: cacheReported,
-		ContextTokens: contextTokens, CompactCount: status.CompactCount,
-		Duration: duration.FormatDuration(a.life.Duration()),
+		ContextTokens: contextTokens, ContextBudget: status.Budget,
+		CompactCount: status.CompactCount,
+		Duration:     duration.FormatDuration(a.life.Duration()),
 	}
 }
 

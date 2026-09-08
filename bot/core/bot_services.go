@@ -49,6 +49,17 @@ func (b *Bot) persistConfigLocked() error {
 }
 
 func (b *Bot) SwitchModel(name string) error {
+	return b.switchModel(name, true)
+}
+
+// SwitchModelRuntime changes the active model without writing the user's
+// persisted configuration. Interaction transports use it for session-scoped
+// selections that must not leak into later processes.
+func (b *Bot) SwitchModelRuntime(name string) error {
+	return b.switchModel(name, false)
+}
+
+func (b *Bot) switchModel(name string, persist bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -57,18 +68,28 @@ func (b *Bot) SwitchModel(name string) error {
 	}
 
 	b.rebuildAgentLocked()
-	// Persist the switch so the choice survives restarts. The in-memory
-	// switch already took effect, so a save failure must not be silent.
-	if err := b.persistConfigLocked(); err != nil {
-		return fmt.Errorf("switched to %q but failed to persist config: %w", name, err)
+	if persist {
+		// The in-memory switch already took effect, so a save failure must not
+		// be silent.
+		if err := b.persistConfigLocked(); err != nil {
+			return fmt.Errorf("switched to %q but failed to persist config: %w", name, err)
+		}
 	}
 	return nil
 }
 
-// SetReasoningEffort changes the active model's effort for the current
-// process, matching /model's runtime-only switching semantics. An empty value
-// restores the provider/model default ("Auto").
+// SetReasoningEffort changes and persists the active model's effort. An empty
+// value restores the provider/model default ("Auto").
 func (b *Bot) SetReasoningEffort(effort string) error {
+	return b.setReasoningEffort(effort, true)
+}
+
+// SetReasoningEffortRuntime changes reasoning depth without persisting it.
+func (b *Bot) SetReasoningEffortRuntime(effort string) error {
+	return b.setReasoningEffort(effort, false)
+}
+
+func (b *Bot) setReasoningEffort(effort string, persist bool) error {
 	var ok bool
 	effort, ok = config.ParseReasoningEffort(effort)
 	if !ok {
@@ -88,9 +109,10 @@ func (b *Bot) SetReasoningEffort(effort string) error {
 		}
 		b.cfg.Models[i].ReasoningEffort = effort
 		b.rebuildAgentLocked()
-		// Persist the effort so the choice survives restarts.
-		if err := b.persistConfigLocked(); err != nil {
-			return fmt.Errorf("effort set to %q but failed to persist config: %w", effort, err)
+		if persist {
+			if err := b.persistConfigLocked(); err != nil {
+				return fmt.Errorf("effort set to %q but failed to persist config: %w", effort, err)
+			}
 		}
 		return nil
 	}
@@ -101,6 +123,7 @@ func (b *Bot) rebuildAgentLocked() {
 	_, completion := b.ag.TokenUsage()
 	b.initAgent()
 	b.ag.AddCompletionTokens(completion)
+	b.ag.Executor().SetFullAccess(b.fullAccess.Load())
 }
 
 func (b *Bot) Metrics() protocol.Metrics {

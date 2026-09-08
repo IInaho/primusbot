@@ -27,7 +27,7 @@ type Executor struct {
 	// a deny is a hard user-configured rule, not an approval.
 	fullAccess bool
 	planTools  map[string]struct{}
-	previewFn  func(toolName string, args map[string]any, preview string)
+	previewFn  func(callID, toolName string, args map[string]any, preview string)
 	permStore  *permission.Store
 	fnMu       sync.RWMutex
 	// Permission rule engine (claude-code style allow/ask/deny). The engine's
@@ -123,7 +123,7 @@ func (e *Executor) planAllows(name string, registered bool) bool {
 	return registered
 }
 
-func (e *Executor) SetPreviewFn(fn func(string, map[string]any, string)) {
+func (e *Executor) SetPreviewFn(fn func(callID, toolName string, args map[string]any, preview string)) {
 	e.fnMu.Lock()
 	e.previewFn = fn
 	e.fnMu.Unlock()

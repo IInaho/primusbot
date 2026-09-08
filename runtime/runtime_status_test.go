@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -199,6 +200,7 @@ type liveMetricsRunner struct {
 	started     chan struct{}
 	release     chan struct{}
 	releaseOnce sync.Once
+	live        atomic.Int64 // packed live metrics marker, 0 = default snapshot
 }
 
 func newLiveMetricsRunner() *liveMetricsRunner {
@@ -218,8 +220,16 @@ func (r *liveMetricsRunner) Run(ctx context.Context, _ string, _ RunHost) (strin
 	}
 }
 
-func (*liveMetricsRunner) Metrics() MetricsSnapshot {
+func (r *liveMetricsRunner) Metrics() MetricsSnapshot {
+	if marker := r.live.Load(); marker != 0 {
+		return MetricsSnapshot{ContextTokens: int(marker), ContextBudget: 9000}
+	}
 	return MetricsSnapshot{TurnPrompt: 12, TurnCompletion: 3}
+}
+
+// setLive overrides the runner's live snapshot for the remainder of the test.
+func (r *liveMetricsRunner) setLive(snapshot MetricsSnapshot) {
+	r.live.Store(int64(snapshot.ContextTokens))
 }
 
 func (r *liveMetricsRunner) unblock() {
@@ -300,5 +310,31 @@ func TestMetricsUpdatedPublishedWhileRunActive(t *testing.T) {
 		case <-timer.C:
 			t.Fatal("no metrics_updated event while run was active")
 		}
+	}
+}
+
+func TestMetricsPrefersLiveServiceOverCache(t *testing.T) {
+	runner := newLiveMetricsRunner()
+	rt := New(runner, Services{Metrics: runner.Metrics})
+	t.Cleanup(func() {
+		runner.unblock()
+		if err := rt.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	runID, err := rt.StartRun(context.Background(), Input{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-runner.started
+	runner.unblock()
+	waitForRun(t, rt, runID)
+
+	// The live service changes its answer after the run settled; Metrics()
+	// must report the live value, not the cached event snapshot, so session
+	// switches cannot leak the previous session's usage.
+	runner.setLive(MetricsSnapshot{ContextTokens: 777, ContextBudget: 9000})
+	if got := rt.Metrics(); got.ContextTokens != 777 || got.ContextBudget != 9000 {
+		t.Fatalf("Metrics() = %+v, want live snapshot", got)
 	}
 }

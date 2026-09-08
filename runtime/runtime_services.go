@@ -17,6 +17,11 @@ type Services struct {
 	CurrentModel           func() ModelSelection
 	PermissionMode         func() string
 	SwitchModel            func(string) (ModelSelection, error)
+	SwitchSessionModel     func(string) (ModelSelection, error)
+	ModelOptions           func() ([]ModelOption, string)
+	SetReasoningEffort     func(string) error
+	SetSessionReasoning    func(string) error
+	SetFullAccess          func(bool)
 	ContextSnapshot        func() ContextSnapshot
 	WorkspaceChanges       func() WorkspaceChanges
 	MemoryView             func(MemoryScope) MemoryView
@@ -34,6 +39,7 @@ type Services struct {
 	ResumeSession          func(string) error
 	NewSession             func() (SessionMeta, error)
 	DeleteSession          func(string) error
+	ReplaceMCPServers      func(context.Context, string, []MCPServerSpec) error
 	Close                  func() error
 }
 
@@ -70,6 +76,52 @@ func (r *Runtime) SwitchModel(name string) (selection ModelSelection, err error)
 		return err
 	})
 	return selection, err
+}
+
+// SwitchSessionModel changes the active model without persisting a global
+// preference. Session-aware transports own restoring it at session switches.
+func (r *Runtime) SwitchSessionModel(name string) (selection ModelSelection, err error) {
+	err = r.mutation("switch_session_model", r.services.SwitchSessionModel != nil, func() error {
+		selection, err = r.services.SwitchSessionModel(name)
+		return err
+	})
+	return selection, err
+}
+
+// ModelOptions reports the selectable model configurations and the name of
+// the active one. It is a read-only projection for session config surfaces.
+func (r *Runtime) ModelOptions() ([]ModelOption, string) {
+	r.mu.Lock()
+	service, closed := r.services.ModelOptions, r.closed
+	r.mu.Unlock()
+	if closed || service == nil {
+		return nil, ""
+	}
+	return service()
+}
+
+// SetReasoningEffort changes the active model's reasoning effort. It is
+// rejected while a run is active.
+func (r *Runtime) SetReasoningEffort(effort string) error {
+	return r.mutation("set_reasoning_effort", r.services.SetReasoningEffort != nil, func() error {
+		return r.services.SetReasoningEffort(effort)
+	})
+}
+
+// SetSessionReasoning changes reasoning depth without persisting it globally.
+func (r *Runtime) SetSessionReasoning(effort string) error {
+	return r.mutation("set_session_reasoning", r.services.SetSessionReasoning != nil, func() error {
+		return r.services.SetSessionReasoning(effort)
+	})
+}
+
+// SetFullAccess toggles the full-takeover permission mode. It is rejected
+// while a run is active.
+func (r *Runtime) SetFullAccess(on bool) error {
+	return r.mutation("set_full_access", r.services.SetFullAccess != nil, func() error {
+		r.services.SetFullAccess(on)
+		return nil
+	})
 }
 
 func (r *Runtime) SelectSkill(name string) error {
@@ -138,6 +190,14 @@ func (r *Runtime) DeleteSession(id string) error {
 		r.publishSessionChanged()
 	}
 	return err
+}
+
+// ReplaceMCPServers atomically replaces transport-supplied MCP servers owned
+// by source. The request context cancels process startup and discovery.
+func (r *Runtime) ReplaceMCPServers(ctx context.Context, source string, servers []MCPServerSpec) error {
+	return r.mutation("replace_mcp_servers", r.services.ReplaceMCPServers != nil, func() error {
+		return r.services.ReplaceMCPServers(ctx, source, servers)
+	})
 }
 
 func (r *Runtime) publishSessionChanged() {

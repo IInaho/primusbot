@@ -68,6 +68,7 @@ func (e *Executor) ensureWorkspaceAccess(tc core.ToolCallItem, confirmFn protoco
 		"access":         string(access),
 		"requested_path": safePath,
 	}, protocol.ConfirmKindPermission, approval)
+	req.CallID = tc.ID
 	reply := confirmFn(req)
 	if !reply.Allowed {
 		return tc, "cancelled", false

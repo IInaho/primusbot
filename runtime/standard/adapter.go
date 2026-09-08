@@ -3,8 +3,10 @@ package standard
 import (
 	"context"
 
+	"nekocode/bot/config"
 	"nekocode/bot/core"
 	"nekocode/bot/extension"
+	"nekocode/bot/extension/mcp"
 	controlruntime "nekocode/runtime"
 	"nekocode/runtime/standard/internal/viewmodel"
 )
@@ -62,6 +64,41 @@ func (a *adapter) SwitchModel(name string) (controlruntime.ModelSelection, error
 		return controlruntime.ModelSelection{}, err
 	}
 	return a.CurrentModel(), nil
+}
+
+func (a *adapter) SwitchSessionModel(name string) (controlruntime.ModelSelection, error) {
+	if err := a.bot.SwitchModelRuntime(name); err != nil {
+		return controlruntime.ModelSelection{}, err
+	}
+	return a.CurrentModel(), nil
+}
+
+// ModelOptions projects the configured models and the active one for session
+// config surfaces. API keys and other secrets stay in the config layer.
+func (a *adapter) ModelOptions() ([]controlruntime.ModelOption, string) {
+	configuration := a.bot.Configuration()
+	options := make([]controlruntime.ModelOption, 0, len(configuration.Models))
+	for _, model := range configuration.Models {
+		options = append(options, controlruntime.ModelOption{
+			Name:             model.Name,
+			Model:            model.Model,
+			ReasoningEffort:  model.ReasoningEffort,
+			ReasoningEfforts: config.ReasoningCapabilityFor(model).Efforts,
+		})
+	}
+	return options, configuration.Active
+}
+
+func (a *adapter) SetReasoningEffort(effort string) error {
+	return a.bot.SetReasoningEffort(effort)
+}
+
+func (a *adapter) SetSessionReasoning(effort string) error {
+	return a.bot.SetReasoningEffortRuntime(effort)
+}
+
+func (a *adapter) SetFullAccess(on bool) {
+	a.bot.SetFullAccess(on)
 }
 
 func (a *adapter) ContextSnapshot() controlruntime.ContextSnapshot {
@@ -149,6 +186,18 @@ func (a *adapter) DeleteSession(id string) error {
 	return a.bot.DeleteSession(id)
 }
 
+func (a *adapter) ReplaceMCPServers(ctx context.Context, source string, servers []controlruntime.MCPServerSpec) error {
+	configs := make(map[string]mcp.ServerConfig, len(servers))
+	for _, server := range servers {
+		configs[server.Name] = mcp.ServerConfig{
+			Command: server.Config.Command,
+			Args:    append([]string(nil), server.Config.Args...),
+			Env:     server.Config.Env,
+		}
+	}
+	return a.bot.ReplaceSessionMCPServers(ctx, source, configs)
+}
+
 func (a *adapter) Close() error {
 	return a.bot.Close()
 }
@@ -163,6 +212,11 @@ func (a *adapter) services() controlruntime.Services {
 		CurrentModel:           a.CurrentModel,
 		PermissionMode:         a.PermissionMode,
 		SwitchModel:            a.SwitchModel,
+		SwitchSessionModel:     a.SwitchSessionModel,
+		ModelOptions:           a.ModelOptions,
+		SetReasoningEffort:     a.SetReasoningEffort,
+		SetSessionReasoning:    a.SetSessionReasoning,
+		SetFullAccess:          a.SetFullAccess,
 		ContextSnapshot:        a.ContextSnapshot,
 		WorkspaceChanges:       a.WorkspaceChanges,
 		MemoryView:             a.MemoryView,
@@ -180,6 +234,7 @@ func (a *adapter) services() controlruntime.Services {
 		ResumeSession:          a.ResumeSession,
 		NewSession:             a.NewSession,
 		DeleteSession:          a.DeleteSession,
+		ReplaceMCPServers:      a.ReplaceMCPServers,
 		Close:                  a.Close,
 	}
 }

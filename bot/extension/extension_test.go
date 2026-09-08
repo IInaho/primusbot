@@ -11,6 +11,7 @@ import (
 	"nekocode/bot/command"
 	"nekocode/bot/config"
 	ctxmgr "nekocode/bot/contextmgr"
+	"nekocode/bot/extension/mcp"
 	"nekocode/bot/extension/tool"
 	"nekocode/bot/policy"
 )
@@ -132,5 +133,48 @@ func TestInstallReturnsFailure(t *testing.T) {
 	result := manager.installPlugin(context.Background(), []string{"./missing-plugin", "--yes"}, nil)
 	if !strings.Contains(result, "Install failed") {
 		t.Fatalf("result = %q", result)
+	}
+}
+
+func TestSessionMCPServerNameCollision(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("HOME", filepath.Join(root, "home"))
+
+	manager := New(Config{
+		Context: ctxmgr.New(ctxmgr.Config{}), Tools: tools.New(),
+		Policy: policy.New(), ContextWindow: 32_000,
+	})
+	defer manager.Close()
+
+	// Background host registrations claim their name synchronously even while
+	// startup is still in progress.
+	if err := manager.AddMCPServerBackground("github", mcp.ServerConfig{Command: "/nonexistent"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A session-supplied server with the same name must be skipped instead
+	// of failing session setup.
+	if err := manager.ReplaceSessionMCPServers(context.Background(), "acp", map[string]mcp.ServerConfig{
+		"github": {Command: "/nonexistent"},
+	}); err != nil {
+		t.Fatalf("session setup failed on name collision: %v", err)
+	}
+	if ids := manager.sessionMCP["acp"]; len(ids) != 0 {
+		t.Fatalf("colliding server was registered: %v", ids)
+	}
+
+	// A distinct name still registers (and fails to start, proving the
+	// registration was attempted rather than skipped).
+	if err := manager.ReplaceSessionMCPServers(context.Background(), "acp", map[string]mcp.ServerConfig{
+		"unique": {Command: "/nonexistent"},
+	}); err == nil {
+		t.Fatal("expected startup error for distinct server")
+	}
+	if owner := manager.mcp.Owner("unique"); owner != "" {
+		t.Fatalf("failed session server retained owner %q", owner)
+	}
+	if ids := manager.sessionMCP["acp"]; len(ids) != 0 {
+		t.Fatalf("failed replacement changed tracked IDs: %v", ids)
 	}
 }

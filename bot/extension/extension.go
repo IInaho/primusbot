@@ -5,6 +5,8 @@ package extension
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	"nekocode/bot/agent/subagent"
@@ -22,14 +24,15 @@ import (
 // Manager is the public extension entry point. Child managers remain private
 // so extension activation always follows one lifecycle.
 type Manager struct {
-	mu       sync.Mutex
-	ops      sync.Mutex
-	skills   *skill.Manager
-	plugins  *plugin.Manager
-	mcp      *mcp.Manager
-	policy   *policy.Policy
-	active   map[string]activePlugin
-	commands *command.Handler
+	mu         sync.Mutex
+	ops        sync.Mutex
+	skills     *skill.Manager
+	plugins    *plugin.Manager
+	mcp        *mcp.Manager
+	policy     *policy.Policy
+	active     map[string]activePlugin
+	commands   *command.Handler
+	sessionMCP map[string][]string
 }
 
 // Snapshot is the read-only state used by management views.
@@ -57,11 +60,12 @@ type activePlugin struct {
 // New creates the unified extension manager.
 func New(config Config) *Manager {
 	m := &Manager{
-		skills:  skill.New(config.Context, config.Tools, config.ContextWindow),
-		plugins: plugin.New(),
-		mcp:     mcp.New(),
-		policy:  config.Policy,
-		active:  make(map[string]activePlugin),
+		skills:     skill.New(config.Context, config.Tools, config.ContextWindow),
+		plugins:    plugin.New(),
+		mcp:        mcp.New(),
+		policy:     config.Policy,
+		active:     make(map[string]activePlugin),
+		sessionMCP: make(map[string][]string),
 	}
 	// MCP tools reach the model through one constant-schema proxy registered
 	// once here — adding/removing servers never changes the tool list, which
@@ -256,6 +260,41 @@ func (m *Manager) AddMCPServerBackground(name string, cfg mcp.ServerConfig) erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.mcp.AddBackground("config:"+name, name, cfg)
+}
+
+// ReplaceSessionMCPServers atomically replaces all transport-supplied MCP
+// servers owned by source. Host-configured servers win name collisions.
+func (m *Manager) ReplaceSessionMCPServers(ctx context.Context, source string, configs map[string]mcp.ServerConfig) error {
+	m.ops.Lock()
+	defer m.ops.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	names := make([]string, 0, len(configs))
+	for name := range configs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	registrations := make([]mcp.Registration, 0, len(names))
+	ids := make([]string, 0, len(names))
+	for _, name := range names {
+		if owner := m.mcp.Owner(name); owner != "" && !strings.HasPrefix(owner, "session:") {
+			logger.Log("extension: session MCP server %q skipped, host server already registered by %s", name, owner)
+			continue
+		}
+		id := "session:" + source + ":" + name
+		registrations = append(registrations, mcp.Registration{ID: id, Name: name, Config: configs[name]})
+		ids = append(ids, id)
+	}
+	if err := m.mcp.Replace(ctx, m.sessionMCP[source], registrations); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		delete(m.sessionMCP, source)
+	} else {
+		m.sessionMCP[source] = ids
+	}
+	return nil
 }
 
 func (m *Manager) activateLocked(ctx context.Context, p *plugin.Plugin) error {

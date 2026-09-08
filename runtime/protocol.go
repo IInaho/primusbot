@@ -86,6 +86,16 @@ type ModelSelection struct {
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
+// ModelOption describes one selectable model configuration for session
+// config surfaces. ReasoningEfforts lists the effort values the model
+// accepts; it is empty for models without controllable reasoning.
+type ModelOption struct {
+	Name             string   `json:"name"`
+	Model            string   `json:"model"`
+	ReasoningEffort  string   `json:"reasoning_effort,omitempty"`
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+}
+
 // ContextSegment describes one visible part of the active context window.
 type ContextSegment struct {
 	Key    string `json:"key"`
@@ -232,6 +242,12 @@ type MCPServerConfig struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Enabled bool              `json:"enabled"`
+}
+
+// MCPServerSpec names one transport-supplied MCP server configuration.
+type MCPServerSpec struct {
+	Name   string          `json:"name"`
+	Config MCPServerConfig `json:"config"`
 }
 
 type PermissionsConfig struct {

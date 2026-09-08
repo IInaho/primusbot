@@ -85,20 +85,121 @@ func (m *Manager) Add(ctx context.Context, id, name string, cfg ServerConfig) er
 	m.health[name] = Health{Status: StatusStarting}
 
 	if err := client.Start(ctx); err != nil {
-		m.health[name] = Health{Status: StatusError, Error: err.Error()}
+		m.removeLocked(id)
 		return fmt.Errorf("start: %w", err)
 	}
 
 	defs, err := client.ListTools(ctx)
 	if err != nil {
 		_ = client.Close()
-		m.health[name] = Health{Status: StatusError, Error: err.Error()}
+		m.removeLocked(id)
 		return fmt.Errorf("list tools: %w", err)
 	}
 
 	serverTools := append([]toolDef(nil), defs...)
 	m.servers[id].tools = serverTools
 	m.health[name] = Health{Status: StatusReady, ToolCount: len(serverTools)}
+	return nil
+}
+
+// Replace atomically replaces oldIDs with registrations. New processes are
+// fully initialized before the live routing tables change; any failure leaves
+// the previous set untouched.
+func (m *Manager) Replace(ctx context.Context, oldIDs []string, registrations []Registration) error {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return fmt.Errorf("manager is closed")
+	}
+
+	old := make(map[string]struct{}, len(oldIDs))
+	for _, id := range oldIDs {
+		old[id] = struct{}{}
+	}
+	seenIDs := make(map[string]struct{}, len(registrations))
+	seenNames := make(map[string]struct{}, len(registrations))
+	for _, registration := range registrations {
+		if registration.ID == "" || registration.Name == "" {
+			m.mu.Unlock()
+			return fmt.Errorf("server registration requires id and name")
+		}
+		if _, exists := seenIDs[registration.ID]; exists {
+			m.mu.Unlock()
+			return fmt.Errorf("duplicate server id %q", registration.ID)
+		}
+		if _, exists := seenNames[registration.Name]; exists {
+			m.mu.Unlock()
+			return fmt.Errorf("duplicate server name %q", registration.Name)
+		}
+		seenIDs[registration.ID] = struct{}{}
+		seenNames[registration.Name] = struct{}{}
+		if _, exists := m.servers[registration.ID]; exists {
+			if _, replacing := old[registration.ID]; !replacing {
+				m.mu.Unlock()
+				return fmt.Errorf("server id %q is already registered", registration.ID)
+			}
+		}
+		if owner := m.owners[registration.Name]; owner != "" && owner != registration.ID {
+			if _, replacing := old[owner]; !replacing {
+				m.mu.Unlock()
+				return fmt.Errorf("server name %q is already owned by %s", registration.Name, owner)
+			}
+		}
+	}
+
+	staged := make(map[string]*server, len(registrations))
+	cleanupStaged := func() {
+		for _, item := range staged {
+			_ = item.client.Close()
+		}
+	}
+	for _, registration := range registrations {
+		if err := ctx.Err(); err != nil {
+			cleanupStaged()
+			m.mu.Unlock()
+			return err
+		}
+		client := newClient(registration.Name, registration.Config)
+		item := &server{name: registration.Name, client: client}
+		staged[registration.ID] = item
+		if err := client.Start(ctx); err != nil {
+			cleanupStaged()
+			m.mu.Unlock()
+			return fmt.Errorf("start %s: %w", registration.Name, err)
+		}
+		defs, err := client.ListTools(ctx)
+		if err != nil {
+			cleanupStaged()
+			m.mu.Unlock()
+			return fmt.Errorf("list tools %s: %w", registration.Name, err)
+		}
+		item.tools = append([]toolDef(nil), defs...)
+	}
+
+	retired := make([]*server, 0, len(old))
+	for id := range old {
+		if item, exists := m.servers[id]; exists {
+			retired = append(retired, item)
+			delete(m.servers, id)
+			if m.owners[item.name] == id {
+				delete(m.owners, item.name)
+				delete(m.health, item.name)
+			}
+		}
+	}
+	for _, registration := range registrations {
+		item := staged[registration.ID]
+		m.servers[registration.ID] = item
+		m.owners[registration.Name] = registration.ID
+		m.health[registration.Name] = Health{Status: StatusReady, ToolCount: len(item.tools)}
+	}
+	m.mu.Unlock()
+	for _, item := range retired {
+		if item.cancel != nil {
+			item.cancel()
+		}
+		_ = item.client.Close()
+	}
 	return nil
 }
 
@@ -215,6 +316,14 @@ func (m *Manager) Health() map[string]Health {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return maps.Clone(m.health)
+}
+
+// Owner reports the owner id that registered the server with this name, or
+// an empty string when the name is unused.
+func (m *Manager) Owner(name string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.owners[name]
 }
 
 func (m *Manager) removeLocked(id string) {
